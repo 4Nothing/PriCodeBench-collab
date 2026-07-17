@@ -1,0 +1,197 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the flow I implemented for `OsTaskCreateOnly` at `prt_task_init.c:417`:
+
+1. **Parameter validation** — calls `OsTaskCreateParaCheck` (entry, stack size/alignment, priority, name)
+2. **TCB allocation** — calls `OsTaskCreateChkAndGetTcb(&taskCb, isSmpIdle)` to allocate a TCB from the free list; the `isSmpIdle` flag is forwarded for the idle task creation path
+3. **Resource initialization** — calls `OsTaskCreateRsrcInit` to set the task name and allocate/assign the stack; on failure, returns the TCB via `OsTaskManageFreeCb`
+4. **Stack initialization** — calls `OsTskStackInit` to write stack magic words
+5. **CPU context initialization** — calls `OsTskContextInit` with `OsTskEntry` as the entry point to set up the initial stack pointer
+6. **TCB field initialization** — calls `OsTskCreateTcbInit` to populate priority, entry, args, stack info, etc.
+7. **Status set** — calls `OsTskCreateTcbStatusSet` to mark the task as suspended + in-use
+8. **Return** — sets `*taskPid = taskId` and returns `OS_OK`
+
+This pattern matches the existing callers (`pthread_create.c`, `kthread_create_on_node.c`) throughout the codebase.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -416,7 +416,42 @@
+  */
+ OS_SEC_L4_TEXT U32 OsTaskCreateOnly(TskHandle *taskPid, struct TskInitParam *initParam, bool isSmpIdle)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 taskId;
++    uintptr_t *topStack = NULL;
++    uintptr_t curStackSize = 0;
++    struct TagTskCb *taskCb = NULL;
++    void *stackPtr;
++
++    ret = OsTaskCreateParaCheck(taskPid, initParam);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    ret = OsTaskCreateChkAndGetTcb(&taskCb, isSmpIdle);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    taskId = taskCb->taskPid;
++
++    ret = OsTaskCreateRsrcInit(taskId, initParam, taskCb, &topStack, &curStackSize);
++    if (ret != OS_OK) {
++        OsTaskManageFreeCb(taskCb);
++        return ret;
++    }
++
++    OsTskStackInit((U32)curStackSize, (uintptr_t)topStack);
++
++    stackPtr = OsTskContextInit(taskId, (U32)curStackSize, topStack, (uintptr_t)OsTskEntry);
++
++    OsTskCreateTcbInit((uintptr_t)stackPtr, initParam, (uintptr_t)topStack, curStackSize, taskCb);
++
++    OsTskCreateTcbStatusSet(taskCb, initParam);
++
++    *taskPid = taskId;
++
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 taskId;
+    uintptr_t *topStack = NULL;
+    uintptr_t curStackSize = 0;
+    struct TagTskCb *taskCb = NULL;
+    void *stackPtr;
+
+    ret = OsTaskCreateParaCheck(taskPid, initParam);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    ret = OsTaskCreateChkAndGetTcb(&taskCb, isSmpIdle);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    taskId = taskCb->taskPid;
+
+    ret = OsTaskCreateRsrcInit(taskId, initParam, taskCb, &topStack, &curStackSize);
+    if (ret != OS_OK) {
+        OsTaskManageFreeCb(taskCb);
+        return ret;
+    }
+
+    OsTskStackInit((U32)curStackSize, (uintptr_t)topStack);
+
+    stackPtr = OsTskContextInit(taskId, (U32)curStackSize, topStack, (uintptr_t)OsTskEntry);
+
+    OsTskCreateTcbInit((uintptr_t)stackPtr, initParam, (uintptr_t)topStack, curStackSize, taskCb);
+
+    OsTskCreateTcbStatusSet(taskCb, initParam);
+
+    *taskPid = taskId;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskCreateOnly.c
+[CASE] propagate para fail
+  Expected: 161
+  Actual  : 161
+  Result  : PASS
+
+[CASE] propagate get tcb fail
+  Expected: 162
+  Actual  : 162
+  Result  : PASS
+
+[CASE] propagate rsrc fail
+  Expected: 163
+  Actual  : 163
+  Result  : PASS
+
+[CASE] return OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] task id propagated
+  Expected: 123
+  Actual  : 123
+  Result  : PASS
+
+[CASE] OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] OK when idle flag
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTaskCreateOnly.c:36:
+auto_stub.h:1280:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1276:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1275:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1274:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1274 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

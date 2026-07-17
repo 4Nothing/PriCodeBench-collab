@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsHwiDisableAll` does:
+
+1. **Iterates** over all hardware interrupt numbers (`0` to `OS_HWI_MAX_NUM - 1`)
+2. **Skips** invalid interrupt numbers via `OS_HWI_NUM_CHECK` (architecture-specific — e.g., RISCV64 excludes 0 and numbers > `OS_HWI_MAX`; ARMv8 excludes numbers >= `OS_HWI_MAX_NUM`)
+3. **Skips** interrupts with unset/invalid mode via `OS_HWI_MODE_INV`
+4. **Disables** each valid, configured interrupt via `PRT_HwiDisable`
+5. **On ARMv8 only**: additionally clears pending and active bits via GIC calls (`OsGicClearPendingBit` / `OsGicClearActiveBit`)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -482,5 +482,20 @@
+ 
+ OS_SEC_L4_TEXT void OsHwiDisableAll(void)
+ {
+-    /* MASKED - implement this function */
++    U32 hwiNum;
++    for (hwiNum = 0; hwiNum < OS_HWI_MAX_NUM; hwiNum++) {
++        if (OS_HWI_NUM_CHECK(hwiNum)) {
++            continue;
++        }
++        if (!OS_HWI_MODE_INV(hwiNum)) {
++            /* 去使能中断 */
++            PRT_HwiDisable(hwiNum);
++#if defined(OS_ARCH_ARMV8)
++            /* 清除pending位 */
++            OsGicClearPendingBit(hwiNum);
++            /* 清除active位 */
++            OsGicClearActiveBit(hwiNum);
++#endif
++        }
++    }
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 hwiNum;
+    for (hwiNum = 0; hwiNum < OS_HWI_MAX_NUM; hwiNum++) {
+        if (OS_HWI_NUM_CHECK(hwiNum)) {
+            continue;
+        }
+        if (!OS_HWI_MODE_INV(hwiNum)) {
+            /* 去使能中断 */
+            PRT_HwiDisable(hwiNum);
+#if defined(OS_ARCH_ARMV8)
+            /* 清除pending位 */
+            OsGicClearPendingBit(hwiNum);
+            /* 清除active位 */
+            OsGicClearActiveBit(hwiNum);
+#endif
+        }
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+make: Nothing to be done for 'all'.
+[CASE] bulk disables >= N-5
+  Expected: 256
+  Actual: 256
+  Result: PASS
+[CASE] disabled bit 0
+  Expected: 1
+  Actual: 1
+  Result: PASS
+[CASE] disabled bit 1
+  Expected: 1
+  Actual: 1
+  Result: PASS
+[CASE] disabled bit 128
+  Expected: 1
+  Actual: 1
+  Result: PASS
+[CASE] disabled bit 255
+  Expected: 1
+  Actual: 1
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

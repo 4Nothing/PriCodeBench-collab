@@ -1,0 +1,136 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**Parameter validation** — returns `-EFAULT` if `fib_sr` or `addr` is NULL, or if `fib_sr` doesn't belong to `table`.
+
+**Lifetime check** — returns `-ENOENT` if the source route has expired (consistent with all other `fib_sr_*` functions).
+
+**Address search** — walks the `sr_path` linked list via `LL_FOREACH`, tracking `prev` for list manipulation. Compares each entry's address against the target using `universal_address_compare`.
+
+**When found, two modes:**
+
+- `keep_remaining_route == true`: removes just the matched entry. Calls `universal_address_rem` to release the address container, then `LL_DELETE` to unlink from the list. If the deleted entry was the destination (`sr_dest`), updates it to `prev` (the new tail).
+
+- `keep_remaining_route == false`: severs the link from `prev` to the matched entry (or nullifies `sr_path` if it was the first entry), then deletes the detached sublist (the matched entry and all following) with `LL_FOREACH_SAFE`/`LL_DELETE`. Sets `sr_dest` to `prev`.
+
+Returns `-ENOENT` if no entry matched the given address.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -1053,7 +1053,56 @@
+ int fib_sr_entry_delete(fib_table_t *table, fib_sr_t *fib_sr, uint8_t *addr, size_t addr_size,
+                         bool keep_remaining_route)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (addr == NULL)
++        || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr_check_lifetime(fib_sr) == -ENOENT) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOENT;
++    }
++
++    fib_sr_entry_t *elt = NULL;
++    fib_sr_entry_t *prev = NULL;
++    LL_FOREACH(fib_sr->sr_path, elt) {
++        size_t addr_size_match = addr_size << 3;
++        if (UNIVERSAL_ADDRESS_EQUAL == universal_address_compare(elt->address, addr,
++                                                                 &addr_size_match)) {
++            if (keep_remaining_route) {
++                bool is_dest = (elt == fib_sr->sr_dest);
++                universal_address_rem(elt->address);
++                elt->address = NULL;
++                LL_DELETE(fib_sr->sr_path, elt);
++                if (is_dest) {
++                    fib_sr->sr_dest = prev;
++                }
++            }
++            else {
++                if (prev != NULL) {
++                    prev->next = NULL;
++                }
++                else {
++                    fib_sr->sr_path = NULL;
++                }
++                fib_sr_entry_t *tmp_elt = NULL, *tmp = NULL;
++                LL_FOREACH_SAFE(elt, tmp_elt, tmp) {
++                    universal_address_rem(tmp_elt->address);
++                    tmp_elt->address = NULL;
++                    LL_DELETE(elt, tmp_elt);
++                }
++                fib_sr->sr_dest = prev;
++            }
++            mutex_unlock(&(table->mtx_access));
++            return 0;
++        }
++        prev = elt;
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return -ENOENT;
+ }
+ 
+ int fib_sr_entry_overwrite(fib_table_t *table, fib_sr_t *fib_sr,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127252	  36808	  86856	 250916	  3d424	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffde3ffa000; bottom 0x000000439000; size: 0x7ffde3bc1000 (140728424206336)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

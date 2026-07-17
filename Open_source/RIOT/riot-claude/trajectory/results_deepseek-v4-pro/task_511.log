@@ -1,0 +1,93 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation:
+1. Looks up the existing context by its ID via `gnrc_sixlowpan_ctx_lookup_id`
+2. If the context exists, calls `gnrc_sixlowpan_ctx_update` with the context's own prefix/prefix_len, `ltime=0`, and `comp=false` — which triggers the removal path in the update function (setting lifetime to 0 and disabling compression)
+3. If the context doesn't already exist, the function is a no-op
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/sixlowpan/ctx.h
++++ sys/include/net/gnrc/sixlowpan/ctx.h
+@@ -122,7 +122,11 @@
+  */
+ static inline void gnrc_sixlowpan_ctx_remove(uint8_t id)
+ {
+-    /* MASKED - implement this function */
++    gnrc_sixlowpan_ctx_t *ctx = gnrc_sixlowpan_ctx_lookup_id(id);
++
++    if (ctx != NULL) {
++        gnrc_sixlowpan_ctx_update(id, &ctx->prefix, ctx->prefix_len, 0, false);
++    }
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_ctx
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/ctx
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 125180	  38576	  85832	 249588	  3cef4	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+sixlowpan_ctx_tests.test_sixlowpan_ctx_remove (tests/unittests/tests-sixlowpan_ctx/tests-sixlowpan_ctx.c 191) gnrc_sixlowpan_ctx_lookup_id(DEFAULT_TEST_ID) was not null.
+
+run 13 failures 1
+
+native: exiting
+
+--- stderr ---
+==480==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd72b4d000; bottom 0x00000043a000; size: 0x7ffd72713000 (140726523473920)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

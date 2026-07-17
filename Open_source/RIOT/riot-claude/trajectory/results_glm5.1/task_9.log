@@ -1,0 +1,109 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's how `bcd_buf_from_str` works:
+
+- Iterates through the input string, skipping non-digit characters (as documented: "Digits may be separated by any character")
+- Packs pairs of digits into BCD bytes — the first digit goes into the high nibble, the second into the low nibble
+- If there's an odd number of digits, the final byte has the last digit in the high nibble (with 0 in the low nibble, since the buffer was zeroed by `memset`)
+- Returns the number of BCD bytes written, or `-ENOBUFS` if the destination buffer is too small
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bcd/bcd.c
++++ sys/bcd/bcd.c
+@@ -93,5 +93,41 @@
+ 
+ int bcd_buf_from_str(const char *str, size_t len, void *dst, size_t dst_len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *tgt = dst;
++    uint8_t byte = 0;
++    bool have_nibble = false;
++    size_t written = 0;
++
++    memset(dst, 0, dst_len);
++
++    for (size_t i = 0; i < len; ++i) {
++        if (!_is_digit(str[i])) {
++            continue;
++        }
++
++        uint8_t digit = str[i] - '0';
++
++        if (!have_nibble) {
++            byte = digit << 4;
++            have_nibble = true;
++        }
++        else {
++            byte |= digit;
++            if (written >= dst_len) {
++                return -ENOBUFS;
++            }
++            tgt[written++] = byte;
++            byte = 0;
++            have_nibble = false;
++        }
++    }
++
++    if (have_nibble) {
++        if (written >= dst_len) {
++            return -ENOBUFS;
++        }
++        tgt[written++] = byte;
++    }
++
++    return written;
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-bcd
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/bcd
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  78061	  31952	  78120	 188133	  2dee5	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+bcd_tests.test_bcd_buf_from_str (tests/unittests/tests-bcd/tests-bcd.c 107) exp 1 was 10
+
+run 9 failures 1
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff619d5000; bottom 0x00000042d000; size: 0x7fff615a8000 (140734826708992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

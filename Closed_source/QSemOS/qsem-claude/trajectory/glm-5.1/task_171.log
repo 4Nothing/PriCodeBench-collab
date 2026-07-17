@@ -1,0 +1,216 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is fully implemented. Here's a summary of the logic:
+
+**`OsInnerPend`** implements the RTOS queue pend (block/wait) operation:
+
+1. **Fast path** — if `*count > 0`, decrement and return `OS_OK` immediately (resource available, no blocking needed).
+2. **Non-blocking fail** — if `timeOut == OS_QUEUE_NO_WAIT` and count is zero, return `OS_ERRNO_QUEUE_NO_SOURCE`.
+3. **Interrupt context guard** — if in interrupt (`OS_INT_ACTIVE`), return `OS_ERRNO_QUEUE_IN_INTERRUPT` (can't block in ISR).
+4. **Task lock guard** — if task lock is held (`OS_TASK_LOCK_DATA != 0`), return `OS_ERRNO_QUEUE_PEND_IN_LOCK`.
+5. **Block the current task**:
+   - Remove from ready queue (`OsTskReadyDel`), set `OS_TSK_QUEUE_PEND` status, link to pend list.
+   - If timeout is finite (not `OS_QUEUE_WAIT_FOREVER`), set `OS_TSK_TIMEOUT` and add a timer.
+   - Unlock, trigger reschedule (`OsTskSchedule`), re-lock.
+   - On wakeup, clear the busy flag. If the timeout flag is still set, the task timed out — return `OS_ERRNO_QUEUE_TIMEOUT`. Otherwise return `OS_OK`.
+
+This mirrors `OsQueuePendNeedProc` (the inverse operation that wakes blocked tasks) at line 53-91 of the same file, which clears the exact same status flags and reverses the pend list manipulation.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -47,7 +47,53 @@
+ OS_SEC_ALW_INLINE INLINE U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut,
+                                          struct TagQueCb *queueCb)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *runTsk = NULL;
++
++    if (*count > 0) {
++        (*count)--;
++        return OS_OK;
++    }
++
++    if (timeOut == OS_QUEUE_NO_WAIT) {
++        return OS_ERRNO_QUEUE_NO_SOURCE;
++    }
++
++    if (OS_INT_ACTIVE) {
++        return OS_ERRNO_QUEUE_IN_INTERRUPT;
++    }
++
++    if (OS_TASK_LOCK_DATA != 0) {
++        return OS_ERRNO_QUEUE_PEND_IN_LOCK;
++    }
++
++    runTsk = (struct TagTskCb *)RUNNING_TASK;
++    OsSpinLockTaskRq(runTsk);
++    OsTskReadyDel(runTsk);
++
++    TSK_STATUS_SET(runTsk, OS_TSK_QUEUE_PEND);
++    runTsk->taskPend = (void *)queueCb;
++    ListTailAdd(&runTsk->pendList, pendList);
++
++    if (timeOut != OS_QUEUE_WAIT_FOREVER) {
++        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
++        OsTskTimerAdd(runTsk, timeOut);
++    }
++
++    OsSpinUnlockTaskRq(runTsk);
++    QUEUE_CB_UNLOCK(queueCb);
++    OsTskSchedule();
++    QUEUE_CB_LOCK(queueCb);
++
++    OsSpinLockTaskRq(runTsk);
++    TSK_STATUS_CLEAR(runTsk, OS_TSK_QUEUE_BUSY);
++
++    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
++        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
++        OsSpinUnlockTaskRq(runTsk);
++        return OS_ERRNO_QUEUE_TIMEOUT;
++    }
++    OsSpinUnlockTaskRq(runTsk);
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE bool OsQueuePendNeedProc(struct TagListObject *objectList)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *runTsk = NULL;
+
+    if (*count > 0) {
+        (*count)--;
+        return OS_OK;
+    }
+
+    if (timeOut == OS_QUEUE_NO_WAIT) {
+        return OS_ERRNO_QUEUE_NO_SOURCE;
+    }
+
+    if (OS_INT_ACTIVE) {
+        return OS_ERRNO_QUEUE_IN_INTERRUPT;
+    }
+
+    if (OS_TASK_LOCK_DATA != 0) {
+        return OS_ERRNO_QUEUE_PEND_IN_LOCK;
+    }
+
+    runTsk = (struct TagTskCb *)RUNNING_TASK;
+    OsSpinLockTaskRq(runTsk);
+    OsTskReadyDel(runTsk);
+
+    TSK_STATUS_SET(runTsk, OS_TSK_QUEUE_PEND);
+    runTsk->taskPend = (void *)queueCb;
+    ListTailAdd(&runTsk->pendList, pendList);
+
+    if (timeOut != OS_QUEUE_WAIT_FOREVER) {
+        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
+        OsTskTimerAdd(runTsk, timeOut);
+    }
+
+    OsSpinUnlockTaskRq(runTsk);
+    QUEUE_CB_UNLOCK(queueCb);
+    OsTskSchedule();
+    QUEUE_CB_LOCK(queueCb);
+
+    OsSpinLockTaskRq(runTsk);
+    TSK_STATUS_CLEAR(runTsk, OS_TSK_QUEUE_BUSY);
+
+    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
+        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
+        OsSpinUnlockTaskRq(runTsk);
+        return OS_ERRNO_QUEUE_TIMEOUT;
+    }
+    OsSpinUnlockTaskRq(runTsk);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsInnerPend test_OsInnerPend.c notifier_test_stubs.c
+ln -sf test_OsInnerPend test
+[CASE] OsInnerPend immediate
+  Expect: 0
+  Actual: 0
+[CASE] OsInnerPend no source
+  Expect: 8198
+  Actual: 8198
+[CASE] OsInnerPend in interrupt
+  Expect: 8199
+  Actual: 8199
+[CASE] OsInnerPend in lock
+  Expect: 8200
+  Actual: 8200
+[CASE] OsInnerPend timeout
+  Expect: 8201
+  Actual: 8201
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsInnerPend.c: In function ‘main’:
+test_OsInnerPend.c:7:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+    7 |     reset_task();
+      |     ^~~~~~~~~~
+In file included from test_OsInnerPend.c:2:
+func_under_test.c: At top level:
+func_under_test.c:49:5: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   49 |     OsSpinUnlockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~~~
+func_under_test.c:46:9: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   46 |         OsSpinUnlockTaskRq(runTsk);
+      |         ^~~~~~~~~~~~~~~~~~
+func_under_test.c:41:5: warning: ‘OsSpinLockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   41 |     OsSpinLockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~
+func_under_test.c:36:5: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   36 |     OsSpinUnlockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~~~
+func_under_test.c:29:5: warning: ‘ListTailAdd’ is static but used in inline function ‘OsInnerPend’ which is not static
+   29 |     ListTailAdd(&runTsk->pendList, pendList);
+      |     ^~~~~~~~~~~
+func_under_test.c:24:5: warning: ‘OsSpinLockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   24 |     OsSpinLockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:49:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   49 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:56:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   56 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:56:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   56 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:82:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:82:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:28:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   28 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:22:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   22 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+test_support.h:7:13: warning: ‘init_queue_cb’ defined but not used [-Wunused-function]
+    7 | static void init_queue_cb(struct TagQueCb *q, U8 *buf, U16 nodeSize, U16 nodeNum)
+      |             ^~~~~~~~~~~~~
+
+
+

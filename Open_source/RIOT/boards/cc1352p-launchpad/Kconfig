@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 Locha Inc
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "cc1352p-launchpad" if BOARD_CC1352P_LAUNCHPAD
+
+config BOARD_CC1352P_LAUNCHPAD
+    bool
+    default y
+    select CPU_MODEL_CC1352P1

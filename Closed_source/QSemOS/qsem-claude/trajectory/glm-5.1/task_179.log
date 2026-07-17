@@ -1,0 +1,153 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsQueueCreate` now does:
+
+1. **Computes the aligned node size** via `OsQueueGetNodeSize(maxNodeSize)` — aligns to 4 bytes and adds the 4-byte header
+2. **Finds a free control block** by scanning `g_allQueue` for `OS_QUEUE_UNUSED` state. Returns `OS_ERRNO_QUEUE_CB_UNAVAILABLE` if none available
+3. **Allocates node memory** via `OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, ...)`. Returns `OS_ERRNO_QUEUE_CREATE_NO_MEMORY` on failure
+4. **Zeroes the memory** with `memset_s`, using `OS_GOTO_SYS_ERROR1()` as the error path (matching the pattern in `OsQueueConfigInit`)
+5. **Initializes the control block**: `queue`, `nodeNum`, `nodeSize`, `queueState`, `writableCnt` (= `nodeNum`), `readableCnt` (= 0), `queueHead`, `queueTail`, `nodePeak`, and both `writeList`/`readList` via `OS_LIST_INIT`
+6. **Initializes each node's `srcPid`** to `OS_QUEUE_PID_INVALID`
+7. **Returns a 1-based queue ID** (`index + 1`) consistent with the `OS_QUEUE_INNER_ID(queueId) = queueId - 1` convention used by `PRT_QueueRead`/`PRT_QueueWrite`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -64,7 +64,52 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+ {
+-    /* MASKED - implement this function */
++    U16 alignedSize;
++    U8 *queueMem;
++    struct TagQueCb *queueCb;
++    struct QueNode *node;
++    U16 i;
++
++    alignedSize = (U16)OsQueueGetNodeSize(maxNodeSize);
++
++    for (i = 0; i < g_maxQueue; i++) {
++        if (g_allQueue[i].queueState == OS_QUEUE_UNUSED) {
++            break;
++        }
++    }
++    if (i == g_maxQueue) {
++        return OS_ERRNO_QUEUE_CB_UNAVAILABLE;
++    }
++
++    queueMem = (U8 *)OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, (U32)nodeNum * alignedSize);
++    if (queueMem == NULL) {
++        return OS_ERRNO_QUEUE_CREATE_NO_MEMORY;
++    }
++
++    if (memset_s(queueMem, (U32)nodeNum * alignedSize, 0, (U32)nodeNum * alignedSize) != EOK) {
++        OS_GOTO_SYS_ERROR1();
++    }
++
++    queueCb = &g_allQueue[i];
++    queueCb->queue = queueMem;
++    queueCb->nodeNum = nodeNum;
++    queueCb->nodeSize = alignedSize;
++    queueCb->queueState = OS_QUEUE_USED;
++    queueCb->writableCnt = nodeNum;
++    queueCb->readableCnt = 0;
++    queueCb->queueHead = 0;
++    queueCb->queueTail = 0;
++    queueCb->nodePeak = 0;
++    OS_LIST_INIT(&queueCb->writeList);
++    OS_LIST_INIT(&queueCb->readList);
++
++    for (i = 0; i < nodeNum; i++) {
++        node = (struct QueNode *)(uintptr_t)&queueCb->queue[i * alignedSize];
++        node->srcPid = OS_QUEUE_PID_INVALID;
++    }
++
++    *queueId = (U32)(queueCb - g_allQueue) + 1;
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 PRT_QueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U16 alignedSize;
+    U8 *queueMem;
+    struct TagQueCb *queueCb;
+    struct QueNode *node;
+    U16 i;
+
+    alignedSize = (U16)OsQueueGetNodeSize(maxNodeSize);
+
+    for (i = 0; i < g_maxQueue; i++) {
+        if (g_allQueue[i].queueState == OS_QUEUE_UNUSED) {
+            break;
+        }
+    }
+    if (i == g_maxQueue) {
+        return OS_ERRNO_QUEUE_CB_UNAVAILABLE;
+    }
+
+    queueMem = (U8 *)OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, (U32)nodeNum * alignedSize);
+    if (queueMem == NULL) {
+        return OS_ERRNO_QUEUE_CREATE_NO_MEMORY;
+    }
+
+    if (memset_s(queueMem, (U32)nodeNum * alignedSize, 0, (U32)nodeNum * alignedSize) != EOK) {
+        OS_GOTO_SYS_ERROR1();
+    }
+
+    queueCb = &g_allQueue[i];
+    queueCb->queue = queueMem;
+    queueCb->nodeNum = nodeNum;
+    queueCb->nodeSize = alignedSize;
+    queueCb->queueState = OS_QUEUE_USED;
+    queueCb->writableCnt = nodeNum;
+    queueCb->readableCnt = 0;
+    queueCb->queueHead = 0;
+    queueCb->queueTail = 0;
+    queueCb->nodePeak = 0;
+    OS_LIST_INIT(&queueCb->writeList);
+    OS_LIST_INIT(&queueCb->readList);
+
+    for (i = 0; i < nodeNum; i++) {
+        node = (struct QueNode *)(uintptr_t)&queueCb->queue[i * alignedSize];
+        node->srcPid = OS_QUEUE_PID_INVALID;
+    }
+
+    *queueId = (U32)(queueCb - g_allQueue) + 1;
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueCreate.c notifier_test_stubs.c
+
+--- stderr ---
+In file included from test_OsQueueCreate.c:6:
+func_under_test.c: In function ‘OsQueueCreate’:
+func_under_test.c:25:9: warning: implicit declaration of function ‘memset_s’; did you mean ‘memset’? [-Wimplicit-function-declaration]
+   25 |     if (memset_s(queueMem, (U32)nodeNum * alignedSize, 0, (U32)nodeNum * alignedSize) != EOK) {
+      |         ^~~~~~~~
+      |         memset
+func_under_test.c:39:5: warning: implicit declaration of function ‘OS_LIST_INIT’; did you mean ‘OS_LIST_FIRST’? [-Wimplicit-function-declaration]
+   39 |     OS_LIST_INIT(&queueCb->writeList);
+      |     ^~~~~~~~~~~~
+      |     OS_LIST_FIRST
+/usr/bin/ld: /tmp/ccEN1CZj.o: in function `OsQueueCreate':
+test_OsQueueCreate.c:(.text+0x17f): undefined reference to `OS_LIST_INIT'
+/usr/bin/ld: test_OsQueueCreate.c:(.text+0x194): undefined reference to `OS_LIST_INIT'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

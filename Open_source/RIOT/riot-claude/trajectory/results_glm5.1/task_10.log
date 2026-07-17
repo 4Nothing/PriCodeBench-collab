@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors the existing `bcd_buf_from_str` pattern:
+
+- **Digit extraction**: uses `val % 10` and `val /= 10` to get digits from least significant to most significant
+- **Nibble placement**: even-indexed digits go in the low nibble, odd-indexed in the high nibble (same `i & 1` logic)
+- **Buffer overflow check**: returns `-ENOBUFS` if the buffer runs out of space (`(i >> 1) >= len`)
+- **Zero handling**: do-while loop ensures `val=0` writes one byte containing the digit 0
+- **Return value**: `(i & 1) + (i >> 1)` = `ceil(i/2)`, the number of bytes written
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bcd/bcd.c
++++ sys/bcd/bcd.c
+@@ -29,7 +29,23 @@
+ 
+ int bcd_buf_from_u32(uint32_t val, void *dst, size_t len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *bcd = dst;
++    memset(dst, 0, len);
++
++    uint8_t i = 0;
++    do {
++        if ((i >> 1) >= len) {
++            return -ENOBUFS;
++        }
++        uint8_t d = val % 10;
++        val /= 10;
++        bcd[i >> 1] |= i & 1
++                    ? d << 4
++                    : d;
++        ++i;
++    } while (val);
++
++    return (i & 1) + (i >> 1);
+ }
+ 
+ /* Use the same code for 32 bit and 64 bit sum */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bcd
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/bcd
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  77891	  31952	  78120	 187963	  2de3b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffef2c4d000; bottom 0x00000042d000; size: 0x7ffef2820000 (140732967026688)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

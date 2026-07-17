@@ -1,0 +1,162 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The `PRT_TimerStart` function (lines 22-48) now follows the exact same pattern as `PRT_TimerStop`:
+
+1. **Extract timer type** from the handle via `OS_TIMER_GET_TYPE`
+2. **Validate the type** — returns `OS_ERRNO_TIMER_HANDLE_INVALID` if out of range
+3. **Check the hook** — returns `OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED` if `startTimer` is NULL
+4. **Delegate** to `g_timerApi[timerType].startTimer(tmrHandle)` and return its result directly
+5. **Error path** logs via `OS_ERROR_LOG_REPORT` before returning the error code
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/prt_timer_minor.c
++++ src/core/kernel/timer/prt_timer_minor.c
+@@ -21,7 +21,30 @@
+  */
+ OS_SEC_L2_TEXT U32 PRT_TimerStart(U32 mid, TimerHandle tmrHandle)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 timerType;
++
++    (void)mid;
++
++    timerType = OS_TIMER_GET_TYPE(tmrHandle);
++    if (timerType >= TIMER_TYPE_INVALID)
++    {
++        ret = OS_ERRNO_TIMER_HANDLE_INVALID;
++        goto OS_TIMER_START_ERR;
++    }
++
++    if (g_timerApi[timerType].startTimer == NULL)
++    {
++        ret = OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED;
++        goto OS_TIMER_START_ERR;
++    }
++
++    ret = g_timerApi[timerType].startTimer(tmrHandle);
++    return ret;
++
++OS_TIMER_START_ERR:
++    OS_ERROR_LOG_REPORT(OS_ERR_LEVEL_HIGH, "timer start error handle 0x%x\n", tmrHandle);
++    return ret;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 timerType;
+
+    (void)mid;
+
+    timerType = OS_TIMER_GET_TYPE(tmrHandle);
+    if (timerType >= TIMER_TYPE_INVALID)
+    {
+        ret = OS_ERRNO_TIMER_HANDLE_INVALID;
+        goto OS_TIMER_START_ERR;
+    }
+
+    if (g_timerApi[timerType].startTimer == NULL)
+    {
+        ret = OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED;
+        goto OS_TIMER_START_ERR;
+    }
+
+    ret = g_timerApi[timerType].startTimer(tmrHandle);
+    return ret;
+
+OS_TIMER_START_ERR:
+    OS_ERROR_LOG_REPORT(OS_ERR_LEVEL_HIGH, "timer start error handle 0x%x\n", tmrHandle);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TimerStart.c
+[Start] invalid handle type
+  Expect: 33557763
+  Actual: 33557763
+  PASS
+
+[Start] start hook NULL
+  Expect: 33557768
+  Actual: 33557768
+  PASS
+
+[Start] start ok
+  Expect: 0
+  Actual: 0
+  PASS
+
+[Start] start returns error
+  Expect: 1234
+  Actual: 1234
+  PASS
+
+[Start] mid ignored, still ok
+  Expect: 0
+  Actual: 0
+  PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_timer_external.h:2,
+                 from test_PRT_TimerStart.c:4:
+auto_stub.h:342:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  342 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:341:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  341 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:340:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  340 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:339:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  339 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:338:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  338 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:337:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  337 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:336:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  336 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:335:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  335 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:334:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  334 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:333:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  333 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:332:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  332 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:331:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  331 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:330:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  330 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:329:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  329 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

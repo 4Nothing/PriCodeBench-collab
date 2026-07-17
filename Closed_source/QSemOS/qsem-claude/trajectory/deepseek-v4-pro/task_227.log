@@ -1,0 +1,160 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what the function does:
+
+1. **Casts** `handle` to `struct DynModuleUnitInfo *`
+2. **NULL handle check** — sets an error and returns `NULL` if the handle is null
+3. **Symbol lookup** — iterates the module's `symTab` array (built during `OsDynModuleLoad` via `OsDynModuleSaveSymTab`), doing `strcmp` on each entry's name
+4. **Match** — returns the symbol's address (`symTab[i].addr`) on a name match
+5. **Not found** — sets an error message with the missing symbol name and returns `NULL`
+
+The implementation follows the same patterns used in the rest of the file: uses the same `U16` type for indexing, the same `OsDynModuleSetError` convention for error reporting, and the same NULL-guard style as `OsDynModuleUnload`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -616,7 +616,22 @@
+ 
+ void *OsDynModuleFind(void *handle, const char *symbol)
+ {
+-    /* MASKED - implement this function */
++    struct DynModuleUnitInfo *unitInfo = (struct DynModuleUnitInfo *)handle;
++    U16 i;
++
++    if (unitInfo == NULL) {
++        OsDynModuleSetError("The handle is NULL.");
++        return NULL;
++    }
++
++    for (i = 0; i < unitInfo->symNum; i++) {
++        if (strcmp(unitInfo->symTab[i].name, symbol) == 0) {
++            return unitInfo->symTab[i].addr;
++        }
++    }
++
++    OsDynModuleSetError("The symbol '%s' was not found.", symbol);
++    return NULL;
+ }
+ 
+ void OsDynModuleUnload(void *handle)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct DynModuleUnitInfo *unitInfo = (struct DynModuleUnitInfo *)handle;
+    U16 i;
+
+    if (unitInfo == NULL) {
+        OsDynModuleSetError("The handle is NULL.");
+        return NULL;
+    }
+
+    for (i = 0; i < unitInfo->symNum; i++) {
+        if (strcmp(unitInfo->symTab[i].name, symbol) == 0) {
+            return unitInfo->symTab[i].addr;
+        }
+    }
+
+    OsDynModuleSetError("The symbol '%s' was not found.", symbol);
+    return NULL;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleFind.c
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleFind.c:4:
+auto_stub.h:48:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   48 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:630:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  630 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+auto_stub.h: At top level:
+auto_stub.h:642: warning: "ELF_R_SYM" redefined
+  642 | #define ELF_R_SYM(info) ((info) >> 8)
+      | 
+In file included from auto_stub.h:19:
+elf.h:123: note: this is the location of the previous definition
+  123 | #define ELF_R_SYM(info) ELF64_R_SYM(info)
+      | 
+auto_stub.h:643: warning: "ELF_R_TYPE" redefined
+  643 | #define ELF_R_TYPE(info) ((info) & 0xff)
+      | 
+elf.h:124: note: this is the location of the previous definition
+  124 | #define ELF_R_TYPE(info) ELF64_R_TYPE(info)
+      | 
+In file included from test_OsDynModuleFind.c:5:
+func_under_test.c: In function ‘OsDynModuleFind’:
+func_under_test.c:7:9: warning: implicit declaration of function ‘OsDynModuleSetError’ [-Wimplicit-function-declaration]
+    7 |         OsDynModuleSetError("The handle is NULL.");
+      |         ^~~~~~~~~~~~~~~~~~~
+test_common.h: At top level:
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:686:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  686 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:685:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  685 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  684 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:683:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  683 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  682 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:681:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  681 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:680:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  680 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  679 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  678 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  677 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  676 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  675 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:673:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  673 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/cc2CArEt.o: in function `OsDynModuleFind':
+test_OsDynModuleFind.c:(.text+0x2ac): undefined reference to `OsDynModuleSetError'
+/usr/bin/ld: test_OsDynModuleFind.c:(.text+0x334): undefined reference to `OsDynModuleSetError'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

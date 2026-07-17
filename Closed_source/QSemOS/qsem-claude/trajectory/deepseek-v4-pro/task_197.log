@@ -1,0 +1,47 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function at `prt_task_init.c:474` now:
+
+1. Gets the current task's TCB via `OsGetCurrentTcb()` (the same pattern used at line 186 of the same file)
+2. Returns `&taskCb->locale` — a pointer to the task's `locale` field (initialized to `libc_global_locale` during task creation at line 390)
+
+This matches how callers use it:
+- `CURRENT_LOCALE` macro dereferences it: `*PRT_LocaleCurrent()`
+- `uselocale.c` writes through it: `*old = new`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -473,5 +473,6 @@
+ #if defined(OS_OPTION_LOCALE)
+ OS_SEC_L4_TEXT locale_t *PRT_LocaleCurrent(void)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *taskCb = OsGetCurrentTcb();
++    return &taskCb->locale;
+ }#endif
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *taskCb = OsGetCurrentTcb();
+    return &taskCb->locale;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LocaleCurrent.c
+
+--- stderr ---
+Segmentation fault (core dumped)
+
+
+

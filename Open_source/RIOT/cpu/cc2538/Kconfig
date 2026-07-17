@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_CC2538
+    bool
+    select CPU_CORE_CORTEX_M3
+
+## CPU Models
+config CPU_MODEL_CC2538NF53
+    bool
+    select CPU_FAM_CC2538
+
+config CPU_MODEL_CC2538SF53
+    bool
+    select CPU_FAM_CC2538
+
+## Common CPU symbols
+config CPU_FAM
+    default "cc2538" if CPU_FAM_CC2538
+
+config CPU_MODEL
+    default "cc2538nf53" if CPU_MODEL_CC2538NF53
+    default "cc2538sf53" if CPU_MODEL_CC2538SF53
+
+config CPU
+    default "cc2538" if CPU_FAM_CC2538
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "esp8266-sparkfun-thing" if BOARD_ESP8266_SPARKFUN_THING
+
+config BOARD_ESP8266_SPARKFUN_THING
+    bool
+    default y
+    select BOARD_COMMON_ESP8266
+    select CPU_MODEL_ESP8266EX
+
+source "$(RIOTBOARD)/common/esp8266/Kconfig"

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_ARDUINO_DUEMILANOVE
+    bool
+    default y
+    select BOARD_COMMON_ARDUINO_ATMEGA
+    select CPU_MODEL_ATMEGA328P
+
+config BOARD
+    default "arduino-duemilanove" if BOARD_ARDUINO_DUEMILANOVE
+
+source "$(RIOTBOARD)/common/arduino-atmega/Kconfig"

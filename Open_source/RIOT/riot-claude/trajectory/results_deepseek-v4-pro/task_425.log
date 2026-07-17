@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `byteorder_htols` at line 463-467, following the same pattern as the 32-bit (`byteorder_htoll`) and 64-bit (`byteorder_htolll`) counterparts: it uses `htole16(v)` to convert the host-order `uint16_t` to little-endian, stores it in the `le_uint16_t` union's `.u16` field, and returns the result.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/byteorder.h
++++ sys/include/byteorder.h
+@@ -462,7 +462,9 @@
+ 
+ static inline le_uint16_t byteorder_htols(uint16_t v)
+ {
+-    /* MASKED - implement this function */
++    le_uint16_t result = { .u16 = htole16(v) };
++
++    return result;
+ }
+ 
+ static inline le_uint32_t byteorder_htoll(uint32_t v)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 134947	  51816	  96776	 283539	  45393	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc19fad000; bottom 0x000000440000; size: 0x7ffc19b6d000 (140720739897344)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

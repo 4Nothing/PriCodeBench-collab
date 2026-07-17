@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2021 Freie Universität Berlin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-wl55jc" if BOARD_NUCLEO_WL55JC
+
+config BOARD_NUCLEO_WL55JC
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32WL55JC
+
+config CLOCK_HSE
+    default 32000000
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

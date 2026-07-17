@@ -1,0 +1,82 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `ztimer64_now` now does:
+
+1. Reads the current 32-bit value from the underlying base clock via `ztimer_now(clock->base_clock)`
+2. Extracts the lower 32 bits of the last stored 64-bit checkpoint, which represents the base clock reading at checkpoint time
+3. Computes the wrapping 32-bit delta (`base - last_lower`) — guaranteed to be within 2³¹ ticks because `_ztimer64_update` schedules periodic checkpoints at `ZTIMER64_CHECKPOINT_INTERVAL = 2³¹`
+4. Adds that delta to the 64-bit checkpoint to produce the current 64-bit time, and updates the checkpoint
+
+This follows the same pattern as the base ztimer's `_ztimer_now_extend` for 32-bit extension, applied at the 64-bit layer.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer64/ztimer64.c
++++ sys/ztimer64/ztimer64.c
+@@ -165,7 +165,11 @@
+ 
+ uint64_t ztimer64_now(ztimer64_clock_t *clock)
+ {
+-    /* MASKED - implement this function */
++    uint32_t base = ztimer_now(clock->base_clock);
++    uint32_t last_lower = (uint32_t)clock->checkpoint;
++
++    clock->checkpoint += (uint32_t)(base - last_lower);
++    return clock->checkpoint;
+ }
+ 
+ static void _ztimer64_update(ztimer64_clock_t *clock)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer64
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+  90354	  32504	  78368	 201226	  3120a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==367==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe129cd000; bottom 0x000000430000; size: 0x7ffe1259d000 (140729206296576)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==367==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

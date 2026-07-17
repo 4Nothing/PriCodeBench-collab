@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **`ztimer_convert_init()`** — initializes the base `ztimer_convert_t` structure (sets up `lower`, `lower_entry`, and `max_value = UINT32_MAX`)
+2. **Sets `ops`** — points to `_ztimer_convert_muldiv64_ops` (the static ops table already defined above)
+3. **Stores `mul` and `div`** — the conversion factors
+4. **Normalizes 0 → 1** — `mul`/`div` values of 0 are treated as 1 (no-op), matching the behavior in `_convert_muldiv64_set`/`_now` which skip factors ≤ 1
+5. **When `mul > div`** (upper clock is slower than lower; converted ticks are larger):
+   - Sets `max_value = UINT32_MAX * div / mul` to prevent the lower timer from receiving values that exceed 32 bits after conversion
+   - Calls `ztimer_init_extend()` (when not using ondemand) to prime the lower timer's overflow tracking — matching the same pattern in `convert_frac_init`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer/convert_muldiv64.c
++++ sys/ztimer/convert_muldiv64.c
+@@ -108,5 +108,19 @@
+     ztimer_convert_muldiv64_t *ztimer_convert_muldiv64, ztimer_clock_t *lower,
+     unsigned div, unsigned mul)
+ {
+-    /* MASKED - implement this function */
++    ztimer_convert_init(&ztimer_convert_muldiv64->super, lower, UINT32_MAX);
++    ztimer_convert_muldiv64->super.super.ops = &_ztimer_convert_muldiv64_ops;
++    ztimer_convert_muldiv64->mul = mul;
++    ztimer_convert_muldiv64->div = div;
++
++    unsigned _mul = (mul > 1) ? mul : 1;
++    unsigned _div = (div > 1) ? div : 1;
++
++    if (_mul > _div) {
++        ztimer_convert_muldiv64->super.super.max_value =
++            (uint64_t)UINT32_MAX * _div / _mul;
++#if !MODULE_ZTIMER_ONDEMAND
++        ztimer_init_extend(&ztimer_convert_muldiv64->super.super);
++#endif
++    }
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+ 110707	  34200	  78120	 223027	  36733	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==357==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffb1132000; bottom 0x000000436000; size: 0x7fffb0cfc000 (140736159793152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==357==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

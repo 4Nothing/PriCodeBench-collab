@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_ATMEGA32
+    bool
+    select CPU_COMMON_ATMEGA
+
+## CPU Models
+config CPU_MODEL_ATMEGA32U4
+    bool
+    select CPU_FAM_ATMEGA32
+
+## Common CPU symbols
+config CPU_FAM
+    default "atmega32" if CPU_FAM_ATMEGA32
+
+config CPU_MODEL
+    default "atmega32u4" if CPU_MODEL_ATMEGA32U4
+
+config CPU
+    default "atmega32u4" if CPU_MODEL_ATMEGA32U4
+
+source "$(RIOTCPU)/atmega_common/Kconfig"

@@ -1,0 +1,116 @@
+============================================================
+=== Claude Session ===
+============================================================
+Both compile paths (with and without `MODULE_ZTIMER_ONDEMAND`) pass syntax checks. Here's a summary of the implementation:
+
+**`ztimer_set` at `sys/ztimer/core.c:159`** sets a timer on a ztimer clock and returns the `ztimer_now()` value it was set against.
+
+The function:
+
+1. **Disables interrupts** for safe list manipulation
+2. **If the timer is already set**, removes it from the list first (without releasing the ondemand clock reference, since we're about to re-set it)
+3. **If ondemand is enabled and the timer is new**, acquires the clock (increments its user count)
+4. **Applies `adjust_set`** — subtracts the configurable adjustment from `val`, clamping to 0
+5. **Sets `timer->base.offset = val`** — the relative offset from the list's base time
+6. **Calls `_ztimer_update_head_offset`** to bring the list base time current and get the `now` value (this is the return value)
+7. **Calls `_add_entry_to_list`** to insert the timer into the sorted offset list
+8. **Calls `_ztimer_update`** to arm the underlying hardware timer
+9. **Restores interrupts** and returns `now`
+
+The implementation follows the same patterns used in `ztimer_remove` and `ztimer64_set_at` in the same codebase.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer/core.c
++++ sys/ztimer/core.c
+@@ -158,7 +158,33 @@
+ 
+ uint32_t ztimer_set(ztimer_clock_t *clock, ztimer_t *timer, uint32_t val)
+ {
+-    /* MASKED - implement this function */
++    unsigned state = irq_disable();
++
++    if (_is_set(clock, timer)) {
++        _ztimer_update_head_offset(clock);
++        _del_entry_from_list(clock, &timer->base);
++    }
++#if MODULE_ZTIMER_ONDEMAND
++    else {
++        _ztimer_acquire(clock);
++    }
++#endif
++
++    if (val > clock->adjust_set) {
++        val -= clock->adjust_set;
++    }
++    else {
++        val = 0;
++    }
++
++    timer->base.offset = val;
++
++    uint32_t now = _ztimer_update_head_offset(clock);
++    _add_entry_to_list(clock, &timer->base);
++    _ztimer_update(clock);
++
++    irq_restore(state);
++    return now;
+ }
+ 
+ static void _add_entry_to_list(ztimer_clock_t *clock, ztimer_base_t *entry)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+ 110565	  34200	  78120	 222885	  366a5	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............
+ztimer_tests.test_ztimer_ondemand_timers (tests/unittests/tests-ztimer/tests-ztimer-ondemand.c 115) exp 90 was 100
+.
+ztimer_tests.test_ztimer_ondemand_timers_converted (tests/unittests/tests-ztimer/tests-ztimer-ondemand.c 165) exp 900 was 1000
+
+run 16 failures 2
+
+native: exiting
+
+--- stderr ---
+==357==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe39805000; bottom 0x000000436000; size: 0x7ffe393cf000 (140729858715648)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==357==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

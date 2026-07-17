@@ -1,0 +1,75 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function at `sys/include/net/sixlowpan/sfr.h:271` now:
+
+1. **Asserts** `seq <= SIXLOWPAN_SFR_SEQ_MAX` (0x1f = 31), guarding that the sequence number fits in 5 bits.
+2. **Clears** the sequence number bits in `ar_seq_fs.u8[0]` using the `SIXLOWPAN_SFR_SEQ_MASK` (0x7c), preserving the ACK_REQ flag and the upper fragment-size bits.
+3. **Sets** the new sequence value shifted left by `SIXLOWPAN_SFR_SEQ_POS` (2) into the correct bit positions (bits 6-2 of the MSB).
+
+This mirrors the pattern used by the sibling functions `sixlowpan_sfr_rfrag_get_seq` and `sixlowpan_sfr_rfrag_set_ack_req` / `sixlowpan_sfr_rfrag_clear_ack_req`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/sixlowpan/sfr.h
++++ sys/include/net/sixlowpan/sfr.h
+@@ -271,7 +271,9 @@
+ static inline void sixlowpan_sfr_rfrag_set_seq(sixlowpan_sfr_rfrag_t *hdr,
+                                                uint8_t seq)
+ {
+-    /* MASKED - implement this function */
++    assert(seq <= SIXLOWPAN_SFR_SEQ_MAX);
++    hdr->ar_seq_fs.u8[0] &= ~SIXLOWPAN_SFR_SEQ_MASK;
++    hdr->ar_seq_fs.u8[0] |= (seq << SIXLOWPAN_SFR_SEQ_POS);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_sfr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  75896	  31464	  78120	 185480	  2d488	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==317==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe93734000; bottom 0x00000042d000; size: 0x7ffe93307000 (140731367845888)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

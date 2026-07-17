@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "ruuvitag" if BOARD_RUUVITAG
+
+config BOARD_RUUVITAG
+    bool
+    default y
+    select BOARD_COMMON_NRF52
+    select CPU_MODEL_NRF52832XXAA
+
+source "$(RIOTBOARD)/common/nrf52xxxdk/Kconfig"

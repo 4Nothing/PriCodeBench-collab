@@ -1,0 +1,112 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+1. Calls `coap_iterate_option` with `COAP_OPT_URI_QUERY` and the `opt_pos` context (cast from `void **` to `uint8_t **` for the internal API). On first call (`*opt_pos == NULL`), this finds the first URI-Query option; on subsequent calls, it walks to the next one.
+
+2. When `coap_iterate_option` returns `NULL`, iteration is done — returns `0`.
+
+3. Uses `memchr` to find the `=` separator in the option data. If found, the key is everything before it and value is everything after. If not found, the entire option is the key with no value.
+
+4. Copies key (and optionally value) into the caller-provided buffers with null termination, returning `-E2BIG` if either buffer is too small.
+
+5. Returns `2` for `key=value` pairs, `1` for key-only entries.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -411,7 +411,39 @@
+                            char *key, size_t key_len_max,
+                            char *value, size_t value_len_max)
+ {
+-    /* MASKED - implement this function */
++    int len_query;
++    const void *data = coap_iterate_option(pkt, COAP_OPT_URI_QUERY,
++                                           (uint8_t **)opt_pos, &len_query);
++    if (data == NULL) {
++        return 0;
++    }
++
++    const char *separator = memchr(data, '=', len_query);
++    size_t len_key = separator
++                   ? (size_t)(separator - (const char *)data)
++                   : (size_t)len_query;
++
++    if (len_key + 1 > key_len_max) {
++        return -E2BIG;
++    }
++
++    memcpy(key, data, len_key);
++    key[len_key] = '\0';
++
++    if (separator) {
++        size_t len_value = len_query - len_key - 1;
++
++        if (len_value + 1 > value_len_max) {
++            return -E2BIG;
++        }
++
++        memcpy(value, separator + 1, len_value);
++        value[len_value] = '\0';
++
++        return 2;
++    }
++
++    return 1;
+ }
+ 
+ int coap_get_blockopt(coap_pkt_t *pkt, uint16_t option, uint32_t *blknum, uint8_t *szx)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147583	  36040	  78120	 261743	  3fe6f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...........
+nanocoap_tests.test_nanocoap__get_multi_query (tests/unittests/tests-nanocoap/tests-nanocoap.c 417) exp "" was "cde"
+..........................
+run 37 failures 1
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd66463000; bottom 0x00000043f000; size: 0x7ffd66024000 (140726314876928)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

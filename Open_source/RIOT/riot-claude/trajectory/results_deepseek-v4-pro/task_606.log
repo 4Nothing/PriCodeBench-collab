@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `tsrb_clear` following the same thread-safe pattern used by the other functions in the file: disable interrupts, reset both `reads` and `writes` to zero (logically emptying the ringbuffer), then restore interrupts.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/tsrb.h
++++ sys/include/tsrb.h
+@@ -79,7 +79,10 @@
+  */
+ static inline void tsrb_clear(tsrb_t *rb)
+ {
+-    /* MASKED - implement this function */
++    unsigned irq_state = irq_disable();
++    rb->reads = 0;
++    rb->writes = 0;
++    irq_restore(irq_state);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-tsrb
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+   text	   data	    bss	    dec	    hex	filename
+  82327	  32176	  78272	 192775	  2f107	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd92d28000; bottom 0x00000042e000; size: 0x7ffd928fa000 (140727062339584)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

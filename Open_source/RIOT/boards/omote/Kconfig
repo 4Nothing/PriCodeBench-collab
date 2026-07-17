@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 Oppila Microsystems - http://www.oppila.in
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "omote" if BOARD_OMOTE
+
+config BOARD_OMOTE
+    bool
+    default y
+    select CPU_MODEL_CC2538SF53

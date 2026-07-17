@@ -1,0 +1,205 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsRwLockPost` does:
+
+1. **Resets** the lock state (`rw_count = 0`, `rw_owner = NULL`)
+2. **Determines** the mode by inspecting read/write wait queues via `OsRwLockGetMode`
+3. If no waiters (**RWLOCK_NONE_MODE**): returns immediately
+4. If writers have priority (**WRITE_MODE** or **WRITEFIRST_MODE**): wakes the first write waiter, grants it the write lock, sets `*needSched = TRUE`
+5. If readers have priority (**READ_MODE** or **READFIRST_MODE**): wakes the first reader and loops to wake additional readers — stopping when a reader's priority is not higher than the first pending writer (READFIRST_MODE) or waking all readers (READ_MODE). Sets `*needSched = TRUE`
+
+The function is called from `OsRwLockUnlock` when the last holder releases the lock (count transitions from ±1 to 0), and it handles priority-inheritance-aware handoff to waiting tasks.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -360,7 +360,57 @@
+ 
+ U32 OsRwLockPost(pthread_rwlock_t *rwl, bool *needSched)
+ {
+-    /* MASKED - implement this function */
++    U32 rwlockMode;
++
++    rwl->rw_count = 0;
++    rwl->rw_owner = NULL;
++
++    rwlockMode = OsRwLockGetMode(&(rwl->rw_read), &(rwl->rw_write));
++    if (rwlockMode == RWLOCK_NONE_MODE) {
++        return OS_OK;
++    }
++
++    if ((rwlockMode == RWLOCK_WRITE_MODE) || (rwlockMode == RWLOCK_WRITEFIRST_MODE)) {
++        struct TagTskCb *resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_write)));
++        rwl->rw_count = -1;
++        rwl->rw_owner = (void *)resumedTask;
++        OsRwLockTaskWake(resumedTask);
++        if (needSched != NULL) {
++            *needSched = TRUE;
++        }
++        return OS_OK;
++    }
++
++    {
++        U32 pendedWriteTaskPri = 0;
++        struct TagTskCb *resumedTask;
++
++        if (rwlockMode == RWLOCK_READFIRST_MODE) {
++            pendedWriteTaskPri = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_write)))->priority;
++        }
++
++        resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_read)));
++        rwl->rw_count = 1;
++        OsRwLockTaskWake(resumedTask);
++
++        while (!ListEmpty(&(rwl->rw_read))) {
++            resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_read)));
++            if ((rwlockMode == RWLOCK_READFIRST_MODE) &&
++                (resumedTask->priority >= pendedWriteTaskPri)) {
++                break;
++            }
++            if (rwl->rw_count == S32_MAX) {
++                return EINVAL;
++            }
++            rwl->rw_count++;
++            OsRwLockTaskWake(resumedTask);
++        }
++
++        if (needSched != NULL) {
++            *needSched = TRUE;
++        }
++        return OS_OK;
++    }
+ }
+ 
+ U32 OsRwLockUnlock(pthread_rwlock_t *rwl, bool *needSched)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 rwlockMode;
+
+    rwl->rw_count = 0;
+    rwl->rw_owner = NULL;
+
+    rwlockMode = OsRwLockGetMode(&(rwl->rw_read), &(rwl->rw_write));
+    if (rwlockMode == RWLOCK_NONE_MODE) {
+        return OS_OK;
+    }
+
+    if ((rwlockMode == RWLOCK_WRITE_MODE) || (rwlockMode == RWLOCK_WRITEFIRST_MODE)) {
+        struct TagTskCb *resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_write)));
+        rwl->rw_count = -1;
+        rwl->rw_owner = (void *)resumedTask;
+        OsRwLockTaskWake(resumedTask);
+        if (needSched != NULL) {
+            *needSched = TRUE;
+        }
+        return OS_OK;
+    }
+
+    {
+        U32 pendedWriteTaskPri = 0;
+        struct TagTskCb *resumedTask;
+
+        if (rwlockMode == RWLOCK_READFIRST_MODE) {
+            pendedWriteTaskPri = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_write)))->priority;
+        }
+
+        resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_read)));
+        rwl->rw_count = 1;
+        OsRwLockTaskWake(resumedTask);
+
+        while (!ListEmpty(&(rwl->rw_read))) {
+            resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&(rwl->rw_read)));
+            if ((rwlockMode == RWLOCK_READFIRST_MODE) &&
+                (resumedTask->priority >= pendedWriteTaskPri)) {
+                break;
+            }
+            if (rwl->rw_count == S32_MAX) {
+                return EINVAL;
+            }
+            rwl->rw_count++;
+            OsRwLockTaskWake(resumedTask);
+        }
+
+        if (needSched != NULL) {
+            *needSched = TRUE;
+        }
+        return OS_OK;
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockPost.c
+[Case 1] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 2] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 3] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 4] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 5] Expected: 0, Actual: 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwLockPost.c:1:
+test_common.h:61:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   61 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:50:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   50 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1422:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1422 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1421:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1421 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1420 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1418:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1416:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1416 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1415:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1415 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1410:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1410 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1409:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1409 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

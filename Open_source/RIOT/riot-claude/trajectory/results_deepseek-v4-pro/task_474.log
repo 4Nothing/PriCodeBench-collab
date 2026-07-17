@@ -1,0 +1,72 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation at `sys/include/net/nanocoap.h:1672`:
+- Calls `coap_opt_add_uri_query2` with `strlen(key)` for the key length
+- Passes `val` and either `strlen(val)` or `0` (when `val` is NULL) for the value length
+- Matches the documented precondition: `key` is required non-NULL, `val` is optional
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -1669,7 +1669,8 @@
+ static inline ssize_t coap_opt_add_uri_query(coap_pkt_t *pkt, const char *key,
+                                              const char *val)
+ {
+-    /* MASKED - implement this function */
++    return coap_opt_add_uri_query2(pkt, key, strlen(key),
++                                   val, val ? strlen(val) : 0);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147774	  36040	  78120	 261934	  3ff2e	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc1782c000; bottom 0x00000043f000; size: 0x7ffc173ed000 (140720698478592)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

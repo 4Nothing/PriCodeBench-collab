@@ -1,0 +1,120 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `vfs_opendir` now does:
+
+1. **Validates inputs** — returns `-EINVAL` if `dirp` or `dirname` is NULL
+2. **Finds the mount point** via `_find_mount`, which also gets the mount-relative path and increments the `open_files` counter (preventing unmount while the directory is open)
+3. **Checks capability** — if the filesystem driver doesn't provide `d_op->opendir`, returns `-ENOTSUP` after cleaning up the open_files count
+4. **Initializes `dirp`** — zeroes it, then sets `d_op` and `mp` so `vfs_readdir`/`vfs_closedir` can dispatch to the correct driver
+5. **Calls the FS driver's `opendir`** with the mount-relative path
+6. **On driver error** — cleans up (`memset` to zero, decrements `open_files`) and returns the error
+7. **On success** — returns 0; the `open_files` count remains elevated until the caller invokes `vfs_closedir`
+
+The implementation follows the same patterns used by `vfs_open`, `vfs_stat`, `vfs_unlink`, and the other functions in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -450,7 +450,40 @@
+ 
+ int vfs_opendir(vfs_DIR *dirp, const char *dirname)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_opendir: %p, \"%s\"\n", (void *)dirp, dirname);
++    if ((dirp == NULL) || (dirname == NULL)) {
++        return -EINVAL;
++    }
++    const char *rel_path;
++    vfs_mount_t *mountp;
++    int res = _find_mount(&mountp, dirname, &rel_path);
++    /* _find_mount implicitly increments the open_files count on success */
++    if (res < 0) {
++        /* No mount point maps to the requested directory name */
++        DEBUG("vfs_opendir: no matching mount\n");
++        return res;
++    }
++    if ((mountp->fs->d_op == NULL) || (mountp->fs->d_op->opendir == NULL)) {
++        /* opendir not supported */
++        DEBUG("vfs_opendir: opendir not supported by fs!\n");
++        uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++        assume(before > 0);
++        return -ENOTSUP;
++    }
++    memset(dirp, 0, sizeof(*dirp));
++    dirp->d_op = mountp->fs->d_op;
++    dirp->mp = mountp;
++    res = mountp->fs->d_op->opendir(dirp, rel_path);
++    if (res < 0) {
++        /* something went wrong during opendir */
++        DEBUG("vfs_opendir: opendir: ERR %d!\n", res);
++        /* clean up */
++        memset(dirp, 0, sizeof(*dirp));
++        uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++        assume(before > 0);
++        return res;
++    }
++    return 0;
+ }
+ 
+ int vfs_readdir(vfs_DIR *dirp, vfs_dirent_t *entry)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123462	  45128	  79328	 247918	  3c86e	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......................................
+vfs_dir_op_tests.test_vfs_null_dir_ops_opendir (tests/unittests/tests-vfs/tests-vfs-dir-ops.c 86) exp 0 was -95
+.
+vfs_dir_op_tests.test_vfs_null_dir_ops_closedir (tests/unittests/tests-vfs/tests-vfs-dir-ops.c 93) exp 0 was -95
+.
+vfs_dir_op_tests.test_vfs_null_dir_ops_readdir (tests/unittests/tests-vfs/tests-vfs-dir-ops.c 102) exp 0 was -95
+
+run 40 failures 3
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffc780d000; bottom 0x00000043b000; size: 0x7fffc73d2000 (140736536059904)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

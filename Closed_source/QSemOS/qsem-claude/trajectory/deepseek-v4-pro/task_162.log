@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `OsSemPendParaCheck` now does:
+
+- When `OS_TASK_LOCK_DATA != 0` (scheduler is locked), returns `OS_ERRNO_SEM_PEND_IN_LOCK` — because the task cannot block on a semaphore while holding the scheduler lock, and the semaphore has no available resources at this point.
+- Otherwise returns `OS_OK`.
+
+This follows the same pattern used by every other IPC mechanism in the codebase — `OsRwLockCheck` (rwlock), the queue pend path, and `PRT_SignalWait` all perform the identical `OS_TASK_LOCK_DATA != 0` guard with their respective `PEND_IN_LOCK` error codes. The `(void)timeout` cast silences the unused-parameter warning since all timeout values in `[0, 0xFFFFFFFF]` are valid and no range check is needed.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -362,7 +362,12 @@
+ 
+ OS_SEC_L0_TEXT U32 OsSemPendParaCheck(U32 timeout)
+ {
+-    /* MASKED - implement this function */
++    (void)timeout;
++    if (OS_TASK_LOCK_DATA != 0)
++    {
++        return OS_ERRNO_SEM_PEND_IN_LOCK;
++    }
++    return OS_OK;
+ }
+ 
+ OS_SEC_L0_TEXT bool OsSemPendNotNeedSche(struct TagSemCb *semPended, struct TagTskCb *runTsk)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)timeout;
+    if (OS_TASK_LOCK_DATA != 0)
+    {
+        return OS_ERRNO_SEM_PEND_IN_LOCK;
+    }
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendParaCheck.c test_stubs.c notifier_test_stubs.c
+timeout zero => expected=9, actual=0
+task lock => expected=10, actual=10
+normal non-zero => expected=0, actual=0
+forever => expected=0, actual=0
+large timeout => expected=0, actual=0
+Pass-Rate: 80.00%
+
+--- stderr ---
+In file included from test_OsSemPendParaCheck.c:2:
+test_helpers.h:14:28: warning: ‘struct TagTskCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   14 | void test_init_task(struct TagTskCb *tcb, U32 pid, U32 prio);
+      |                            ^~~~~~~~
+test_helpers.h:15:27: warning: ‘struct TagSemCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                           ^~~~~~~~
+
+
+

@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now resets all state fields to their initial values, matching the `MATSTAT_STATE_INIT` macro from `matstat.h` (line 55). Specifically:
+- `min` is set to `INT32_MAX` so the first added value becomes the new minimum
+- `max` is set to `INT32_MIN` so the first added value becomes the new maximum
+- All other fields (`sum`, `sum_sq`, `count`, `mean`) are zeroed
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/matstat/matstat.c
++++ sys/matstat/matstat.c
+@@ -14,7 +14,12 @@
+ 
+ void matstat_clear(matstat_state_t *state)
+ {
+-    /* MASKED - implement this function */
++    state->sum = 0;
++    state->sum_sq = 0;
++    state->count = 0;
++    state->mean = 0;
++    state->min = INT32_MAX;
++    state->max = INT32_MIN;
+ }
+ 
+ void matstat_add(matstat_state_t *state, int32_t value)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-matstat
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/matstat
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  88844	  32128	  78120	 199092	  309b4	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff72137000; bottom 0x00000042f000; size: 0x7fff71d08000 (140735102877696)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

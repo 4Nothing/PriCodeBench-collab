@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_ARDUINO_MKR
+    bool
+    select CPU_MODEL_SAMD21G18A

@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `gnrc_pktbuf_is_sane` checks:
+
+1. **NULL `_first_unused`** — a completely full buffer is sane (no free blocks exist)
+2. **`_first_unused` is within the buffer** — the head pointer must be valid
+3. **Each free block stays within buffer bounds** — `ptr + ptr->size` must not exceed the buffer end
+4. **Each `next` pointer is within the buffer** — no dangling pointers
+5. **Free list is strictly sorted by address** — prevents cycles and out-of-order entries
+6. **No adjacent free blocks** — the gap between consecutive free blocks must be at least `sizeof(_unused_t)`, matching the invariant maintained by `_too_small_hole()` which merges free blocks separated by smaller gaps
+7. **Last free block doesn't extend past the buffer** — final bounds check after the loop
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -316,7 +316,51 @@
+ 
+ bool gnrc_pktbuf_is_sane(void)
+ {
+-    /* MASKED - implement this function */
++    _unused_t *ptr = _first_unused;
++    const uint8_t *end = &_static_buf[CONFIG_GNRC_PKTBUF_SIZE];
++
++    if (ptr == NULL) {
++        /* completely full buffer is sane */
++        return true;
++    }
++
++    if (!gnrc_pktbuf_contains(ptr)) {
++        return false;
++    }
++
++    while (ptr->next) {
++        const uint8_t *ptr_end = ((uint8_t *)ptr) + ptr->size;
++
++        /* free block must not extend beyond the buffer */
++        if (ptr_end > end) {
++            return false;
++        }
++
++        /* next must be within the buffer */
++        if (!gnrc_pktbuf_contains(ptr->next)) {
++            return false;
++        }
++
++        /* free list must be strictly ordered by address */
++        if ((uint8_t *)ptr->next <= (uint8_t *)ptr) {
++            return false;
++        }
++
++        /* gap between free blocks must be >= sizeof(_unused_t), otherwise
++         * they would have been merged by _too_small_hole() */
++        if ((size_t)((uint8_t *)ptr->next - ptr_end) < sizeof(_unused_t)) {
++            return false;
++        }
++
++        ptr = ptr->next;
++    }
++
++    /* check last free block */
++    if (((uint8_t *)ptr) + ptr->size > end) {
++        return false;
++    }
++
++    return true;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119917	  38864	  84456	 243237	  3b625	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............................................
+OK (45 tests)
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe5d96b000; bottom 0x000000439000; size: 0x7ffe5d532000 (140730464149504)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

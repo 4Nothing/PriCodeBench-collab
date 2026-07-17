@@ -1,0 +1,82 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what `aes128_cmac_init` does:
+
+1. **Initializes the underlying AES-128 cipher** via `cipher_init` with the provided key. If this fails (e.g., `CIPHER_ERR_INVALID_KEY_SIZE`), the error is propagated immediately.
+2. **Zeros out `X`** — the running CBC-MAC accumulator, which starts as all-zeros per the CMAC spec (RFC 4493).
+3. **Zeros out `M_last`** — the staging buffer for the current (possibly partial) block.
+4. **Sets `M_n = 0`** — indicates no bytes are currently buffered, which is what `aes128_cmac_update` expects on entry (it uses `M_n` as the offset into `M_last` and checks `M_n == 16` to trigger block processing).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/aes128_cmac.c
++++ sys/hashes/aes128_cmac.c
+@@ -44,7 +44,14 @@
+ int aes128_cmac_init(aes128_cmac_context_t *ctx,
+                      const uint8_t *key, uint8_t key_size)
+ {
+-    /* MASKED - implement this function */
++    int res = cipher_init(&ctx->aes128_ctx, CIPHER_AES, key, key_size);
++    if (res != CIPHER_INIT_SUCCESS) {
++        return res;
++    }
++    memset(ctx->X, 0, AES128_CMAC_BLOCK_SIZE);
++    memset(ctx->M_last, 0, AES128_CMAC_BLOCK_SIZE);
++    ctx->M_n = 0;
++    return CIPHER_INIT_SUCCESS;
+ }
+ 
+ void aes128_cmac_update(aes128_cmac_context_t *ctx,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221551	  74296	  82656	 378503	  5c687	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffde6f57000; bottom 0x00000045a000; size: 0x7ffde6afd000 (140728473735168)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

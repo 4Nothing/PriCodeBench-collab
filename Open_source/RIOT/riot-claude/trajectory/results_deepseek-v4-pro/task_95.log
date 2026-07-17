@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `fcntl` function is now implemented at `sys/picolibc_syscalls_default/syscalls.c:440`. It follows the same pattern as the other `vfs_*` wrappers in the file:
+
+- **With `MODULE_VFS`**: delegates to `vfs_fcntl(fd, cmd, arg)`, converts negative error codes to `errno` with `-1` return, and returns the result directly on success (e.g., `F_GETFL` returns flags).
+- **Without `MODULE_VFS`**: sets `errno = ENODEV` and returns `-1`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/picolibc_syscalls_default/syscalls.c
++++ sys/picolibc_syscalls_default/syscalls.c
+@@ -439,7 +439,21 @@
+  */
+ int fcntl(int fd, int cmd, int arg)
+ {
+-    /* MASKED - implement this function */
++#ifdef MODULE_VFS
++    int res = vfs_fcntl(fd, cmd, arg);
++    if (res < 0) {
++        /* vfs returns negative error codes */
++        errno = -res;
++        return -1;
++    }
++    return res;
++#else
++    (void)fd;
++    (void)cmd;
++    (void)arg;
++    errno = ENODEV;
++    return -1;
++#endif
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123304	  45128	  79328	 247760	  3c7d0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc05c0a000; bottom 0x00000043b000; size: 0x7ffc057cf000 (140720400560128)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

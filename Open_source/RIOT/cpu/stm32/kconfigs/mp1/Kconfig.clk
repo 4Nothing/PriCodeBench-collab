@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2022 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+rsource '../f2f4f7mp1/Kconfig.clk'
+rsource '../g0wxmp1/Kconfig.clk'
+
+if CPU_FAM_MP1
+
+config CLOCK_PLL_M
+    int "M: PLLIN division factor" if CUSTOM_PLL_PARAMS
+    default 2
+    range 1 64
+
+config CLOCK_PLL_N
+    int "N: PLLIN multiply factor" if CUSTOM_PLL_PARAMS
+    default 52 if BOARD_HAS_HSE
+    default 78
+    range 4 512
+
+endif # CPU_FAM_MP1

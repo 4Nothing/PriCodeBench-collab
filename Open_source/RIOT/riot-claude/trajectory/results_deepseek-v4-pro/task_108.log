@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. It follows the exact same patterns used by all other `fib_sr_*` functions in the file:
+
+- **Mutex locking**: `mutex_lock`/`mutex_unlock` bracketing, matching every other public function
+- **NULL/validity checks**: Checks `fib_sr`, `addr`, and `fib_is_sr_in_table` — returning `-EFAULT` on failure, consistent with the documented contract and the pattern in `fib_sr_entry_add`
+- **Lifetime check**: Calls `fib_sr_check_lifetime`, returning `-ENOENT` if expired
+- **Duplicate detection**: Iterates the path with `LL_FOREACH`, comparing addresses with `universal_address_compare` — returning `-EINVAL` if the address already exists, matching the documented return value
+- **Entry creation**: Uses the internal `fib_sr_new_entry` helper, propagating its `-ENOMEM` on failure
+- **Appending**: If the path is empty, sets `sr_path`; otherwise links after `sr_dest`. In both cases updates `sr_dest` to point to the new last entry
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -950,7 +950,45 @@
+ int fib_sr_entry_append(fib_table_t *table, fib_sr_t *fib_sr,
+                         uint8_t *addr, size_t addr_size)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (addr == NULL)
++        || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr_check_lifetime(fib_sr) == -ENOENT) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOENT;
++    }
++
++    fib_sr_entry_t *elt = NULL;
++    LL_FOREACH(fib_sr->sr_path, elt) {
++        size_t addr_size_match = addr_size << 3;
++        if (UNIVERSAL_ADDRESS_EQUAL == universal_address_compare(elt->address, addr,
++                                                                 &addr_size_match)) {
++            mutex_unlock(&(table->mtx_access));
++            return -EINVAL;
++        }
++    }
++
++    fib_sr_entry_t *new_entry = NULL;
++    int ret = fib_sr_new_entry(table, addr, addr_size, &new_entry);
++    if (ret != 0) {
++        mutex_unlock(&(table->mtx_access));
++        return ret;
++    }
++
++    if (fib_sr->sr_path == NULL) {
++        fib_sr->sr_path = new_entry;
++    }
++    else {
++        fib_sr->sr_dest->next = new_entry;
++    }
++    fib_sr->sr_dest = new_entry;
++
++    mutex_unlock(&(table->mtx_access));
++    return 0;
+ }
+ 
+ int fib_sr_entry_add(fib_table_t *table, fib_sr_t *fib_sr,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127078	  36808	  86856	 250742	  3d376	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff8e6e3000; bottom 0x000000439000; size: 0x7fff8e2aa000 (140735578546176)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

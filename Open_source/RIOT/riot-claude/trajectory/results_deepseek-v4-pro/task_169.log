@@ -1,0 +1,122 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a trace through the documented example to confirm correctness:
+
+**Input:** IPv6 snip (size=8) → UDP snip (size=40) → UNDEF snip (size=14)
+
+**Execution:**
+1. `pkt->next != NULL`, so we proceed
+2. `offset = 8` (original pkt size), `total_size = 62`
+3. `gnrc_pktbuf_realloc_data(pkt, 62)` — resizes pkt's data buffer to 62 bytes, preserving the original 8 bytes
+4. Iterates through subsequent snips: copies 40 bytes from UDP snip at offset 8, then 14 bytes from UNDEF snip at offset 48
+5. Each subsequent snip is detached (`ptr->next = NULL`) and released individually, following the same pattern as `gnrc_pktbuf_remove_snip`
+
+**Output:** Single IPv6 snip (size=62) with all 62 bytes merged, `next = NULL` — matching the documented expected output.
+
+Key design decisions:
+- Early returns for `NULL` input and single-snip packets (no-ops)
+- `pkt->size` is saved *before* `realloc_data` since that call sets `pkt->size` to the new total
+- Each subsequent snip's `next` is set to `NULL` before `gnrc_pktbuf_release()` so the release function only frees that individual snip, not the rest of the chain
+- No manual mutex locking — both `gnrc_pktbuf_realloc_data` and `gnrc_pktbuf_release` handle their own locking, consistent with other functions in this file
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf/gnrc_pktbuf.c
++++ sys/net/gnrc/pktbuf/gnrc_pktbuf.c
+@@ -59,7 +59,39 @@
+ 
+ int gnrc_pktbuf_merge(gnrc_pktsnip_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    int res;
++    size_t offset;
++
++    if (pkt == NULL) {
++        return 0;
++    }
++    if (pkt->next == NULL) {
++        return 0;
++    }
++
++    offset = pkt->size;
++
++    res = gnrc_pktbuf_realloc_data(pkt, gnrc_pkt_len(pkt));
++    if (res < 0) {
++        return res;
++    }
++
++    gnrc_pktsnip_t *ptr = pkt->next;
++
++    pkt->next = NULL;
++    while (ptr != NULL) {
++        gnrc_pktsnip_t *next = ptr->next;
++
++        if (ptr->data != NULL && ptr->size > 0) {
++            memcpy(((uint8_t *)pkt->data) + offset, ptr->data, ptr->size);
++            offset += ptr->size;
++        }
++        ptr->next = NULL;
++        gnrc_pktbuf_release(ptr);
++        ptr = next;
++    }
++
++    return 0;
+ }
+ 
+ void gnrc_pktbuf_release_error(gnrc_pktsnip_t *pkt, uint32_t err)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119968	  38864	  84456	 243288	  3b658	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................................
+gnrc_pktbuf_tests.test_pktbuf_merge_data__memfull (tests/unittests/tests-pktbuf/tests-pktbuf.c 669) exp 12 was 0
+.............
+run 45 failures 1
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdbde3f000; bottom 0x000000439000; size: 0x7ffdbda06000 (140727784857600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-f722ze" if BOARD_NUCLEO_F722ZE
+
+config BOARD_NUCLEO_F722ZE
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32F722ZE
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

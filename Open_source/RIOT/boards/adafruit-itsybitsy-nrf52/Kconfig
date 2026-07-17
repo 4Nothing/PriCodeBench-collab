@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "adafruit-itsybitsy-nrf52" if BOARD_ADAFRUIT_ITSYBITSY_NRF52
+
+config BOARD_ADAFRUIT_ITSYBITSY_NRF52
+    bool
+    default y
+    select BOARD_COMMON_NRF52
+    select CPU_MODEL_NRF52840XXAA
+
+source "$(RIOTBOARD)/common/nrf52/Kconfig"

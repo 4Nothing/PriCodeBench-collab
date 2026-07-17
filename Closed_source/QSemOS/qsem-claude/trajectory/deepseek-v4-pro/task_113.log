@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `OsPerfStop` now mirrors `OsPerfStart` as its symmetric counterpart:
+
+- **Guard**: Checks `g_pmu == NULL` and prints an error if so
+- **Status check**: If `pmuStatusPerCpu[cpuid] == PERF_PMU_STARTED`, calls `g_pmu->stop()` and on success updates the per-CPU status to `PERF_PMU_STOPED`
+- **Error handling**: Prints an error if `g_pmu->stop()` returns a non-OK status, or if the PMU was not in the expected `PERF_PMU_STARTED` state
+
+The pattern follows `OsPerfStart` exactly — the only differences are `start` → `stop` and the status check direction (`!= STARTED` → `== STARTED`), since you stop only what was already started.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -154,7 +154,27 @@
+ 
+ static void OsPerfStop(void)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 cpuid = PRT_GetCoreID();
++
++    if (g_pmu == NULL) {
++        printf("when stop perf, pmu not registered!\n");
++        return;
++    }
++
++    if (g_perfCb.pmuStatusPerCpu[cpuid] == PERF_PMU_STARTED) {
++        ret = g_pmu->stop();
++        if (ret != OS_OK) {
++            printf("perf stop on core:%u failed, ret = 0x%x\n", cpuid, ret);
++            return;
++        }
++
++        g_perfCb.pmuStatusPerCpu[cpuid] = PERF_PMU_STOPED;
++    } else {
++        printf("core:%u status err 0x%x\n", cpuid, g_perfCb.pmuStatusPerCpu[cpuid]);
++    }
++
++    return;
+ }
+ 
+ static U32 OsPerfBackTrace(uintptr_t *callChain, U32 maxDepth, PerfRegs *regs)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 cpuid = PRT_GetCoreID();
+
+    if (g_pmu == NULL) {
+        printf("when stop perf, pmu not registered!\n");
+        return;
+    }
+
+    if (g_perfCb.pmuStatusPerCpu[cpuid] == PERF_PMU_STARTED) {
+        ret = g_pmu->stop();
+        if (ret != OS_OK) {
+            printf("perf stop on core:%u failed, ret = 0x%x\n", cpuid, ret);
+            return;
+        }
+
+        g_perfCb.pmuStatusPerCpu[cpuid] = PERF_PMU_STOPED;
+    } else {
+        printf("core:%u status err 0x%x\n", cpuid, g_perfCb.pmuStatusPerCpu[cpuid]);
+    }
+
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsPerfStop test
+when stop perf, pmu not registered!
+[No PMU registered] expect=0 actual=0 -> PASS
+[Stop invoked once] expect=1 actual=1 -> PASS
+[Per-cpu status stoped] expect=0 actual=0 -> PASS
+core:0 status err 0x0
+[No duplicate stop] expect=1 actual=1 -> PASS
+[Stop called with buffer mode] expect=2 actual=2 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

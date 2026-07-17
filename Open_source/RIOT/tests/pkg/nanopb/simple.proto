@@ -1,0 +1,12 @@
+// A very simple protocol definition, consisting of only
+// one message.
+
+syntax = "proto2";
+
+message SimpleMessage {
+    enum Enum {
+        lucky = 13;
+    };
+
+    optional Enum number = 1;
+}

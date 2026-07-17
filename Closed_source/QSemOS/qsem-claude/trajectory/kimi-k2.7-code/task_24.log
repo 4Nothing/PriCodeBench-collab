@@ -1,0 +1,243 @@
+============================================================
+=== Claude Session ===
+============================================================
+
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -207,7 +207,57 @@
+  */
+ OS_SEC_L4_TEXT U32 OsSwTmrDeleteTimer(TimerHandle tmrHandle)
+ {
+-    /* MASKED - implement this function */
++    struct TagSwTmrCtrl *swtmr = NULL;
++#if defined(OS_OPTION_SMP)
++    struct TagSwTmrCtrl swtmrTmp = {0};
++#endif
++    uintptr_t intSave;
++
++    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
++    {
++        return OS_ERRNO_TIMER_HANDLE_INVALID;
++    }
++
++    // 转化为软件定时器内部ID号
++    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
++    intSave = OsSwtmrIqrSplLock(swtmr);
++
++    switch (swtmr->state & OS_SWTMR_STATUS_MASK)
++    {
++        case OS_TIMER_FREE:
++            OsSwtmrIqrSplUnlock(swtmr, intSave);
++            return OS_ERRNO_SWTMR_NOT_CREATED;
++        case OS_TIMER_EXPIRED:
++            swtmr->state = OS_SWTMR_PRE_FREE | (U8)OS_TIMER_EXPIRED;
++            OsSwtmrIqrSplUnlock(swtmr, intSave);
++            return OS_OK;
++        case OS_TIMER_RUNNING:
++            OsSwTmrStop(swtmr, TRUE);
++            break;
++        default:
++            break;
++    }
++
++#if defined(OS_OPTION_SMP)
++    swtmrTmp.coreID = swtmr->coreID;
++#endif
++
++    OsSwTmrDelete(swtmr);
++
++#if defined(OS_OPTION_TICKLESS)
++#if defined(OS_OPTION_SMP)
++    OsSwtmrNearestTicksRefresh(CPU_SWTMR_SORT_LINK(swtmrTmp.coreID));
++#else
++    OsSwtmrNearestTicksRefresh(&g_tmrSortLink);
++#endif
++#endif
++#if defined(OS_OPTION_SMP)
++    OsSwtmrIqrSplUnlock(&swtmrTmp, intSave);
++#else
++    OsSwtmrIqrSplUnlock(swtmr, intSave);
++#endif
++
++    return OS_OK;
+ }
+ 
+ #if defined(OS_OPTION_TICKLESS)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSwTmrCtrl *swtmr = NULL;
+#if defined(OS_OPTION_SMP)
+    struct TagSwTmrCtrl swtmrTmp = {0};
+#endif
+    uintptr_t intSave;
+
+    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
+    {
+        return OS_ERRNO_TIMER_HANDLE_INVALID;
+    }
+
+    // 转化为软件定时器内部ID号
+    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
+    intSave = OsSwtmrIqrSplLock(swtmr);
+
+    switch (swtmr->state & OS_SWTMR_STATUS_MASK)
+    {
+        case OS_TIMER_FREE:
+            OsSwtmrIqrSplUnlock(swtmr, intSave);
+            return OS_ERRNO_SWTMR_NOT_CREATED;
+        case OS_TIMER_EXPIRED:
+            swtmr->state = OS_SWTMR_PRE_FREE | (U8)OS_TIMER_EXPIRED;
+            OsSwtmrIqrSplUnlock(swtmr, intSave);
+            return OS_OK;
+        case OS_TIMER_RUNNING:
+            OsSwTmrStop(swtmr, TRUE);
+            break;
+        default:
+            break;
+    }
+
+#if defined(OS_OPTION_SMP)
+    swtmrTmp.coreID = swtmr->coreID;
+#endif
+
+    OsSwTmrDelete(swtmr);
+
+#if defined(OS_OPTION_TICKLESS)
+#if defined(OS_OPTION_SMP)
+    OsSwtmrNearestTicksRefresh(CPU_SWTMR_SORT_LINK(swtmrTmp.coreID));
+#else
+    OsSwtmrNearestTicksRefresh(&g_tmrSortLink);
+#endif
+#endif
+#if defined(OS_OPTION_SMP)
+    OsSwtmrIqrSplUnlock(&swtmrTmp, intSave);
+#else
+    OsSwtmrIqrSplUnlock(swtmr, intSave);
+#endif
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrCreateTimer_Extra.c
+[CASE] create ok
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] handle=0x10000007
+  expected=0x10000007
+  actual  =0x10000007
+  result  =PASS
+
+[CASE] exhausted
+  expected=0x2000D0A
+  actual  =0x2000D0A
+  result  =PASS
+
+[CASE] create ok 2
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] interval not suited
+  expected=0x2000D09
+  actual  =0x2000D09
+  result  =PASS
+
+[CASE] overflow
+  expected=0x2000D0F
+  actual  =0x2000D0F
+  result  =PASS
+
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+In file included from test_OsSwTmrCreateTimer_Extra.c:4:
+test_util.h:42:13: warning: ‘TU_check_ptr’ defined but not used [-Wunused-function]
+   42 | static void TU_check_ptr(const char *caseName, const void *expected, const void *actual)
+      |             ^~~~~~~~~~~~
+test_util.h:33:13: warning: ‘TU_check_bool’ defined but not used [-Wunused-function]
+   33 | static void TU_check_bool(const char *caseName, int expected, int actual)
+      |             ^~~~~~~~~~~~~
+test_util.h:24:13: warning: ‘TU_check_u64’ defined but not used [-Wunused-function]
+   24 | static void TU_check_u64(const char *caseName, unsigned long long expected, unsigned long long actual)
+      |             ^~~~~~~~~~~~
+In file included from prt_swtmr_internal.h:2,
+                 from test_OsSwTmrCreateTimer_Extra.c:3:
+auto_stub.h:1324:15: warning: ‘g_checkSwtmrTickProcess’ defined but not used [-Wunused-variable]
+ 1324 | static bool (*g_checkSwtmrTickProcess)(U32) = NULL;
+      |               ^~~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1323:14: warning: ‘g_getSwtmrNearestTick’ defined but not used [-Wunused-variable]
+ 1323 | static U64 (*g_getSwtmrNearestTick)(U32) = NULL;
+      |              ^~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1321:12: warning: ‘g_uniTicks’ defined but not used [-Wunused-variable]
+ 1321 | static U64 g_uniTicks = 0;
+      |            ^~~~~~~~~~
+auto_stub.h:1320:21: warning: ‘g_tickSwTmrGroupId’ defined but not used [-Wunused-variable]
+ 1320 | static TimerGroupId g_tickSwTmrGroupId = 0;
+      |                     ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:36: warning: ‘g_tmrSortLink’ defined but not used [-Wunused-variable]
+ 1319 | static struct TagSwTmrSortLinkAttr g_tmrSortLink[OS_MAX_CORE_NUM];
+      |                                    ^~~~~~~~~~~~~
+auto_stub.h:1317:29: warning: ‘g_swtmrCbArray’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagSwTmrCtrl *g_swtmrCbArray = NULL;
+      |                             ^~~~~~~~~~~~~~
+auto_stub.h:1311:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1311 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1310:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1310 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1309:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1309 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1308:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1308 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1307:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1307 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1306:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1306 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1305:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1305 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1304:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1304 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1303:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1303 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1302:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1302 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1301:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1301 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1300:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1300 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1299:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1299 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1298:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1298 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

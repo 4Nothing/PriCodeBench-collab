@@ -1,0 +1,214 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `PRT_SignalAction` does:
+
+1. **Validates** the signal number with `sigValid()`, returning `OS_ERRNO_SIGNAL_NUM_INVALID` if out of range (must be 1–31).
+2. **Locks** interrupts and the current task's run-queue — follows the same pattern as `PRT_SignalMask` and `PRT_SignalDeliver`.
+3. **Retrieves** the old handler via `oldact->saHandler` if `oldact` is non-NULL (query-only mode).
+4. **Sets** the new handler if `act` is non-NULL:
+   - `SIG_IGN` → `NULL` (signal is ignored — `OsHandleOneSignal` skips NULL handlers)
+   - `SIG_DFL` → `OsSigDefaultHandler` (no-op default)
+   - Custom handler → stored directly in `sigVectors[signum]`
+5. **Unlocks** and returns `OS_OK`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -421,7 +421,40 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_SignalAction(int signum, const struct _sigaction *act, struct _sigaction *oldact)
+ {
+-    /* MASKED - implement this function */
++    if (!sigValid(signum))
++    {
++        return OS_ERRNO_SIGNAL_NUM_INVALID;
++    }
++
++    uintptr_t intSave = OsIntLock();
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    OsSpinLockTaskRq(runTsk);
++
++    if (oldact != NULL)
++    {
++        oldact->saHandler = runTsk->sigVectors[signum];
++    }
++
++    if (act != NULL)
++    {
++        _sa_handler handler = act->saHandler;
++        if (handler == SIG_IGN)
++        {
++            runTsk->sigVectors[signum] = NULL;
++        }
++        else if (handler == SIG_DFL)
++        {
++            runTsk->sigVectors[signum] = OsSigDefaultHandler;
++        }
++        else
++        {
++            runTsk->sigVectors[signum] = handler;
++        }
++    }
++
++    OsSpinUnlockTaskRq(runTsk);
++    OsIntRestore(intSave);
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 PRT_SigSuspend(const signalSet *mask)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (!sigValid(signum))
+    {
+        return OS_ERRNO_SIGNAL_NUM_INVALID;
+    }
+
+    uintptr_t intSave = OsIntLock();
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    OsSpinLockTaskRq(runTsk);
+
+    if (oldact != NULL)
+    {
+        oldact->saHandler = runTsk->sigVectors[signum];
+    }
+
+    if (act != NULL)
+    {
+        _sa_handler handler = act->saHandler;
+        if (handler == SIG_IGN)
+        {
+            runTsk->sigVectors[signum] = NULL;
+        }
+        else if (handler == SIG_DFL)
+        {
+            runTsk->sigVectors[signum] = OsSigDefaultHandler;
+        }
+        else
+        {
+            runTsk->sigVectors[signum] = handler;
+        }
+    }
+
+    OsSpinUnlockTaskRq(runTsk);
+    OsIntRestore(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SignalAction.c notifier_test_stubs.c
+[CASE] invalid signum
+  Expected: 33558535
+  Actual  : 33558535
+  Result  : PASS
+
+[CASE] set handler ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] vector is h1
+  Expected: 0x5f5a0e4526ab
+  Actual  : 0x5f5a0e4526ab
+  Result  : PASS
+
+[CASE] get old ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] old is h1
+  Expected: 0x5f5a0e4526ab
+  Actual  : 0x5f5a0e4526ab
+  Result  : PASS
+
+[CASE] set IGN ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] vector is NULL
+  Expected: (nil)
+  Actual  : (nil)
+  Result  : PASS
+
+[CASE] set DFL ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] vector is default
+  Expected: 0x5f5a0e4525a6
+  Actual  : 0x5f5a0e4525a6
+  Result  : PASS
+
+Pass-Rate: 100.00% (9/9)
+
+--- stderr ---
+In file included from test_PRT_SignalAction.c:3:
+../task_079/func_under_test.c: In function ‘OsSigDefaultHandler’:
+../task_079/func_under_test.c:1:45: warning: unused parameter ‘signum’ [-Wunused-parameter]
+    1 | OS_SEC_L4_TEXT void OsSigDefaultHandler(int signum)
+      |                                         ~~~~^~~~~~
+In file included from test_PRT_SignalAction.c:1:
+test_common.h: At top level:
+test_common.h:59:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   59 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:20:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   20 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1299:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1299 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1298:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1298 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1297:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1297 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1295:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1294:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1294 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1293:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1293 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1292:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1292 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

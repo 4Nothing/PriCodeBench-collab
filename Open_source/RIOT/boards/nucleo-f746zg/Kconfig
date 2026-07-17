@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-f746zg" if BOARD_NUCLEO_F746ZG
+
+config BOARD_NUCLEO_F746ZG
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32F746ZG
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

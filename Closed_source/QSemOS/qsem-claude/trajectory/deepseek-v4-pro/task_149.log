@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It follows the same pattern as `PRT_SplIrqReadLock` at line 99 — disable interrupts with `PRT_IntLock()`, acquire task lock with `OS_TSK_LOCK()`, acquire the write lock with `OsSplWriteLock(addr)`, and return the saved interrupt state. This is the exact inverse of the existing `PRT_SplIrqWriteUnlock` at line 123, which releases in reverse order (`OsSplWriteUnlock` → `OsTskUnlock` → `PRT_IntRestore`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/spinlock/prt_spinlock.c
++++ src/core/kernel/spinlock/prt_spinlock.c
+@@ -117,7 +117,12 @@
+ 
+ OS_SEC_L2_TEXT uintptr_t PRT_SplIrqWriteLock(struct PrtSpinLock *spinLock)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    volatile uintptr_t *addr = &spinLock->rawLock;
++    intSave = PRT_IntLock();
++    OS_TSK_LOCK();
++    OsSplWriteLock(addr);
++    return intSave;
+ }
+ 
+ OS_SEC_L2_TEXT void PRT_SplIrqWriteUnlock(struct PrtSpinLock *spinLock, uintptr_t intSave)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    volatile uintptr_t *addr = &spinLock->rawLock;
+    intSave = PRT_IntLock();
+    OS_TSK_LOCK();
+    OsSplWriteLock(addr);
+    return intSave;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SplIrqWriteLock.c notifier_test_stubs.c
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_PRT_SplIrqWriteLock.c:13:
+auto_stub.h:1679:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1679 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1678:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1678 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1677:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1677 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1675:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1675 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1674:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1674 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1673:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1673 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1672:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1672 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1669:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1669 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1668:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1668 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1667:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1667 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1666:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1666 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

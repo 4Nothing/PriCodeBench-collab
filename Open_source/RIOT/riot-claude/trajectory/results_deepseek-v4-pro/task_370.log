@@ -1,0 +1,112 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established patterns in the file:
+- **Path validation**: returns `-EINVAL` if `path` or `buf` is NULL
+- **Mount lookup**: uses `_find_mount` to resolve the path to a filesystem mount
+- **Capability check**: returns `-EINVAL` if the filesystem doesn't support `statvfs`
+- **Delegate to driver**: calls `mountp->fs->fs_op->statvfs(mountp, "/", buf)` with `"/"` (consistent with `vfs_fstatvfs` and `vfs_dstatvfs`)
+- **Reference counting**: properly decrements `open_files` via `atomic_fetch_sub_u16` in all code paths, paired with the implicit increment in `_find_mount`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -865,7 +865,41 @@
+ 
+ int vfs_statvfs(const char *restrict path, struct statvfs *restrict buf)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_statvfs: \"%s\", %p\n", path, (void *)buf);
++    if (path == NULL || buf == NULL) {
++        return -EINVAL;
++    }
++    const char *rel_path;
++    vfs_mount_t *mountp;
++    int res;
++    res = _find_mount(&mountp, path, &rel_path);
++    /* _find_mount implicitly increments the open_files count on success */
++    if (res < 0) {
++        /* No mount point maps to the requested file name */
++        DEBUG("vfs_statvfs: no matching mount\n");
++        return res;
++    }
++    if ((mountp->fs->fs_op == NULL) || (mountp->fs->fs_op->statvfs == NULL)) {
++        /* statvfs not supported */
++        DEBUG("vfs_statvfs: statvfs not supported by fs!\n");
++        /* remember to decrement the open_files count */
++        uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++        assume(before > 0);
++        return -EINVAL;
++    }
++    memset(buf, 0, sizeof(*buf));
++    res = mountp->fs->fs_op->statvfs(mountp, "/", buf);
++    DEBUG("vfs_statvfs: statvfs %p, \"%s\"", (void *)mountp, rel_path);
++    if (res < 0) {
++        DEBUG(": ERR %d!\n", res);
++    }
++    else {
++        DEBUG("\n");
++    }
++    /* remember to decrement the open_files count */
++    uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++    assume(before > 0);
++    return res;
+ }
+ 
+ int vfs_bind(int fd, int flags, const vfs_file_ops_t *f_op, void *private_data)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123265	  45128	  79328	 247721	  3c7a9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................................
+vfs_fs_op_tests.test_vfs_null_fs_ops_statvfs (tests/unittests/tests-vfs/tests-vfs-file-system-ops.c 146) exp -1 was -22
+....
+run 40 failures 1
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdf6df9000; bottom 0x00000043b000; size: 0x7ffdf69be000 (140728740864000)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

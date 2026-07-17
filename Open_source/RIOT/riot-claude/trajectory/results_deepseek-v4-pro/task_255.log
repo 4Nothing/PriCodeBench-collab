@@ -1,0 +1,84 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It validates the `dev` pointer (returning `-ENODEV` if NULL), prepends the entry to the global linked list, and returns 0 on success — matching the pattern established by `saul_reg_read` and `saul_reg_write`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/saul_reg/saul_reg.c
++++ sys/saul_reg/saul_reg.c
+@@ -32,7 +32,12 @@
+ 
+ int saul_reg_add(saul_reg_t *dev)
+ {
+-    /* MASKED - implement this function */
++    if (dev == NULL) {
++        return -ENODEV;
++    }
++    dev->next = saul_reg;
++    saul_reg = dev;
++    return 0;
+ }
+ 
+ saul_reg_t *saul_reg_find_nth(int pos)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-saul_reg
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/drivers/saul
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/phydat
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/saul_reg
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  88856	  41792	  78216	 208864	  32fe0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+pkt_tests.test_reg_add (tests/unittests/tests-saul_reg/tests-saul_reg.c 84) exp "S0" was "S1"
+.
+pkt_tests.test_reg_find_nth (tests/unittests/tests-saul_reg/tests-saul_reg.c 114) exp "S0" was "S1"
+.
+pkt_tests.test_reg_find_type (tests/unittests/tests-saul_reg/tests-saul_reg.c 131) dev was null.
+..
+pkt_tests.test_reg_find_type_and_name (tests/unittests/tests-saul_reg/tests-saul_reg.c 155) dev was null.
+
+run 6 failures 4
+
+native: exiting
+
+--- stderr ---
+==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe433db000; bottom 0x000000432000; size: 0x7ffe42fa9000 (140730022137856)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

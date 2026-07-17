@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Recursive mutex re-acquire** (`#if OS_OPTION_BIN_SEM && OS_OPTION_SEM_RECUR_PV`): If the semaphore is a recursive binary mutex and the calling task is already the owner, it increments `recurCount` and returns `TRUE` — no scheduling needed.
+
+- **Semaphore available** (`semCount > 0`): Decrements `semCount`, sets the owner to the calling task. For binary semaphores, it also links the semaphore's `semBList` node into the task's held-mutex list. Returns `TRUE` — the pend succeeds immediately without blocking.
+
+- **Semaphore unavailable**: Returns `FALSE` — the caller (`PRT_SemPend`) will proceed to check the timeout parameter and block the task on the semaphore's wait list.
+
+This is symmetric with the post-side logic in `OsSemPostIsInvalid` (recursive decrement) and follows the same preprocessor guards used throughout the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -376,7 +376,27 @@
+ 
+ OS_SEC_L0_TEXT bool OsSemPendNotNeedSche(struct TagSemCb *semPended, struct TagTskCb *runTsk)
+ {
+-    /* MASKED - implement this function */
++#if defined(OS_OPTION_BIN_SEM) && defined(OS_OPTION_SEM_RECUR_PV)
++    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN &&
++        GET_MUTEX_TYPE(semPended->semType) == SEM_MUTEX_TYPE_RECUR &&
++        semPended->semOwner == runTsk->taskPid) {
++        semPended->recurCount++;
++        return TRUE;
++    }
++#endif
++
++    if (semPended->semCount > 0) {
++        semPended->semCount--;
++        semPended->semOwner = runTsk->taskPid;
++#if defined(OS_OPTION_BIN_SEM)
++        if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN) {
++            ListTailAdd(&semPended->semBList, &runTsk->semBList);
++        }
++#endif
++        return TRUE;
++    }
++
++    return FALSE;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+#if defined(OS_OPTION_BIN_SEM) && defined(OS_OPTION_SEM_RECUR_PV)
+    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN &&
+        GET_MUTEX_TYPE(semPended->semType) == SEM_MUTEX_TYPE_RECUR &&
+        semPended->semOwner == runTsk->taskPid) {
+        semPended->recurCount++;
+        return TRUE;
+    }
+#endif
+
+    if (semPended->semCount > 0) {
+        semPended->semCount--;
+        semPended->semOwner = runTsk->taskPid;
+#if defined(OS_OPTION_BIN_SEM)
+        if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN) {
+            ListTailAdd(&semPended->semBList, &runTsk->semBList);
+        }
+#endif
+        return TRUE;
+    }
+
+    return FALSE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendNotNeedSche.c test_stubs.c notifier_test_stubs.c
+recursive bin same owner => expected ret=1 cnt=1 | actual ret=1 cnt=1
+count decremented => expected ret=1 cnt=1 | actual ret=1 cnt=1
+count zero => expected ret=0 cnt=0 | actual ret=0 cnt=0
+bin link bList => expected=1 actual=1
+bin count zero returns false => expected=1 actual=1
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

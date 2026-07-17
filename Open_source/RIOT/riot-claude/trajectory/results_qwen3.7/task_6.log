@@ -1,0 +1,155 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implementation complete in `sys/base64/base64.c`.
+
+**Design:**
+
+The function mirrors the error-handling order of `base64_encode_base`:
+
+1. `NULL` input → `BASE64_ERROR_DATA_IN`
+2. Size `0` → `BASE64_SUCCESS` with `*data_out_size = 0`
+3. Size `≡ 1 (mod 4)` → `BASE64_ERROR_DATA_IN_SIZE` (no valid base64 stream has this length, with or without padding)
+4. Output buffer too small → set `*data_out_size` to the value from `base64_estimate_decode_size` and return `BASE64_ERROR_BUFFER_OUT_SIZE`
+5. `NULL` output pointer → `BASE64_ERROR_BUFFER_OUT`
+6. Main loop: `getcode` each input byte, skip `BASE64_NOT_DEFINED` (per `getcode`'s own contract), treat `BASE64_EQUALS` as padding, accumulate 4 codes then call `decode_four_codes`, advancing the output pointer by `3 - padding`
+7. After the loop, any leftover codes are the unpadded URL-safe case: 2 codes → 1 byte, 3 codes → 2 bytes (padded with zero codes before calling `decode_four_codes`)
+8. `*data_out_size` set to actual bytes written
+
+URL-safe decoding (`-`/`_`) works automatically because `getcode` already maps them to codes 62/63, so no separate `base64url_decode` is needed.
+
+Verified with `-Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes` (clean) and a standalone harness covering known vectors, round-trips of sizes 0–39, URL-safe round-trips, unpadded URL-safe inputs, and all error paths.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/base64/base64.c
++++ sys/base64/base64.c
+@@ -225,5 +225,74 @@
+ int base64_decode(const void *base64_in, size_t base64_in_size,
+                   void *data_out, size_t *data_out_size)
+ {
+-    /* MASKED - implement this function */
+-}
++    if (base64_in == NULL) {
++        return BASE64_ERROR_DATA_IN;
++    }
++
++    if (base64_in_size == 0) {
++        *data_out_size = 0;
++        return BASE64_SUCCESS;
++    }
++
++    /* A base64 stream whose length is 1 (mod 4) can't represent a whole
++     * number of bytes under any padding convention. */
++    if ((base64_in_size % 4) == 1) {
++        return BASE64_ERROR_DATA_IN_SIZE;
++    }
++
++    size_t required_size = base64_estimate_decode_size(base64_in_size);
++
++    if (*data_out_size < required_size) {
++        *data_out_size = required_size;
++        return BASE64_ERROR_BUFFER_OUT_SIZE;
++    }
++
++    if (data_out == NULL) {
++        return BASE64_ERROR_BUFFER_OUT;
++    }
++
++    const uint8_t *in = base64_in;
++    const uint8_t *end = in + base64_in_size;
++    uint8_t *out = data_out;
++    uint8_t codes[4];
++    size_t code_idx = 0;
++    size_t padding = 0;
++
++    while (in < end) {
++        uint8_t code = getcode((char)*in++);
++
++        if (code == BASE64_NOT_DEFINED) {
++            /* Not a base64 symbol -- skip (getcode's own contract). */
++            continue;
++        }
++
++        if (code == BASE64_EQUALS) {
++            padding++;
++            codes[code_idx++] = 0;
++        }
++        else {
++            codes[code_idx++] = code;
++        }
++
++        if (code_idx == 4) {
++            decode_four_codes(out, codes);
++            out += 3 - padding;
++            code_idx = 0;
++            padding = 0;
++        }
++    }
++
++    /* Leftover codes: URL-safe base64 without padding. 2 codes -> 1 byte,
++     * 3 codes -> 2 bytes. 1 leftover code is impossible (rejected above). */
++    if (code_idx > 0) {
++        size_t remaining = code_idx;
++        while (code_idx < 4) {
++            codes[code_idx++] = 0;
++        }
++        decode_four_codes(out, codes);
++        out += remaining - 1;
++    }
++
++    *data_out_size = (size_t)(out - (uint8_t *)data_out);
++    return BASE64_SUCCESS;
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-base64
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/base64
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  91067	  32976	  78120	 202163	  315b3	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+base64_tests.test_base64_05_decode_larger (tests/unittests/tests-base64/tests-base64.c 175) exp 0 was -4
+.........
+run 14 failures 1
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc92f9e000; bottom 0x000000430000; size: 0x7ffc92b6e000 (140722769944576)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

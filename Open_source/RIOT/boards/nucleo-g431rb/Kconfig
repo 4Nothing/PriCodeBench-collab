@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-g431rb" if BOARD_NUCLEO_G431RB
+
+config BOARD_NUCLEO_G431RB
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32G431RB
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

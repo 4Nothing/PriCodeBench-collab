@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function initializes the spinlock's `rawLock` field to the unlocked state (`OS_SPINLOCK_UNLOCK`, defined as `0`) and returns `OS_OK` (`0`).
+
+This mirrors the logic of `OsSpinLockInitInner` from the arch-specific headers (e.g., `src/arch/cpu/armv7-r/common/os_cpu_armv7_r_external.h:83`), which does `*lockVar = OS_SPINLOCK_UNLOCK;`. The function serves as the SMP-aware public API wrapper for spinlock initialization, consistent with the `PRT_SplLock`/`PRT_SplUnlock` pattern in the same file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/spinlock/prt_spinlock.c
++++ src/core/kernel/spinlock/prt_spinlock.c
+@@ -30,7 +30,8 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_SplLockInit(struct PrtSpinLock *spinLock)
+ {
+-    /* MASKED - implement this function */
++    spinLock->rawLock = OS_SPINLOCK_UNLOCK;
++    return OS_OK;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    spinLock->rawLock = OS_SPINLOCK_UNLOCK;
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_PRT_SplLockInit test_PRT_SplLockInit.c notifier_test_stubs.c
+ln -sf test_PRT_SplLockInit test
+
+--- stderr ---
+In file included from test_PRT_SplLockInit.c:29:
+auto_stub.h:1514:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1514 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1513:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1513 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1512:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1512 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1511:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1511 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1510:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1510 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1509:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1509 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1508:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1508 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1504:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1504 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1503:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1503 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1502:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1502 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1501:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1501 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+Segmentation fault (core dumped)
+
+
+

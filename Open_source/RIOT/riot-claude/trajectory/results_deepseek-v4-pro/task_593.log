@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **`assert(frag_size <= SIXLOWPAN_SFR_FRAG_SIZE_MAX)`** — enforces the documented precondition that fragment size fits in 10 bits (max 0x3FF)
+- **`u8[0] &= ~(uint8_t)(SIXLOWPAN_SFR_FRAG_SIZE_MASK >> 8)`** — clears the upper 2 bits of the fragment size field (bits 1-0 of the first byte), leaving the ACK request flag and sequence number untouched
+- **`u8[0] |= (frag_size >> 8)`** — writes the upper 2 bits of the fragment size into bits 1-0 of the first byte
+- **`u8[1] = (uint8_t)frag_size`** — writes the lower 8 bits of the fragment size into the second byte
+
+This mirrors the existing getter at line 316, which reads the value back via `byteorder_ntohs(hdr->ar_seq_fs) & SIXLOWPAN_SFR_FRAG_SIZE_MASK`, and follows the same direct-`u8[]`-manipulation style used by `sixlowpan_sfr_rfrag_set_seq` and `sixlowpan_sfr_rfrag_set_ack_req`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/sixlowpan/sfr.h
++++ sys/include/net/sixlowpan/sfr.h
+@@ -301,7 +301,10 @@
+ static inline void sixlowpan_sfr_rfrag_set_frag_size(sixlowpan_sfr_rfrag_t *hdr,
+                                                      uint16_t frag_size)
+ {
+-    /* MASKED - implement this function */
++    assert(frag_size <= SIXLOWPAN_SFR_FRAG_SIZE_MAX);
++    hdr->ar_seq_fs.u8[0] &= ~(uint8_t)(SIXLOWPAN_SFR_FRAG_SIZE_MASK >> 8);
++    hdr->ar_seq_fs.u8[0] |= (frag_size >> 8);
++    hdr->ar_seq_fs.u8[1] = (uint8_t)frag_size;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_sfr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  75888	  31464	  78120	 185472	  2d480	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffee7376000; bottom 0x00000042d000; size: 0x7ffee6f49000 (140732773208064)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

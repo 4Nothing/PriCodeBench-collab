@@ -1,0 +1,245 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsSwTimerGroupCreate` in `src/core/kernel/timer/swtmr/prt_swtmr_init.c:35`.
+
+The function now:
+- Returns `OS_ERRNO_TICK_NOT_INIT` if ticks aren’t initialized.
+- Returns `OS_ERRNO_TIMER_NUM_ZERO` / `OS_ERRNO_TIMER_NUM_TOO_LARGE` for invalid `maxTimerNum`.
+- Returns `OS_ERRNO_TIMER_TICKGROUP_CREATED` if the tick-based group already exists.
+- Sets `g_swTmrMaxNum`, calls `OsSwTmrResInit()`, registers the software-timer API handlers in `g_timerApi[TIMER_TYPE_SWTMR]`, and assigns `OS_TICK_SWTMR_GROUP_ID` to `*groupId`.
+
+The implementation matches the surrounding code style and the behavior expected by the existing test harness.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -34,7 +34,49 @@
+  */
+ OS_SEC_L4_TEXT U32 OsSwTimerGroupCreate(struct TmrGrpUserCfg *config, TimerGroupId *groupId)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    uintptr_t intSave;
++
++    if (g_tickModInfo.tickPerSecond == 0) {
++        return OS_ERRNO_TICK_NOT_INIT;
++    }
++
++    if (config->maxTimerNum == 0) {  // 最大定时器个数为零
++        return OS_ERRNO_TIMER_NUM_ZERO;
++    }
++
++    if (config->maxTimerNum > (U32)OS_MAX_U16) {
++        // 软件定时器个数为UINT16型，用户传入参数不能超过UINT16的最大值
++        return OS_ERRNO_TIMER_NUM_TOO_LARGE;
++    }
++
++    intSave = OsIntLock();
++
++    if (g_timerApi[TIMER_TYPE_SWTMR].createTimer != NULL) {  // 定时器组已经创建
++        OsIntRestore(intSave);
++        return OS_ERRNO_TIMER_TICKGROUP_CREATED;
++    }
++
++    g_swTmrMaxNum = config->maxTimerNum;
++
++    ret = OsSwTmrResInit();
++    if (ret != OS_OK) {
++        OsIntRestore(intSave);
++        return ret;
++    }
++
++    g_timerApi[TIMER_TYPE_SWTMR].createTimer = (TimerCreateFunc)OsSwTmrCreateTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].startTimer = (TimerStartFunc)OsSwTmrStartTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = (TimerStopFunc)OsSwTmrStopTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = (TimerDeleteFunc)OsSwTmrDeleteTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = (TimerRestartFunc)OsSwTmrRestartTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = (TimerQueryFunc)OsSwTmrQuery;
++    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = (TimerGetOverrunFunc)OsSwTmrGetOverrun;
++
++    *groupId = OS_TICK_SWTMR_GROUP_ID;
++
++    OsIntRestore(intSave);
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSwTmrCreateTimerParaChk(struct TimerCreatePara *createPara)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    uintptr_t intSave;
+
+    if (g_tickModInfo.tickPerSecond == 0) {
+        return OS_ERRNO_TICK_NOT_INIT;
+    }
+
+    if (config->maxTimerNum == 0) {  // 最大定时器个数为零
+        return OS_ERRNO_TIMER_NUM_ZERO;
+    }
+
+    if (config->maxTimerNum > (U32)OS_MAX_U16) {
+        // 软件定时器个数为UINT16型，用户传入参数不能超过UINT16的最大值
+        return OS_ERRNO_TIMER_NUM_TOO_LARGE;
+    }
+
+    intSave = OsIntLock();
+
+    if (g_timerApi[TIMER_TYPE_SWTMR].createTimer != NULL) {  // 定时器组已经创建
+        OsIntRestore(intSave);
+        return OS_ERRNO_TIMER_TICKGROUP_CREATED;
+    }
+
+    g_swTmrMaxNum = config->maxTimerNum;
+
+    ret = OsSwTmrResInit();
+    if (ret != OS_OK) {
+        OsIntRestore(intSave);
+        return ret;
+    }
+
+    g_timerApi[TIMER_TYPE_SWTMR].createTimer = (TimerCreateFunc)OsSwTmrCreateTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].startTimer = (TimerStartFunc)OsSwTmrStartTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = (TimerStopFunc)OsSwTmrStopTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = (TimerDeleteFunc)OsSwTmrDeleteTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = (TimerRestartFunc)OsSwTmrRestartTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = (TimerQueryFunc)OsSwTmrQuery;
+    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = (TimerGetOverrunFunc)OsSwTmrGetOverrun;
+
+    *groupId = OS_TICK_SWTMR_GROUP_ID;
+
+    OsIntRestore(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTimerGroupCreate.c
+[CASE] tick not init
+  expected=0x2000D0E
+  actual  =0x2000D0E
+  result  =PASS
+
+[CASE] max num zero
+  expected=0x2000D07
+  actual  =0x2000D07
+  result  =PASS
+
+[CASE] max num too large
+  expected=0x2000D12
+  actual  =0x2000D12
+  result  =PASS
+
+[CASE] already created
+  expected=0x2000D10
+  actual  =0x2000D10
+  result  =PASS
+
+[CASE] success ret
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] group id
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] api function table set
+  expected=true
+  actual  =true
+  result  =PASS
+
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+test_OsSwTimerGroupCreate.c: In function ‘main’:
+test_OsSwTimerGroupCreate.c:13:12: warning: missing initializer for field ‘maxTimerNum’ of ‘struct TmrGrpUserCfg’ [-Wmissing-field-initializers]
+   13 |     struct TmrGrpUserCfg cfg = {OS_TIMER_GRP_SRC_TICK, 10};
+      |            ^~~~~~~~~~~~~
+In file included from prt_swtmr_internal.h:2,
+                 from test_OsSwTimerGroupCreate.c:1:
+auto_stub.h:330:9: note: ‘maxTimerNum’ declared here
+  330 |     U32 maxTimerNum;
+      |         ^~~~~~~~~~~
+In file included from test_OsSwTimerGroupCreate.c:2:
+test_util.h: At top level:
+test_util.h:42:13: warning: ‘TU_check_ptr’ defined but not used [-Wunused-function]
+   42 | static void TU_check_ptr(const char *caseName, const void *expected, const void *actual)
+      |             ^~~~~~~~~~~~
+test_util.h:24:13: warning: ‘TU_check_u64’ defined but not used [-Wunused-function]
+   24 | static void TU_check_u64(const char *caseName, unsigned long long expected, unsigned long long actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:1324:15: warning: ‘g_checkSwtmrTickProcess’ defined but not used [-Wunused-variable]
+ 1324 | static bool (*g_checkSwtmrTickProcess)(U32) = NULL;
+      |               ^~~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1323:14: warning: ‘g_getSwtmrNearestTick’ defined but not used [-Wunused-variable]
+ 1323 | static U64 (*g_getSwtmrNearestTick)(U32) = NULL;
+      |              ^~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1321:12: warning: ‘g_uniTicks’ defined but not used [-Wunused-variable]
+ 1321 | static U64 g_uniTicks = 0;
+      |            ^~~~~~~~~~
+auto_stub.h:1320:21: warning: ‘g_tickSwTmrGroupId’ defined but not used [-Wunused-variable]
+ 1320 | static TimerGroupId g_tickSwTmrGroupId = 0;
+      |                     ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:36: warning: ‘g_tmrSortLink’ defined but not used [-Wunused-variable]
+ 1319 | static struct TagSwTmrSortLinkAttr g_tmrSortLink[OS_MAX_CORE_NUM];
+      |                                    ^~~~~~~~~~~~~
+auto_stub.h:1317:29: warning: ‘g_swtmrCbArray’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagSwTmrCtrl *g_swtmrCbArray = NULL;
+      |                             ^~~~~~~~~~~~~~
+auto_stub.h:1311:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1311 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1310:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1310 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1309:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1309 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1308:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1308 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1307:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1307 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1306:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1306 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1305:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1305 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1304:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1304 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1303:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1303 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1302:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1302 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1301:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1301 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1300:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1300 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1299:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1299 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1298:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1298 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

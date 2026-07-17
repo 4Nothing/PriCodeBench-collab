@@ -1,0 +1,157 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `unicoap_options_add` does:
+
+1. **Finds insertion index** — scans entries to locate where the new option belongs, maintaining sorted order by option number. Options with the same number are grouped (repeatable options).
+
+2. **Computes delta and encoded size** — the delta is relative to the preceding option; the total encoded size includes the header nibble, extended delta/length fields, and the value.
+
+3. **Computes successor diff** — if inserting before an existing option, that successor's delta changes (its preceding option is now the new one, not the old one), which can change the number of bytes needed for its extended delta field.
+
+4. **Capacity checks** — verifies both the entry count limit (`CONFIG_UNICOAP_OPTIONS_MAX`) and the storage buffer capacity.
+
+5. **Shifts lookup array and storage data** — uses the existing helpers `_shift_option_entries` and `_shift_options` to make room. For the successor case, data is shifted starting from the successor's position; for the end-append case, the new option is written at the end of the storage buffer.
+
+6. **Writes the new option** via `_write_option`, then fixes the successor's head bytes with `_write_head_partial` to account for its changed delta.
+
+The implementation follows the same patterns used by `unicoap_options_set` (line 690) and `unicoap_options_remove_all` (line 718).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/unicoap/options.c
++++ sys/net/application_layer/unicoap/options.c
+@@ -588,7 +588,76 @@
+ int unicoap_options_add(unicoap_options_t* options, unicoap_option_number_t number,
+                         const uint8_t* value, size_t value_size)
+ {
+-    /* MASKED - implement this function */
++    unicoap_option_entry_t* opts = options->entries;
++    assert(value_size <= UNICOAP_UINT_MAX);
++    assert(opts->data);
++
++    size_t count = options->option_count;
++
++    /* Find insertion index: first option with number > new option's number */
++    size_t i = 0;
++    while (i < count && opts[i].number <= number) {
++        i++;
++    }
++
++    if (count >= CONFIG_UNICOAP_OPTIONS_MAX) {
++        return -ENOBUFS;
++    }
++
++    uint16_t delta = (i > 0) ? (number - opts[i - 1].number) : number;
++    ssize_t option_size = _option_size(delta, value_size);
++    if (option_size < 0) {
++        return (int)option_size;
++    }
++
++    bool has_successor = (i < count);
++    ssize_t total_data_diff = option_size;
++    uint8_t length_nibble = 0;
++    uint16_t successor_new_delta = 0;
++
++    if (has_successor) {
++        length_nibble = DECODE_LENGTH_NIBBLE(*opts[i].data);
++        successor_new_delta = opts[i].number - number;
++        ssize_t successor_diff = _option_size_diff(successor_new_delta,
++                                                    DECODE_DELTA_NIBBLE(*opts[i].data));
++        total_data_diff += successor_diff;
++    }
++
++    if (options->storage_size + total_data_diff > options->storage_capacity) {
++        return -ENOBUFS;
++    }
++
++    /* Shift entries to make room in the lookup array.
++     * This duplicates the successor entry at indices i and i+1. */
++    _shift_option_entries(options, i, 1);
++
++    if (has_successor) {
++        /* Shift data starting from the successor (now at index i + 1).
++         * After this, opts[i].data still points to the original successor position,
++         * which now has total_data_diff free bytes before the shifted successor. */
++        _shift_options(options, i + 1, total_data_diff);
++
++        uint8_t* dest = opts[i].data;
++        _write_option(&dest, delta, value, value_size);
++        opts[i].number = number;
++        opts[i].size = option_size;
++
++        /* Fix successor's head: its delta changed, length nibble stays the same */
++        dest = opts[i + 1].data;
++        _write_head_partial(&dest, successor_new_delta, length_nibble);
++    }
++    else {
++        /* Append at end of storage buffer */
++        opts[i].data = opts[0].data + options->storage_size;
++        options->storage_size += option_size;
++
++        uint8_t* dest = opts[i].data;
++        _write_option(&dest, delta, value, value_size);
++        opts[i].number = number;
++        opts[i].size = option_size;
++    }
++
++    return 0;
+ }
+ 
+ int unicoap_options_add_values_joined(unicoap_options_t* options, unicoap_option_number_t number,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+   text	   data	    bss	    dec	    hex	filename
+ 125175	  43144	  82464	 250783	  3d39f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+test_unicoap.test_out_of_order (tests/unittests/tests-unicoap/tests-unicoap-options.c 54) exp -111 was 0
+.
+test_unicoap.test_idempotent (tests/unittests/tests-unicoap/tests-unicoap-options.c 54) exp -111 was 0
+..........
+run 16 failures 2
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc868fc000; bottom 0x00000043c000; size: 0x7ffc864c0000 (140722561613824)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

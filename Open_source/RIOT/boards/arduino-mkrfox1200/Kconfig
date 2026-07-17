@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "arduino-mkrfox1200" if BOARD_ARDUINO_MKRFOX1200
+
+config BOARD_ARDUINO_MKRFOX1200
+    bool
+    default y
+    select BOARD_COMMON_ARDUINO_MKR
+
+source "$(RIOTBOARD)/common/arduino-mkr/Kconfig"

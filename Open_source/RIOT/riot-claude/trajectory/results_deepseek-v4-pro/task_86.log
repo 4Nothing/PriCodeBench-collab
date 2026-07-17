@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The function now locks the mutex, reads the `used` counter, unlocks, and returns the count — consistent with how `used` is managed in `credman_add` (increments under `_mutex`) and `credman_delete` (decrements under `_mutex`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -404,7 +404,10 @@
+ 
+ int credman_get_used_count(void)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&_mutex);
++    int count = (int)used;
++    mutex_unlock(&_mutex);
++    return count;
+ }
+ 
+ static int _find_credential_pos(credman_tag_t tag, credman_type_t type,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+rm -Rf /tmp/build/pkg/tiny-asn1
+mkdir -p $(dirname /tmp/build/pkg/tiny-asn1)
+cp -a /workspace/build/pkg/tiny-asn1/ /tmp/build/pkg/tiny-asn1
+touch /tmp/build/pkg/tiny-asn1/.prepared
+"make" -C /workspace/pkg/tiny-asn1/ 
+"make" -C /tmp/build/pkg/tiny-asn1/src -f /workspace/Makefile.base MODULE=tiny-asn1
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-credman
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/credman
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  94715	  32840	  78440	 205995	  324ab	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==380==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc65956000; bottom 0x000000431000; size: 0x7ffc65525000 (140722008379392)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

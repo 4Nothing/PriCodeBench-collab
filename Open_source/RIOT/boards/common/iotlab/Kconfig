@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_IOTLAB
+    bool
+    select CPU_MODEL_STM32F103RE
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+config CLOCK_HSE
+    default 16000000
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

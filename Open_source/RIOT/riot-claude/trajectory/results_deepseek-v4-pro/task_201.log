@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Null checks**: Returns NULL if `result` or `addr` is NULL
+- **Parses 4 decimal octets** (0-255) separated by dots, using the `DEC` lookup string for digit validation
+- **Bounds-checked**: Only reads up to `addr_len` characters, and verifies all characters are consumed (no trailing garbage)
+- **Validates structure**: Each octet must start with a digit, must have at least one digit, and octets 1-3 must be followed by `.`
+- **Stores result** directly into `result->u8[0..3]` in network byte order (most significant octet first)
+
+The implementation follows the classic `inet_pton4` pattern by Paul Vixie as referenced in the comment, adapted to work with an explicit buffer length instead of a null-terminated string.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c
++++ sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c
+@@ -24,7 +24,54 @@
+ ipv4_addr_t *ipv4_addr_from_buf(ipv4_addr_t *result, const char *addr,
+                                 size_t addr_len)
+ {
+-    /* MASKED - implement this function */
++    const char *p, *end;
++    unsigned int val;
++    int seen_digits;
++    int i;
++
++    if ((result == NULL) || (addr == NULL)) {
++        return NULL;
++    }
++
++    p = addr;
++    end = addr + addr_len;
++
++    for (i = 0; i < 4; i++) {
++        val = 0;
++        seen_digits = 0;
++
++        if (p >= end || strchr(DEC, *p) == NULL) {
++            return NULL;
++        }
++
++        while (p < end && strchr(DEC, *p) != NULL) {
++            val = (val * 10) + (*p - '0');
++            seen_digits++;
++            if (val > 255) {
++                return NULL;
++            }
++            p++;
++        }
++
++        if (seen_digits == 0) {
++            return NULL;
++        }
++
++        result->u8[i] = (uint8_t)val;
++
++        if (i < 3) {
++            if (p >= end || *p != '.') {
++                return NULL;
++            }
++            p++;
++        }
++    }
++
++    if (p != end) {
++        return NULL;
++    }
++
++    return result;
+ }
+ 
+ ipv4_addr_t *ipv4_addr_from_str(ipv4_addr_t *result, const char *addr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv4_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv4/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  88523	  34264	  78120	 200907	  310cb	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...................
+OK (19 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffff7653000; bottom 0x000000430000; size: 0x7ffff7223000 (140737339600896)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

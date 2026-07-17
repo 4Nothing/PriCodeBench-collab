@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function follows the same patterns already established in the file:
+
+- **`BITARITHM_HAS_CLZ` path**: Uses `__builtin_clz` (count leading zeros) with the same formula `8 * sizeof(unsigned) - __builtin_clz(v) - 1` that `bitarithm_test_and_clear` uses at line 243.
+- **Fallback path**: Delegates to `bitarith_msb_32bit_no_native_clz`, the software implementation declared at line 145 for platforms without native CLZ support.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/bitarithm.h
++++ core/lib/include/bitarithm.h
+@@ -148,7 +148,11 @@
+ 
+ static inline unsigned bitarithm_msb(unsigned v)
+ {
+-    /* MASKED - implement this function */
++#if defined(BITARITHM_HAS_CLZ)
++    return 8 * sizeof(unsigned) - __builtin_clz(v) - 1;
++#else
++    return bitarith_msb_32bit_no_native_clz(v);
++#endif
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 134947	  51816	  96776	 283539	  45393	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffedd71a000; bottom 0x000000440000; size: 0x7ffedd2da000 (140732609175552)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

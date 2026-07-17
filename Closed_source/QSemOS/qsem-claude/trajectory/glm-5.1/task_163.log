@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. The `#else` branch of `OsSemPostErrorCheck` (lines 56-74) now:
+
+1. **Unused semaphore check** — returns `OS_ERRNO_SEM_INVALID` if the semaphore's `semStat` is `OS_SEM_UNUSED`
+2. **Overflow check** — returns `OS_ERRNO_SEM_OVERFLOW` if the counting semaphore's count has already reached `OS_SEM_COUNT_MAX`
+3. **Pass** — returns `OS_OK` otherwise
+
+This mirrors the `#if defined(OS_OPTION_BIN_SEM)` version but omits the binary/mutex-specific checks (interrupt context, ownership) since binary semaphores don't exist when that option is disabled.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -56,7 +56,18 @@
+ #else
+ OS_SEC_ALW_INLINE INLINE U32 OsSemPostErrorCheck(struct TagSemCb *semPosted, SemHandle semHandle)
+ {
+-    /* MASKED - implement this function */
++    (void)semHandle;
++    /* 检查信号量控制块是否UNUSED，排除大部分错误场景 */
++    if (semPosted->semStat == OS_SEM_UNUSED)
++    {
++        return OS_ERRNO_SEM_INVALID;
++    }
++    /* 释放计数型信号量且信号量计数大于最大计数 */
++    if (semPosted->semCount >= OS_SEM_COUNT_MAX)
++    {
++        return OS_ERRNO_SEM_OVERFLOW;
++    }
++    return OS_OK;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)semHandle;
+    /* 检查信号量控制块是否UNUSED，排除大部分错误场景 */
+    if (semPosted->semStat == OS_SEM_UNUSED)
+    {
+        return OS_ERRNO_SEM_INVALID;
+    }
+    /* 释放计数型信号量且信号量计数大于最大计数 */
+    if (semPosted->semCount >= OS_SEM_COUNT_MAX)
+    {
+        return OS_ERRNO_SEM_OVERFLOW;
+    }
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test_OsSemPostErrorCheck test_OsSemPostErrorCheck.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsSemPostErrorCheck test
+UNUSED sem => expected=1, actual=1
+count at MAX => expected=2, actual=2
+count below MAX => expected=0, actual=0
+count zero => expected=0, actual=0
+count mid => expected=0, actual=0
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsSemPostErrorCheck.c:4:
+test_helpers.h:14:28: warning: ‘struct TagTskCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   14 | void test_init_task(struct TagTskCb *tcb, U32 pid, U32 prio);
+      |                            ^~~~~~~~
+test_helpers.h:15:27: warning: ‘struct TagSemCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                           ^~~~~~~~
+test_OsSemPostErrorCheck.c: In function ‘main’:
+test_OsSemPostErrorCheck.c:24:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   24 |     test_init_sem(&s, OS_SEM_UNUSED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostErrorCheck.c:28:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   28 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), OS_SEM_COUNT_MAX, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostErrorCheck.c:32:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   32 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), OS_SEM_COUNT_MAX - 1, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostErrorCheck.c:36:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   36 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostErrorCheck.c:40:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   40 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 5, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+
+
+

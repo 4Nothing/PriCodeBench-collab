@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "ikea-tradfri" if BOARD_IKEA_TRADFRI
+
+config BOARD_IKEA_TRADFRI
+    bool
+    default y
+    select CPU_MODEL_EFR32MG1P132F256GM32

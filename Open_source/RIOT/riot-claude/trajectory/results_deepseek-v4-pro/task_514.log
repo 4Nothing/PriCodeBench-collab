@@ -1,0 +1,115 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `ieee802154_get_iid` does at `sys/include/net/ieee802154.h:709`:
+
+**addr_len == 2** (short address): Forms the IID as `00:00:00:ff:fe:00:XX:XX` per RFC 4944 section 6.
+
+**addr_len == 4** (PAN ID + short address): Forms the IID as `PP:PP:00:ff:fe:00:SS:SS` per RFC 6282 section 3.2.2 — the PAN ID replaces the leading zeros of the standard short-address prefix, with `0xff 0xfe` remaining at bytes 3-4 and the short address in bytes 6-7.
+
+**addr_len == 8** (EUI-64 long address): Copies the address directly.
+
+**Any other length**: Returns NULL.
+
+The U/L bit is left at 0 for short-address-derived IIDs (the `memset` plus RFC 6282 convention) and preserved as-is for EUI-64 addresses. This matches the caller in `l2util.c` which does not perform additional U/L bit flipping for IEEE 802.15.4 devices.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ieee802154.h
++++ sys/include/net/ieee802154.h
+@@ -709,7 +709,40 @@
+ static inline eui64_t *ieee802154_get_iid(eui64_t *eui64, const uint8_t *addr,
+                                           size_t addr_len)
+ {
+-    /* MASKED - implement this function */
++    memset(eui64, 0, sizeof(eui64_t));
++
++    switch (addr_len) {
++    case IEEE802154_SHORT_ADDRESS_LEN:
++        /*
++         * RFC 4944, section 6: IID = 0000:00ff:fe00:XXXX
++         * in network byte order: 00 00 00 ff fe 00 XX XX
++         */
++        eui64->uint8[3] = 0xff;
++        eui64->uint8[4] = 0xfe;
++        eui64->uint8[6] = addr[0];
++        eui64->uint8[7] = addr[1];
++        break;
++    case (IEEE802154_SHORT_ADDRESS_LEN + IEEE802154_SHORT_ADDRESS_LEN):
++        /*
++         * RFC 6282, section 3.2.2:
++         * IID = PAN_ID[0..15] || 0000:00ff:fe00:0000
++         * with short address replacing the last 16 bits.
++         */
++        eui64->uint8[0] = addr[0];
++        eui64->uint8[1] = addr[1];
++        eui64->uint8[3] = 0xff;
++        eui64->uint8[4] = 0xfe;
++        eui64->uint8[6] = addr[2];
++        eui64->uint8[7] = addr[3];
++        break;
++    case IEEE802154_LONG_ADDRESS_LEN:
++        memcpy(eui64->uint8, addr, IEEE802154_LONG_ADDRESS_LEN);
++        break;
++    default:
++        return NULL;
++    }
++
++    return eui64;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 152855	  36616	  78152	 267623	  41567	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..................................................................
+ieee802154_tests.test_ieee802154_get_iid_addr_len_4 (tests/unittests/tests-ieee802154/tests-ieee802154.c 1126) exp 0 was 2
+.
+ieee802154_tests.test_ieee802154_get_iid_addr_len_8 (tests/unittests/tests-ieee802154/tests-ieee802154.c 1136) exp 0 was 2
+..
+run 69 failures 2
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffce761c000; bottom 0x000000441000; size: 0x7ffce71db000 (140724185968640)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

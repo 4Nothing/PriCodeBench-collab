@@ -1,0 +1,150 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `OsTaskNameAdd` now does:
+
+- Resolves the TCB from the task ID via `GET_TCB_HANDLE`
+- Copies the name string into `taskCb->name` using `strncpy_s` (secure copy), with a max of `OS_TSK_NAME_LEN - 1` (15) characters to ensure null-termination within the 16-byte buffer
+- If `strncpy_s` fails, triggers a fatal system error via `OS_GOTO_SYS_ERROR1()`
+- Returns `OS_OK` on success
+
+This matches the pattern used in the sibling function `OsTaskInfoCommonGet` in `prt_task_info.c` and follows the expected behavior from the test suite: basic copy, truncation of long names, handling of empty strings, overwrites, and per-ID independent storage.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -83,7 +83,13 @@
+ 
+ OS_SEC_L4_TEXT U32 OsTaskNameAdd(U32 taskId, const char *name)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *taskCb = GET_TCB_HANDLE(taskId);
++    /* 不检测线程名同名 */
++    if (strncpy_s(taskCb->name, sizeof(taskCb->name), name, OS_TSK_NAME_LEN - 1) != EOK) {
++        OS_GOTO_SYS_ERROR1();
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT void OsTaskNameGet(U32 taskId, char **taskName)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *taskCb = GET_TCB_HANDLE(taskId);
+    /* 不检测线程名同名 */
+    if (strncpy_s(taskCb->name, sizeof(taskCb->name), name, OS_TSK_NAME_LEN - 1) != EOK) {
+        OS_GOTO_SYS_ERROR1();
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskNameAdd.c
+[CASE] return OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] name stored
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] truncate returns OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] name truncated to max length
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] OK for empty name (copies NUL)
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] stored empty
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] OK overwrite
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] updated value
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] id10 name a
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] id11 name b
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTaskNameAdd.c:4:
+auto_stub.h:1282:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1282 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1278:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1278 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1277:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1276:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1276 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

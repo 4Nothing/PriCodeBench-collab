@@ -1,0 +1,67 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward — it writes the host-byte-order `offset` value to `hdr->offset.u16` in network byte order using `htons()`, which is the inverse of how `sixlowpan_sfr_rfrag_get_offset` reads it back with `byteorder_ntohs()`. This matches the pattern used by `sixlowpan_sfr_rfrag_set_frag_size` for the `ar_seq_fs` field.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/sixlowpan/sfr.h
++++ sys/include/net/sixlowpan/sfr.h
+@@ -327,7 +327,7 @@
+ static inline void sixlowpan_sfr_rfrag_set_offset(sixlowpan_sfr_rfrag_t *hdr,
+                                                   uint16_t offset)
+ {
+-    /* MASKED - implement this function */
++    hdr->offset.u16 = htons(offset);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_sfr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  75942	  31464	  78120	 185526	  2d4b6	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd4e50d000; bottom 0x00000042d000; size: 0x7ffd4e0e0000 (140725912993792)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

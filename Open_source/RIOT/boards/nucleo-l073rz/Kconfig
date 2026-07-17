@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l073rz" if BOARD_NUCLEO_L073RZ
+
+config BOARD_NUCLEO_L073RZ
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32L073RZ
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

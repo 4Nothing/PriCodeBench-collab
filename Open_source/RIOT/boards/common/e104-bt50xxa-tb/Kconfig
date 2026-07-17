@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2020 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_E104_BT50XXA_TB
+    bool
+    select BOARD_COMMON_NRF52
+
+source "$(RIOTBOARD)/common/nrf52/Kconfig"

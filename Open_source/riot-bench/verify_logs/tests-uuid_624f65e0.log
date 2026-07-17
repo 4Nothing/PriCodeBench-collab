@@ -1,0 +1,51 @@
+=== COMMAND ===
+cd tests/unittests && make BOARD=native64 tests-uuid -j && ./bin/native64/tests_unittests.elf
+
+=== STDOUT ===
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /home/carl/RIOT/boards
+"make" -C /home/carl/RIOT/boards/native64
+"make" -C /home/carl/RIOT/core
+"make" -C /home/carl/RIOT/core/lib
+"make" -C /home/carl/RIOT/cpu/native
+"make" -C /home/carl/RIOT/drivers
+"make" -C /home/carl/RIOT/sys
+"make" -C /home/carl/RIOT/boards/common/native
+"make" -C /home/carl/RIOT/tests/unittests/tests-uuid
+"make" -C /home/carl/RIOT/boards/common/init
+"make" -C /home/carl/RIOT/drivers/periph_common
+"make" -C /home/carl/RIOT/sys/crypto
+"make" -C /home/carl/RIOT/sys/embunit
+"make" -C /home/carl/RIOT/sys/fmt
+"make" -C /home/carl/RIOT/sys/hashes
+"make" -C /home/carl/RIOT/sys/libc
+"make" -C /home/carl/RIOT/boards/common/native/drivers
+"make" -C /home/carl/RIOT/sys/luid
+"make" -C /home/carl/RIOT/sys/random
+"make" -C /home/carl/RIOT/sys/stdio
+"make" -C /home/carl/RIOT/cpu/native/periph
+"make" -C /home/carl/RIOT/sys/test_utils/print_stack_usage
+"make" -C /home/carl/RIOT/cpu/native/stdio_native
+"make" -C /home/carl/RIOT/sys/uuid
+   text	   data	    bss	    dec	    hex	filename
+ 122159	  35712	  78768	 236639	  39c5f	/home/carl/RIOT/tests/unittests/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+=== STDERR ===
+==133586==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe516a9000; bottom 0x000000438000; size: 0x7ffe51271000 (140730259935232)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==133586==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+=== RC ===
+0

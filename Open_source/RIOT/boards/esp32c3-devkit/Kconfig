@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-FileCopyrightText: 2022 Gunar Schorcht
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "esp32c3-devkit" if BOARD_ESP32C3_DEVKIT
+
+config BOARD_ESP32C3_DEVKIT
+    bool
+    default y
+    select BOARD_COMMON_ESP32C3
+    select CPU_MODEL_ESP32C3_MINI_1X
+
+source "$(RIOTBOARD)/common/esp32c3/Kconfig"

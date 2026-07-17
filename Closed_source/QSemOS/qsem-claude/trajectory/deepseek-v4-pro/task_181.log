@@ -1,0 +1,51 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `OsQueueRegister` validates that `maxQueue` is non-zero (returning `OS_ERRNO_QUEUE_MAXNUM_ZERO` if it is), then stores the value in the global `g_maxQueue` and returns `OS_OK`. This mirrors how `OsQueueConfigInit` (line 20) uses `g_maxQueue` to allocate the queue control block array, and how `OsQueueCreate` (line 69) iterates up to `g_maxQueue` when searching for a free slot.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -9,7 +9,12 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueRegister(U16 maxQueue)
+ {
+-    /* MASKED - implement this function */
++    if (maxQueue == 0) {
++        return OS_ERRNO_QUEUE_MAXNUM_ZERO;
++    }
++
++    g_maxQueue = maxQueue;
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueConfigInit(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (maxQueue == 0) {
+        return OS_ERRNO_QUEUE_MAXNUM_ZERO;
+    }
+
+    g_maxQueue = maxQueue;
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueRegister.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 9 / total 9)
+
+--- stderr ---
+
+
+

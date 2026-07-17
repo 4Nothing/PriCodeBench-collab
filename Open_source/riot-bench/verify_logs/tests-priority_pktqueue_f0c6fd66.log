@@ -1,0 +1,60 @@
+=== COMMAND ===
+cd tests/unittests && make BOARD=native64 tests-priority_pktqueue -j && ./bin/native64/tests_unittests.elf
+
+=== STDOUT ===
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /home/carl/RIOT/boards
+"make" -C /home/carl/RIOT/boards/native64
+"make" -C /home/carl/RIOT/core
+"make" -C /home/carl/RIOT/core/lib
+"make" -C /home/carl/RIOT/cpu/native
+"make" -C /home/carl/RIOT/drivers
+"make" -C /home/carl/RIOT/boards/common/native
+"make" -C /home/carl/RIOT/sys
+"make" -C /home/carl/RIOT/boards/common/init
+"make" -C /home/carl/RIOT/tests/unittests/tests-priority_pktqueue
+"make" -C /home/carl/RIOT/drivers/periph_common
+"make" -C /home/carl/RIOT/boards/common/native/drivers
+"make" -C /home/carl/RIOT/sys/embunit
+"make" -C /home/carl/RIOT/sys/event
+"make" -C /home/carl/RIOT/sys/fmt
+"make" -C /home/carl/RIOT/sys/frac
+"make" -C /home/carl/RIOT/sys/libc
+"make" -C /home/carl/RIOT/sys/net/gnrc
+"make" -C /home/carl/RIOT/sys/net/link_layer/l2util
+"make" -C /home/carl/RIOT/cpu/native/periph
+"make" -C /home/carl/RIOT/cpu/native/stdio_native
+"make" -C /home/carl/RIOT/sys/net/netif
+"make" -C /home/carl/RIOT/sys/stdio
+"make" -C /home/carl/RIOT/sys/net/gnrc/netapi
+"make" -C /home/carl/RIOT/sys/test_utils/print_stack_usage
+"make" -C /home/carl/RIOT/sys/net/gnrc/netif
+"make" -C /home/carl/RIOT/sys/ztimer
+"make" -C /home/carl/RIOT/sys/net/gnrc/netreg
+"make" -C /home/carl/RIOT/sys/net/gnrc/pkt
+"make" -C /home/carl/RIOT/sys/net/gnrc/pktbuf
+"make" -C /home/carl/RIOT/sys/net/gnrc/pktbuf_static
+"make" -C /home/carl/RIOT/sys/net/gnrc/priority_pktqueue
+"make" -C /home/carl/RIOT/sys/net/gnrc/netif/hdr
+   text	   data	    bss	    dec	    hex	filename
+ 120095	  37328	  85352	 242775	  3b457	/home/carl/RIOT/tests/unittests/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+=== STDERR ===
+==127112==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffef6523000; bottom 0x000000439000; size: 0x7ffef60ea000 (140733026574336)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==127112==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+=== RC ===
+0

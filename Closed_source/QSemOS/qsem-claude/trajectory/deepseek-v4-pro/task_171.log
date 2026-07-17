@@ -1,0 +1,242 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The `OsInnerPend` function now handles these five cases:
+
+1. **Fast path** (lines 53-56): If `*count > 0`, decrement and return `OS_OK` — resource is available without blocking.
+
+2. **No-wait timeout** (lines 59-61): If `timeOut == OS_QUEUE_NO_WAIT` and no resource available, return `OS_ERRNO_QUEUE_NO_SOURCE`.
+
+3. **Interrupt context** (lines 63-65): If called from interrupt (`OS_INT_ACTIVE`), return `OS_ERRNO_QUEUE_IN_INTERRUPT` — blocking not allowed in ISR.
+
+4. **Task lock held** (lines 68-70): If `OS_TASK_LOCK_DATA != 0`, return `OS_ERRNO_QUEUE_PEND_IN_LOCK` — scheduler is locked.
+
+5. **Blocking path** (lines 72-111): Removes the current task from the ready list, adds it to the queue's pend list, sets the appropriate status flags, optionally arms a timeout timer, unlocks the queue CB, triggers a schedule, re-locks, and checks whether the task was woken by a post or by a timeout. Returns `OS_ERRNO_QUEUE_TIMEOUT` or `OS_OK` accordingly.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -47,7 +47,68 @@
+ OS_SEC_ALW_INLINE INLINE U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut,
+                                          struct TagQueCb *queueCb)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *runTsk = NULL;
++
++    /* 判断是否需要阻塞 */
++    if (*count > 0) {
++        (*count)--;
++        return OS_OK;
++    }
++
++    /* 阻塞任务 */
++    if (timeOut == OS_QUEUE_NO_WAIT) {
++        return OS_ERRNO_QUEUE_NO_SOURCE;
++    }
++
++    if (OS_INT_ACTIVE) {
++        return OS_ERRNO_QUEUE_IN_INTERRUPT;
++    }
++
++    /* 如果锁任务的情况下 */
++    if (OS_TASK_LOCK_DATA != 0) {
++        return OS_ERRNO_QUEUE_PEND_IN_LOCK;
++    }
++
++    /* 利用局部变量 runTsk 完成对任务控制块的相关操作，不修改 RUNNING_TASK */
++    runTsk = (struct TagTskCb *)RUNNING_TASK;
++
++    /* 从任务的Ready list上把当前任务删除，添加到pend list上 */
++    OsSpinLockTaskRq(runTsk);
++    OsTskReadyDel(runTsk);
++
++    TSK_STATUS_SET(runTsk, OS_TSK_QUEUE_PEND);
++    runTsk->taskPend = (void *)queueCb;
++    ListTailAdd(&runTsk->pendList, pendList);
++
++    /* 如果timeOut > 0,timeOut为等待时间，如果timeOut == OS_QUEUE_WAIT_FOREVER，表示永久等待 */
++    if (timeOut != OS_QUEUE_WAIT_FOREVER) {
++        /* 如果不是永久等待则将任务挂到计时器链表中，设置OS_TSK_TIMEOUT是为了判断是否等待超时 */
++        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
++        OsTskTimerAdd(runTsk, timeOut);
++    }
++
++    OsSpinUnlockTaskRq(runTsk);
++
++    /* 调用函数之前已经关中断，此处关中断进行调度 */
++    /* 触发任务调度 */
++    QUEUE_CB_UNLOCK(queueCb);
++    OsTskSchedule();
++    QUEUE_CB_LOCK(queueCb);
++
++    OsSpinLockTaskRq(runTsk);
++    TSK_STATUS_CLEAR(runTsk, OS_TSK_QUEUE_BUSY);
++
++    /* 判断是否是等待队列超时 */
++    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
++        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
++        OsSpinUnlockTaskRq(runTsk);
++
++        /* 在函数的外面会开中断 */
++        return OS_ERRNO_QUEUE_TIMEOUT;
++    }
++    OsSpinUnlockTaskRq(runTsk);
++    /* 在函数的外面会开中断 */
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE bool OsQueuePendNeedProc(struct TagListObject *objectList)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *runTsk = NULL;
+
+    /* 判断是否需要阻塞 */
+    if (*count > 0) {
+        (*count)--;
+        return OS_OK;
+    }
+
+    /* 阻塞任务 */
+    if (timeOut == OS_QUEUE_NO_WAIT) {
+        return OS_ERRNO_QUEUE_NO_SOURCE;
+    }
+
+    if (OS_INT_ACTIVE) {
+        return OS_ERRNO_QUEUE_IN_INTERRUPT;
+    }
+
+    /* 如果锁任务的情况下 */
+    if (OS_TASK_LOCK_DATA != 0) {
+        return OS_ERRNO_QUEUE_PEND_IN_LOCK;
+    }
+
+    /* 利用局部变量 runTsk 完成对任务控制块的相关操作，不修改 RUNNING_TASK */
+    runTsk = (struct TagTskCb *)RUNNING_TASK;
+
+    /* 从任务的Ready list上把当前任务删除，添加到pend list上 */
+    OsSpinLockTaskRq(runTsk);
+    OsTskReadyDel(runTsk);
+
+    TSK_STATUS_SET(runTsk, OS_TSK_QUEUE_PEND);
+    runTsk->taskPend = (void *)queueCb;
+    ListTailAdd(&runTsk->pendList, pendList);
+
+    /* 如果timeOut > 0,timeOut为等待时间，如果timeOut == OS_QUEUE_WAIT_FOREVER，表示永久等待 */
+    if (timeOut != OS_QUEUE_WAIT_FOREVER) {
+        /* 如果不是永久等待则将任务挂到计时器链表中，设置OS_TSK_TIMEOUT是为了判断是否等待超时 */
+        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
+        OsTskTimerAdd(runTsk, timeOut);
+    }
+
+    OsSpinUnlockTaskRq(runTsk);
+
+    /* 调用函数之前已经关中断，此处关中断进行调度 */
+    /* 触发任务调度 */
+    QUEUE_CB_UNLOCK(queueCb);
+    OsTskSchedule();
+    QUEUE_CB_LOCK(queueCb);
+
+    OsSpinLockTaskRq(runTsk);
+    TSK_STATUS_CLEAR(runTsk, OS_TSK_QUEUE_BUSY);
+
+    /* 判断是否是等待队列超时 */
+    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
+        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
+        OsSpinUnlockTaskRq(runTsk);
+
+        /* 在函数的外面会开中断 */
+        return OS_ERRNO_QUEUE_TIMEOUT;
+    }
+    OsSpinUnlockTaskRq(runTsk);
+    /* 在函数的外面会开中断 */
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsInnerPend test_OsInnerPend.c notifier_test_stubs.c
+ln -sf test_OsInnerPend test
+[CASE] OsInnerPend immediate
+  Expect: 0
+  Actual: 0
+[CASE] OsInnerPend no source
+  Expect: 8198
+  Actual: 8198
+[CASE] OsInnerPend in interrupt
+  Expect: 8199
+  Actual: 8199
+[CASE] OsInnerPend in lock
+  Expect: 8200
+  Actual: 8200
+[CASE] OsInnerPend timeout
+  Expect: 8201
+  Actual: 8201
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsInnerPend.c: In function ‘main’:
+test_OsInnerPend.c:7:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+    7 |     reset_task();
+      |     ^~~~~~~~~~
+In file included from test_OsInnerPend.c:2:
+func_under_test.c: At top level:
+func_under_test.c:63:5: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   63 |     OsSpinUnlockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~~~
+func_under_test.c:58:9: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   58 |         OsSpinUnlockTaskRq(runTsk);
+      |         ^~~~~~~~~~~~~~~~~~
+func_under_test.c:52:5: warning: ‘OsSpinLockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   52 |     OsSpinLockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~
+func_under_test.c:44:5: warning: ‘OsSpinUnlockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   44 |     OsSpinUnlockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~~~
+func_under_test.c:35:5: warning: ‘ListTailAdd’ is static but used in inline function ‘OsInnerPend’ which is not static
+   35 |     ListTailAdd(&runTsk->pendList, pendList);
+      |     ^~~~~~~~~~~
+func_under_test.c:30:5: warning: ‘OsSpinLockTaskRq’ is static but used in inline function ‘OsInnerPend’ which is not static
+   30 |     OsSpinLockTaskRq(runTsk);
+      |     ^~~~~~~~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:49:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   49 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:56:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   56 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:56:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   56 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:82:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:82:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:28:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   28 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:22:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   22 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+test_support.h:7:13: warning: ‘init_queue_cb’ defined but not used [-Wunused-function]
+    7 | static void init_queue_cb(struct TagQueCb *q, U8 *buf, U16 nodeSize, U16 nodeNum)
+      |             ^~~~~~~~~~~~~
+
+
+

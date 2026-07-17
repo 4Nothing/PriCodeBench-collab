@@ -1,0 +1,73 @@
+#ifndef TEST_COMMON_H
+#define TEST_COMMON_H
+
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include "auto_stub.h"
+// Note: ../include/common.h is NOT included because auto_stub.h provides the definitions
+// If additional definitions are needed, they should be added to auto_stub.h or handled via #ifndef guards
+
+static int g_total = 0;
+static int g_pass = 0;
+
+static void test_reset_stats(void)
+{
+    g_total = 0;
+    g_pass = 0;
+}
+
+#define EXPECT_INT_EQ(name, exp, act) do { \
+    printf("[CASE] %s\n", name); \
+    printf("  Expected: %d\n", exp); \
+    printf("  Actual  : %d\n", act); \
+    int ok = (exp == act); \
+    printf("  Result  : %s\n\n", ok ? "PASS" : "FAIL"); \
+    g_total++; g_pass += ok; \
+} while(0)
+
+#define EXPECT_UINT_EQ(name, exp, act) do { \
+    printf("[CASE] %s\n", name); \
+    printf("  Expected: %u\n", exp); \
+    printf("  Actual  : %u\n", act); \
+    int ok = (exp == act); \
+    printf("  Result  : %s\n\n", ok ? "PASS" : "FAIL"); \
+    g_total++; g_pass += ok; \
+} while(0)
+
+static void print_result(const char *case_name, U32 expected, U32 actual)
+{
+    printf("[CASE] %s\n", case_name);
+    printf("  Expected: 0x%08X\n", expected);
+    printf("  Actual  : 0x%08X\n", actual);
+    int ok = (expected == actual);
+    printf("  Result  : %s\n\n", ok ? "PASS" : "FAIL");
+    g_total++;
+    g_pass += ok;
+}
+
+static void RESET_COUNTERS(void)
+{
+    g_total = 0;
+    g_pass = 0;
+}
+
+static void print_result_int(const char *case_name, U32 expected, U32 actual)
+{
+    print_result(case_name, expected, actual);
+}
+
+static void print_pass_rate(void)
+{
+    double rate = g_total ? (100.0 * g_pass / g_total) : 0.0;
+    printf("Pass-Rate: %.2f%% (%d/%d)\n", rate, g_pass, g_total);
+}
+
+static int test_print_summary(void)
+{
+    double rate = g_total ? (100.0 * g_pass / g_total) : 0.0;
+    printf("Pass-Rate: %.2f%% (%d/%d)\n", rate, g_pass, g_total);
+    return (g_pass == g_total) ? 0 : 1;
+}
+
+#endif // TEST_COMMON_H

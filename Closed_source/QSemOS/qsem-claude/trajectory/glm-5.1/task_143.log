@@ -1,0 +1,196 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsHwiEndCheckTimeSlice` does:
+
+1. **Null guard** — returns immediately if `RUNNING_TASK` is NULL
+2. **Time slice update** — calls `OsTimeSliceUpdate` with the current cycle time, accounting for IRQ time discount if `OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT` is enabled (and resets `irqUsedTime` to 0)
+3. **Non-RR early return** — if the task's policy isn't `OS_TSK_SCHED_RR`, no further action needed
+4. **Still-has-time early return** — if `timeSlice` is still > 0 after the update, no scheduling request
+5. **Time slice expired** — removes the task from the ready queue, re-adds it to the tail, and if a different highest-priority task exists and the task lock (`g_uniTaskLock`) is 0, sets `OS_FLG_TSK_REQ` to trigger rescheduling
+
+This matches the expected behavior tested across 6 cases (NULL task, non-RR policy, remaining timeSlice, exhausted timeSlice with higher task available, exhausted timeSlice with current task still highest, and exhausted timeSlice under task lock).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sched/prt_sched_single.c
++++ src/core/kernel/sched/prt_sched_single.c
+@@ -20,7 +20,31 @@
+ /* 在中断尾部调用，更新当前任务的剩余时间片，并检查是否需要切换 */
+ OS_SEC_L0_TEXT void OsHwiEndCheckTimeSlice(U64 currTime)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *currTsk = RUNNING_TASK;
++    if (currTsk == NULL) {
++        return;
++    }
++#if defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
++    OsTimeSliceUpdate(currTsk, currTime, currTsk->irqUsedTime);
++    currTsk->irqUsedTime = 0;
++#else
++    OsTimeSliceUpdate(currTsk, currTime, 0);
++#endif
++    if (currTsk->policy != OS_TSK_SCHED_RR) {
++        return;
++    }
++
++    if (currTsk->timeSlice != 0) {
++        return;
++    }
++
++    OsTskReadyDel(currTsk);
++    /* 进队列后默认在队列尾部 */
++    OsTskReadyAdd(currTsk);
++    if ((g_highestTask != currTsk) && (g_uniTaskLock == 0)) {
++        UNI_FLAG |= OS_FLG_TSK_REQ;
++    }
++    return;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *currTsk = RUNNING_TASK;
+    if (currTsk == NULL) {
+        return;
+    }
+#if defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
+    OsTimeSliceUpdate(currTsk, currTime, currTsk->irqUsedTime);
+    currTsk->irqUsedTime = 0;
+#else
+    OsTimeSliceUpdate(currTsk, currTime, 0);
+#endif
+    if (currTsk->policy != OS_TSK_SCHED_RR) {
+        return;
+    }
+
+    if (currTsk->timeSlice != 0) {
+        return;
+    }
+
+    OsTskReadyDel(currTsk);
+    /* 进队列后默认在队列尾部 */
+    OsTskReadyAdd(currTsk);
+    if ((g_highestTask != currTsk) && (g_uniTaskLock == 0)) {
+        UNI_FLAG |= OS_FLG_TSK_REQ;
+    }
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsHwiEndCheckTimeSlice.c test_support.c notifier_test_stubs.c
+[Case] NULL current task
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] Non-RR policy no req
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] RR timeslice > 0 no req
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] RR timeslice -> 0 req set
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] RR timeslice -> 0 highest==curr
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] RR timeslice -> 0 but locked
+  Expect: 0
+  Actual: 0
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsHwiEndCheckTimeSlice.c: In function ‘main’:
+test_OsHwiEndCheckTimeSlice.c:67:5: warning: implicit declaration of function ‘init_task’ [-Wimplicit-function-declaration]
+   67 |     init_task(&other, 9, OS_TSK_SCHED_RR, 5);
+      |     ^~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_OsHwiEndCheckTimeSlice.c:9:
+auto_stub.h: At top level:
+auto_stub.h:1668:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1668 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1667:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1667 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1666 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1664:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1663:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1663 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1662:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1662 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1661:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1661 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1656:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1656 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1655:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1655 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_support.c:6:
+auto_stub.h:1668:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1668 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1667:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1667 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1666 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1664:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1663:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1663 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1662:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1662 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1661:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1661 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1656:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1656 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1655:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1655 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

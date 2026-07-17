@@ -1,0 +1,73 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It follows the same pattern as `bcd_buf_to_u64` (line 74): cast `src` to `const uint8_t *`, initialize a zero `uint32_t sum`, and use the existing `_BCD_CONVERT` macro which iterates through the BCD nibbles from most significant to least, doing `sum = sum * 10 + digit` at each step.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bcd/bcd.c
++++ sys/bcd/bcd.c
+@@ -68,7 +68,12 @@
+ 
+ uint32_t bcd_buf_to_u32(const void *src, size_t len)
+ {
+-    /* MASKED - implement this function */
++    const uint8_t *bcd = src;
++    uint32_t sum = 0;
++
++    _BCD_CONVERT(sum, len);
++
++    return sum;
+ }
+ 
+ uint64_t bcd_buf_to_u64(const void *src, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bcd
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bcd
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  77968	  31952	  78120	 188040	  2de88	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==324==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffd383a000; bottom 0x00000042d000; size: 0x7fffd340d000 (140736737628160)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

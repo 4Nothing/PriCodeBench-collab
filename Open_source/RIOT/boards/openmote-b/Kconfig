@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "openmote-b" if BOARD_OPENMOTE_B
+
+config BOARD_OPENMOTE_B
+    bool
+    default y
+    select CPU_MODEL_CC2538SF53

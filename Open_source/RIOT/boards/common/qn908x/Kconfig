@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2020 iosabi
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_QN908X
+    bool
+    depends on CPU_FAM_QN908X
+    # Add common board support here.

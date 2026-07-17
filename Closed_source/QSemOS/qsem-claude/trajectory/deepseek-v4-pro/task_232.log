@@ -1,0 +1,146 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsDynModuleSetError` now does:
+
+- **Lazy allocation**: On first call, allocates `g_dynModuleErrorStr` with `PRT_MemAlloc` using `OS_MODULE_ERROR_STR_LEN` bytes. If allocation fails, returns early.
+- **Zeroing**: Clears the buffer with `memset_s` before each write (since each call overwrites the previous error).
+- **Formatting**: Uses `vsnprintf_s` to safely format the variadic arguments into the buffer.
+- **Error cleanup**: If `vsnprintf_s` returns -1 (truncation or encoding error), frees the buffer and sets it to `NULL` so the next call will re-allocate.
+
+The function uses headers already included (`<stdarg.h>` for `va_list`, `securec.h` for `memset_s`/`vsnprintf_s`) and follows the existing memory allocation patterns used throughout the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -48,7 +48,22 @@
+  */
+ static void OsDynModuleSetError(const char *fmt, ...)
+ {
+-    /* MASKED - implement this function */
++    va_list ap;
++    va_start(ap, fmt);
++    if (g_dynModuleErrorStr == NULL) {
++        g_dynModuleErrorStr = (char *)PRT_MemAlloc(OS_MID_DYNAMIC, OS_MEM_DEFAULT_FSC_PT, OS_MODULE_ERROR_STR_LEN);
++        if (g_dynModuleErrorStr == NULL) {
++            va_end(ap);
++            return;
++        }
++    }
++    (void)memset_s(g_dynModuleErrorStr, OS_MODULE_ERROR_STR_LEN, 0, OS_MODULE_ERROR_STR_LEN);
++    int ret = vsnprintf_s(g_dynModuleErrorStr, OS_MODULE_ERROR_STR_LEN, OS_MODULE_ERROR_STR_LEN, fmt, ap);
++    if (ret == -1) {
++        (void)PRT_MemFree(OS_MID_DYNAMIC, g_dynModuleErrorStr);
++        g_dynModuleErrorStr = NULL;
++    }
++    va_end(ap);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    va_list ap;
+    va_start(ap, fmt);
+    if (g_dynModuleErrorStr == NULL) {
+        g_dynModuleErrorStr = (char *)PRT_MemAlloc(OS_MID_DYNAMIC, OS_MEM_DEFAULT_FSC_PT, OS_MODULE_ERROR_STR_LEN);
+        if (g_dynModuleErrorStr == NULL) {
+            va_end(ap);
+            return;
+        }
+    }
+    (void)memset_s(g_dynModuleErrorStr, OS_MODULE_ERROR_STR_LEN, 0, OS_MODULE_ERROR_STR_LEN);
+    int ret = vsnprintf_s(g_dynModuleErrorStr, OS_MODULE_ERROR_STR_LEN, OS_MODULE_ERROR_STR_LEN, fmt, ap);
+    if (ret == -1) {
+        (void)PRT_MemFree(OS_MID_DYNAMIC, g_dynModuleErrorStr);
+        g_dynModuleErrorStr = NULL;
+    }
+    va_end(ap);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleFileCheck.c
+[CASE] set error
+  Expected: error set
+  Actual  : set
+  Result  : PASS
+
+[CASE] null format
+  Expected: no crash
+  Actual  : ok
+  Result  : PASS
+
+Pass-Rate: 100.00% (2/2)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleFileCheck.c:6:
+auto_stub.h:49:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   49 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:631:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  631 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+test_common.h: At top level:
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:687:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  687 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:686:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  686 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:685:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  685 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  684 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:683:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  683 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  682 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:681:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  681 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:680:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  680 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  679 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  678 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  677 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  676 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  675 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

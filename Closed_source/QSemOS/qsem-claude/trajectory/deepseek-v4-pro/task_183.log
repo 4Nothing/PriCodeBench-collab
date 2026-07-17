@@ -1,0 +1,136 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsActivate` does:
+
+1. **`OsIdleTskSMPCreate()`** — Creates idle (background) tasks for each SMP core. Returns an error code if creation fails.
+
+2. **`OsTskHighestSet()`** — Scans the run queue to find and set `g_highestTask` to the highest-priority ready task.
+
+3. **`UNI_FLAG |= (OS_FLG_TSK_REQ | OS_FLG_BGD_ACTIVE)`** — Sets two system flags:
+   - `OS_FLG_BGD_ACTIVE` (0x0002): marks that background/idle tasks are active
+   - `OS_FLG_TSK_REQ` (0x1000): triggers the first reschedule
+
+4. **`OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_FIRST_TIME_SWH)`** — Invokes all registered first-time-switch multi-hooks before the scheduler starts.
+
+5. **`OsFirstTimeSwitch()`** — Performs the initial context switch into the first task. In normal operation this never returns — the scheduler takes over.
+
+6. **`return OS_ERRNO_TSK_ACTIVE_FAILED`** — Unreachable fallback if `OsFirstTimeSwitch()` somehow returns.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -147,7 +147,22 @@
+  */
+ OS_SEC_L4_TEXT U32 OsActivate(void)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++    ret = OsIdleTskSMPCreate();
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    OsTskHighestSet();
++
++    UNI_FLAG |= (OS_FLG_TSK_REQ | OS_FLG_BGD_ACTIVE);
++
++    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_FIRST_TIME_SWH);
++
++    OsFirstTimeSwitch();
++
++    return OS_ERRNO_TSK_ACTIVE_FAILED;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+    ret = OsIdleTskSMPCreate();
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    OsTskHighestSet();
+
+    UNI_FLAG |= (OS_FLG_TSK_REQ | OS_FLG_BGD_ACTIVE);
+
+    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_FIRST_TIME_SWH);
+
+    OsFirstTimeSwitch();
+
+    return OS_ERRNO_TSK_ACTIVE_FAILED;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsActivate.c
+
+--- stderr ---
+In file included from test_OsActivate.c:5:
+func_under_test.c: In function ‘OsActivate’:
+func_under_test.c:10:5: warning: implicit declaration of function ‘OsTskHighestSet’ [-Wimplicit-function-declaration]
+   10 |     OsTskHighestSet();
+      |     ^~~~~~~~~~~~~~~
+func_under_test.c:12:18: error: ‘OS_FLG_TSK_REQ’ undeclared (first use in this function); did you mean ‘OS_FLG_TSK_SWHK’?
+   12 |     UNI_FLAG |= (OS_FLG_TSK_REQ | OS_FLG_BGD_ACTIVE);
+      |                  ^~~~~~~~~~~~~~
+      |                  OS_FLG_TSK_SWHK
+func_under_test.c:12:18: note: each undeclared identifier is reported only once for each function it appears in
+In file included from test_OsActivate.c:4:
+auto_stub.h: At top level:
+auto_stub.h:1280:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1276:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1275:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1274:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1274 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+make: *** [Makefile:13: test] Error 1
+
+
+

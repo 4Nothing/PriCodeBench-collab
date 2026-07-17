@@ -1,0 +1,182 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `ieee802154_get_src` does:
+
+1. **Skips destination addressing fields** (offset 3 past FCF+seq) — handles short (4 bytes), long (10 bytes), void, and invalid dst modes. Beacon and ACK frames have no dst fields, so they're skipped.
+2. **Validates src address mode** — returns 0 if void (no source address).
+3. **Reads source PAN ID** — either from the frame at the current offset, or from the dst PAN field (bytes 3-4) when PAN compression is set.
+4. **Reads source address** in little-endian byte order — returns 2 for short addresses, 8 for long addresses, or `-EINVAL` for invalid modes.
+
+The implementation mirrors the patterns established by the sibling functions `ieee802154_get_dst` and `ieee802154_get_frame_hdr_len` in the same file, and matches the encoding layout used by `ieee802154_set_frame_hdr`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -165,7 +165,61 @@
+ 
+ int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
+ {
+-    /* MASKED - implement this function */
++    int offset = 3; /* FCF: 0-1, Seq: 2 */
++    uint8_t tmp;
++
++    assert((src != NULL) && (src_pan != NULL));
++
++    /* Skip destination addressing fields */
++    tmp = (mhr[0] & IEEE802154_FCF_TYPE_MASK);
++    if ((tmp != IEEE802154_FCF_TYPE_BEACON) && (tmp != IEEE802154_FCF_TYPE_ACK)) {
++        uint8_t dst_mode = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++        if (dst_mode == IEEE802154_FCF_DST_ADDR_SHORT) {
++            offset += 4;    /* 2 bytes dst PAN + 2 bytes dst address */
++        }
++        else if (dst_mode == IEEE802154_FCF_DST_ADDR_LONG) {
++            offset += 10;   /* 2 bytes dst PAN + 8 bytes dst address */
++        }
++        else if (dst_mode != IEEE802154_FCF_DST_ADDR_VOID) {
++            return -EINVAL;
++        }
++        else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++            /* PAN compression without destination address => illegal state */
++            return -EINVAL;
++        }
++    }
++
++    /* Parse source address mode */
++    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_SRC_ADDR_VOID) {
++        return 0;
++    }
++
++    /* Read source PAN ID */
++    if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++        /* PAN compression: src PAN equals dst PAN */
++        src_pan->u8[0] = mhr[3];
++        src_pan->u8[1] = mhr[4];
++    }
++    else {
++        src_pan->u8[0] = mhr[offset++];
++        src_pan->u8[1] = mhr[offset++];
++    }
++
++    /* Read source address (little endian) */
++    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
++        src[1] = mhr[offset++];
++        src[0] = mhr[offset++];
++        return 2;
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
++        for (int i = 7; i >= 0; i--) {
++            src[i] = mhr[offset++];
++        }
++        return 8;
++    }
++
++    return -EINVAL;
+ }
+ 
+ int ieee802154_get_dst(const uint8_t *mhr, uint8_t *dst, le_uint16_t *dst_pan)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 153853	  36616	  78152	 268621	  4194d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................
+ieee802154_tests.test_ieee802154_get_src_dstr (tests/unittests/tests-ieee802154/tests-ieee802154.c 518) exp -22 was 0
+.
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffc1c94000; bottom 0x000000441000; size: 0x7fffc1853000 (140736440119296)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+=================================================================
+==323==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x754fcc4015c3 at pc 0x00000040aa94 bp 0x00000043cc70 sp 0x00000043cc60
+READ of size 1 at 0x754fcc4015c3 thread T0
+    #0 0x40aa93 in ieee802154_get_src /workspace/sys/net/link_layer/ieee802154/ieee802154.c:205
+    #1 0x414673 in test_ieee802154_get_src_srcr /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:527
+    #2 0x408936 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x408790 in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x408eea in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x41abf9 in tests_ieee802154 /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:1245
+    #6 0x402987 in main /workspace/tests/unittests/main.c:47
+    #7 0x4037ad in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x754fce3d4f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+Address 0x754fcc4015c3 is located in stack of thread T0 at offset 67 in frame
+    #0 0x4145c9 in test_ieee802154_get_src_srcr /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:522
+
+  This frame has 3 object(s):
+    [32, 33) 'res_addr' (line 524)
+    [48, 50) 'res_pan' (line 525)
+    [64, 66) 'mhr' (line 523) <== Memory access at offset 67 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /workspace/sys/net/link_layer/ieee802154/ieee802154.c:205 in ieee802154_get_src
+Shadow bytes around the buggy address:
+  0x754fcc401300: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x754fcc401380: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x754fcc401400: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x754fcc401480: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x754fcc401500: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+=>0x754fcc401580: f1 f1 f1 f1 01 f2 02 f2[02]f3 f3 f3 00 00 00 00
+  0x754fcc401600: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x754fcc401680: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x754fcc401700: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x754fcc401780: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x754fcc401800: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==323==ABORTING
+
+
+

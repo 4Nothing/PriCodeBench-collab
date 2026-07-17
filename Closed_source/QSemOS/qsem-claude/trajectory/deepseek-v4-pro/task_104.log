@@ -1,0 +1,139 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function now:
+
+1. **Converts** the architecture-specific `archHwi` to a `hwiNum` via `OS_HWI_GET_HWINUM` (identity pass-through on all supported architectures)
+2. **Maps** `hwiNum` to the internal `irqNum` via `OS_HWI2IRQ` (subtracts `OS_HWI_MIN` on riscv64/x86_64, identity otherwise)
+3. **Looks up** the registered handler (`OsHwiFuncGet`) and parameter (`OsHwiParaGet`) from the `g_hwiForm` table indexed by `irqNum`
+4. **Fires** the HWI entry hook before dispatching
+5. **Calls** the handler with its registered argument
+6. **Fires** the HWI exit hook after the handler returns
+
+The implementation follows the existing patterns in the file: handler+arg lookup via `OsHwiFuncGet`/`OsHwiParaGet` (used throughout `OsHwiCombineDispatchHandler`, `OsHwiConnectHandle`, etc.), the `HwiArg` cast convention (visible at lines 293/325), and the hook activation macros used in the codebase.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -145,7 +145,16 @@
+ 
+ OS_SEC_TEXT void OsHwiHookDispatcher(HwiHandle archHwi)
+ {
+-    /* MASKED - implement this function */
++    HwiHandle hwiNum = OS_HWI_GET_HWINUM(archHwi);
++    U32 irqNum = OS_HWI2IRQ(hwiNum);
++    HwiProcFunc handler = OsHwiFuncGet(irqNum);
++    HwiArg arg = (HwiArg)OsHwiParaGet(irqNum);
++
++    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_ENTRY, hwiNum);
++
++    handler(arg);
++
++    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_EXIT, hwiNum);
+ }
+ 
+ static OS_SEC_L4_TEXT U32 OsHwiSetAttrParaCheck(HwiHandle hwiNum, HwiPrior hwiPrio, HwiMode mode)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    HwiHandle hwiNum = OS_HWI_GET_HWINUM(archHwi);
+    U32 irqNum = OS_HWI2IRQ(hwiNum);
+    HwiProcFunc handler = OsHwiFuncGet(irqNum);
+    HwiArg arg = (HwiArg)OsHwiParaGet(irqNum);
+
+    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_ENTRY, hwiNum);
+
+    handler(arg);
+
+    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_EXIT, hwiNum);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test_OsHwiHookDispatcher test_OsHwiHookDispatcher.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsHwiHookDispatcher test
+
+--- stderr ---
+In file included from test_OsHwiHookDispatcher.c:4:
+func_under_test.c: In function ‘OsHwiHookDispatcher’:
+func_under_test.c:5:27: warning: implicit declaration of function ‘OsHwiFuncGet’; did you mean ‘OsHwiFuncSet’? [-Wimplicit-function-declaration]
+    5 |     HwiProcFunc handler = OsHwiFuncGet(irqNum);
+      |                           ^~~~~~~~~~~~
+      |                           OsHwiFuncSet
+func_under_test.c:5:27: warning: initialization of ‘HwiProcFunc’ {aka ‘void (*)(long unsigned int)’} from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+func_under_test.c:6:26: warning: implicit declaration of function ‘OsHwiParaGet’; did you mean ‘OsHwiParaSet’? [-Wimplicit-function-declaration]
+    6 |     HwiArg arg = (HwiArg)OsHwiParaGet(irqNum);
+      |                          ^~~~~~~~~~~~
+      |                          OsHwiParaSet
+In file included from prt_irq_internal.h:2,
+                 from test_OsHwiHookDispatcher.c:3:
+auto_stub.h: At top level:
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_OsHwiHookDispatcher.c:1:
+test_support.h:51:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   51 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:45:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   45 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+In file included from test_stubs.c:1:
+test_support.h:51:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   51 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:45:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   45 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+Segmentation fault (core dumped)
+
+
+

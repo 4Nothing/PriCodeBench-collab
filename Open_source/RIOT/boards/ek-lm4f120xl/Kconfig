@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "ek-lm4f120xl" if BOARD_EK_LM4F120XL
+
+config BOARD_EK_LM4F120XL
+    bool
+    default y
+    select CPU_MODEL_LM4F120H5QR

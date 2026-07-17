@@ -1,0 +1,7 @@
+void turo_dict_string(turo_t *ctx, const char *key, const char *val)
+{
+    turo_dict_open(ctx);
+    turo_dict_key(ctx, key);
+    turo_string(ctx, val);
+    turo_dict_close(ctx);
+}

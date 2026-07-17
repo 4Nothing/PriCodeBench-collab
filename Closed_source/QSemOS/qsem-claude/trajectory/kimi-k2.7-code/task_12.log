@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsTaskPrioritySetCheck` in `src/core/kernel/task/smp/prt_task_priority.c:55`.
+
+The function now validates inputs in the following order:
+1. Priority range — returns `OS_ERRNO_TSK_PRIOR_ERROR` if `taskPrio > OS_TSK_PRIORITY_LOWEST`
+2. PID overflow — returns `OS_ERRNO_TSK_ID_INVALID` if `CHECK_TSK_PID_OVERFLOW(taskPid)` is true
+3. Idle task — returns `OS_ERRNO_TSK_OPERATE_IDLE` if `taskPid >= g_tskMaxNum`
+4. Otherwise returns `OS_OK`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_priority.c
++++ src/core/kernel/task/smp/prt_task_priority.c
+@@ -54,7 +54,22 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsTaskPrioritySetCheck(TskHandle taskPid, TskPrior taskPrio)
+ {
+-    /* MASKED - implement this function */
++    if (taskPrio > OS_TSK_PRIORITY_LOWEST)
++    {
++        return OS_ERRNO_TSK_PRIOR_ERROR;
++    }
++
++    if (CHECK_TSK_PID_OVERFLOW(taskPid))
++    {
++        return OS_ERRNO_TSK_ID_INVALID;
++    }
++
++    if (taskPid >= g_tskMaxNum)
++    {
++        return OS_ERRNO_TSK_OPERATE_IDLE;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSemPrioBListLock(struct TagTskCb *taskCb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (taskPrio > OS_TSK_PRIORITY_LOWEST)
+    {
+        return OS_ERRNO_TSK_PRIOR_ERROR;
+    }
+
+    if (CHECK_TSK_PID_OVERFLOW(taskPid))
+    {
+        return OS_ERRNO_TSK_ID_INVALID;
+    }
+
+    if (taskPid >= g_tskMaxNum)
+    {
+        return OS_ERRNO_TSK_OPERATE_IDLE;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskPrioritySetCheck.c
+[CASE] prio within range
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] prio out of range
+  Expected: 4100
+  Actual  : 4100
+  Result  : PASS
+
+[CASE] pid overflow
+  Expected: 4097
+  Actual  : 4097
+  Result  : PASS
+
+[CASE] operate idle
+  Expected: 4101
+  Actual  : 4101
+  Result  : PASS
+
+[CASE] boundary lowest ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] boundary highest ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+
+
+

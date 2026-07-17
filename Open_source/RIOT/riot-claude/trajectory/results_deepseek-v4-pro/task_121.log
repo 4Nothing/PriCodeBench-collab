@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now initializes both `sum1` and `sum2` to `0`, matching the standard Fletcher16 algorithm where both accumulators start at zero before processing any data.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/fletcher16.c
++++ sys/checksum/fletcher16.c
+@@ -28,7 +28,8 @@
+ 
+ void fletcher16_init(fletcher16_ctx_t *ctx)
+ {
+-    /* MASKED - implement this function */
++    ctx->sum1 = 0;
++    ctx->sum2 = 0;
+ }
+ 
+ void fletcher16_update(fletcher16_ctx_t *ctx, const uint8_t *data, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123095	  42464	  78120	 243679	  3b7df	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...........................................
+checksum_fletcher16_tests.test_checksum_fletcher16_empty (tests/unittests/tests-checksum/tests-checksum-fletcher16.c 31) calc_and_compare_checksum(buf, sizeof(buf) - 1, expect)
+...............
+run 58 failures 1
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcf9b6e000; bottom 0x00000043a000; size: 0x7ffcf9734000 (140724493565952)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,59 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors `PRT_PerfNotifyHookReg` exactly: acquires the spinlock, delegates to `OsPerfFlushHookReg` (which in `prt_perf_output.c:129` assigns `g_perfBufFlushHook = func`), and releases the lock. This is consistent with all other public API functions in the file (`PRT_PerfConfig`, `PRT_PerfStart`, `PRT_PerfStop`, `PRT_PerfNotifyHookReg`) that protect shared state under `g_perfSpin`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -494,7 +494,13 @@
+ 
+ void PRT_PerfFlushHookReg(const PERF_BUF_FLUSH_HOOK func)
+ {
+-    /* MASKED - implement this function */
++    U32 intSave;
++
++    PERF_LOCK(intSave);
++    OsPerfFlushHookReg(func);
++    PERF_UNLOCK(intSave);
++
++    return;
+ }
+ 
+ void OsPerfSetIrqRegs(uintptr_t pc, uintptr_t fp)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 intSave;
+
+    PERF_LOCK(intSave);
+    OsPerfFlushHookReg(func);
+    PERF_UNLOCK(intSave);
+
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfFlushHookReg.c test_stubs.c
+[Flush hook registered] -> PASS
+[Re-register ok] -> PASS
+Pass-Rate: 100.00% (2/2)
+
+--- stderr ---
+In file included from test_PRT_PerfFlushHookReg.c:3:
+test_util.h:27:13: warning: ‘TU_EXPECT_EQ_U32’ defined but not used [-Wunused-function]
+   27 | static void TU_EXPECT_EQ_U32(U32 expected, U32 actual, const char *name)
+      |             ^~~~~~~~~~~~~~~~
+
+
+

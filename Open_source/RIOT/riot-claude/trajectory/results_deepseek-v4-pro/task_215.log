@@ -1,0 +1,83 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the exact same pattern as `isrpipe_write_one` (line 28-38):
+
+1. `tsrb_add` writes up to `n` bytes from `buf` into the ringbuffer, returning the number actually written
+2. `mutex_unlock` wakes any blocked reader
+3. The return value forwards the byte count from `tsrb_add`
+
+`tsrb_add` is ISR-safe (it disables/restores interrupts internally), so this function can safely be called from an ISR context — which is the whole purpose of the `isrpipe` abstraction.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/isrpipe/isrpipe.c
++++ sys/isrpipe/isrpipe.c
+@@ -39,7 +39,11 @@
+ 
+ int isrpipe_write(isrpipe_t *isrpipe, const uint8_t *buf, size_t n)
+ {
+-    /* MASKED - implement this function */
++    int res = tsrb_add(&isrpipe->tsrb, buf, n);
++
++    mutex_unlock(&isrpipe->mutex);
++
++    return res;
+ }
+ 
+ int isrpipe_read(isrpipe_t *isrpipe, uint8_t *buffer, size_t count)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-isrpipe
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/isrpipe
+"make" -C /workspace/sys/isrpipe/read_timeout
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  95196	  34296	  82728	 212220	  33cfc	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==381==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff04cf4000; bottom 0x000000431000; size: 0x7fff048c3000 (140733269684224)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==381==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

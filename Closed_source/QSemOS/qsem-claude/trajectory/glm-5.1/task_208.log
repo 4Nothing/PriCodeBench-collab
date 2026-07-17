@@ -1,0 +1,156 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pattern as `PRT_LogFormat` (lines 267-299): validation checks, filter logic, length capping, then delegation to `OsLog`. The key differences from `PRT_LogFormat` are the additional `str == NULL` and `strLen == 0` checks (instead of `fmt == NULL`), and skipping the `vsnprintf_s` formatting step since the caller provides a pre-formatted string.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -261,7 +261,23 @@
+ 
+ OS_SEC_L2_TEXT U32 PRT_Log(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+ {
+-    /* MASKED - implement this function */
++    LOAD_FENCE();
++    if (g_logMemBase == 0) {
++        return -1;
++    }
++    if (OsCheckLog(level, facility) || str == NULL || strLen == 0) {
++        return -1;
++    }
++
++    /* 检查是否被过滤 */
++    if ((!g_logOn) || (level >= g_logFilter[facility - OS_LOG_F0])) {
++        return 0;
++    }
++
++    if (strLen > (LOG_MAX_SIZE - 1)) {
++        strLen = LOG_MAX_SIZE - 1;
++    }
++    return OsLog(level, facility, str, strLen);
+ }
+ 
+ extern U32 PRT_LogFormat(enum OsLogLevel level, enum OsLogFacility facility, const char *fmt, ...)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    LOAD_FENCE();
+    if (g_logMemBase == 0) {
+        return -1;
+    }
+    if (OsCheckLog(level, facility) || str == NULL || strLen == 0) {
+        return -1;
+    }
+
+    /* 检查是否被过滤 */
+    if ((!g_logOn) || (level >= g_logFilter[facility - OS_LOG_F0])) {
+        return 0;
+    }
+
+    if (strLen > (LOG_MAX_SIZE - 1)) {
+        strLen = LOG_MAX_SIZE - 1;
+    }
+    return OsLog(level, facility, str, strLen);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_Log.c
+[CASE] invalid level
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] invalid facility
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] null string
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] zero length
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] info write changes valid flags
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] long message truncated but logged
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] emerg writes even with strict filter
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] info filtered under ERR
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+Pass-Rate: 100.00% (8/8)
+
+--- stderr ---
+test_PRT_Log.c: In function ‘do_log_and_check_valid’:
+test_PRT_Log.c:9:23: warning: comparison of integer expressions of different signedness: ‘int’ and ‘unsigned int’ [-Wsign-compare]
+    9 |     for (int i = 0; i < BUFFER_BLOCK_NUM; ++i)
+      |                       ^
+test_PRT_Log.c:14:23: warning: comparison of integer expressions of different signedness: ‘int’ and ‘unsigned int’ [-Wsign-compare]
+   14 |     for (int i = 0; i < BUFFER_BLOCK_NUM; ++i)
+      |                       ^
+In file included from test_PRT_Log.c:1:
+test_common.h: At top level:
+test_common.h:37:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   37 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+In file included from test_common.h:8:
+auto_stub.h:746:12: warning: ‘OsLogUpdateTail’ defined but not used [-Wunused-function]
+  746 | static U32 OsLogUpdateTail(U32 *tail)
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:739:13: warning: ‘OsLogGetTailAndHead’ defined but not used [-Wunused-function]
+  739 | static void OsLogGetTailAndHead(U32 *head, U32 *tail)
+      |             ^~~~~~~~~~~~~~~~~~~
+auto_stub.h:737:13: warning: ‘OsLogLockRestore’ defined but not used [-Wunused-function]
+  737 | static void OsLogLockRestore(uintptr_t value) { (void)value; }
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:736:18: warning: ‘OsLogLockOn’ defined but not used [-Wunused-function]
+  736 | static uintptr_t OsLogLockOn(void) { return 0; }
+      |                  ^~~~~~~~~~~
+auto_stub.h:733:27: warning: ‘g_logLock’ defined but not used [-Wunused-variable]
+  733 | static struct PrtSpinLock g_logLock;
+      |                           ^~~~~~~~~
+auto_stub.h:720:12: warning: ‘PRT_LogFormat’ defined but not used [-Wunused-function]
+  720 | static U32 PRT_LogFormat(enum OsLogLevel level, enum OsLogFacility facility, const char *fmt, ...)
+      |            ^~~~~~~~~~~~~
+auto_stub.h:698:12: warning: ‘PRT_LogSetFilterByFacility’ defined but not used [-Wunused-function]
+  698 | static U32 PRT_LogSetFilterByFacility(enum OsLogFacility facility, enum OsLogLevel level)
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:696:13: warning: ‘PRT_LogOff’ defined but not used [-Wunused-function]
+  696 | static void PRT_LogOff(void) { g_logOn = 0; }
+      |             ^~~~~~~~~~
+auto_stub.h:695:13: warning: ‘PRT_LogOn’ defined but not used [-Wunused-function]
+  695 | static void PRT_LogOn(void) { g_logOn = 1; }
+      |             ^~~~~~~~~
+auto_stub.h:693:13: warning: ‘PRT_IsLogInit’ defined but not used [-Wunused-function]
+  693 | static bool PRT_IsLogInit(void) { return g_logMemBase != 0; }
+      |             ^~~~~~~~~~~~~
+
+
+

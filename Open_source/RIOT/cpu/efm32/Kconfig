@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_COMMON_EFM32
+    bool
+
+config CPU_EFM32_SERIES0
+    bool
+
+config CPU_EFM32_SERIES1
+    bool
+
+config CPU_EFM32_SERIES2
+    bool
+
+## Common CPU symbols
+config CPU
+    default "efm32" if CPU_COMMON_EFM32
+
+orsource "families/*/Kconfig"
+source "$(RIOTCPU)/cortexm_common/Kconfig"

@@ -1,0 +1,147 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Empty check**: If no tasks are waiting on the pend list, returns `FALSE` immediately — the caller will increment `readableCnt`/`writableCnt` instead.
+- **Dequeue**: Gets the first task from the pend list using `OS_LIST_FIRST` + `GET_TCB_PEND`, then removes it with `ListDelete`.
+- **Timeout cleanup**: If the task had a timeout set (from `OsTskTimerAdd` in `OsInnerPend`), it detaches from the timer and clears the flag.
+- **Status cleanup**: Clears `OS_TSK_QUEUE_PEND` (set when the task blocked in `OsInnerPend`) and nulls the `taskPend` pointer.
+- **Ready queue**: Adds the task back to the ready queue via `OsTskReadyAddBgd`, unless it's suspended.
+- **Returns `TRUE`** to signal the caller that scheduling is needed (a previously-blocked task is now runnable).
+
+The implementation follows the same pattern as `OsSemPendListGet` in `prt_sem.c`, adapted for the queue-specific pend flags.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -119,7 +119,32 @@
+ 
+ OS_SEC_ALW_INLINE INLINE bool OsQueuePendNeedProc(struct TagListObject *objectList)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *taskCb;
++
++    if (ListEmpty(objectList)) {
++        return FALSE;
++    }
++
++    taskCb = GET_TCB_PEND(OS_LIST_FIRST(objectList));
++    ListDelete(OS_LIST_FIRST(objectList));
++
++    OsSpinLockTaskRq(taskCb);
++
++    if ((taskCb->taskStatus & OS_TSK_TIMEOUT) != 0) {
++        OS_TSK_DELAY_LOCKED_DETACH(taskCb);
++        TSK_STATUS_CLEAR(taskCb, OS_TSK_TIMEOUT);
++    }
++
++    TSK_STATUS_CLEAR(taskCb, OS_TSK_QUEUE_PEND);
++    taskCb->taskPend = NULL;
++
++    if ((taskCb->taskStatus & OS_TSK_SUSPEND) == 0) {
++        OsTskReadyAddBgd(taskCb);
++    }
++
++    OsSpinUnlockTaskRq(taskCb);
++
++    return TRUE;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *taskCb;
+
+    if (ListEmpty(objectList)) {
+        return FALSE;
+    }
+
+    taskCb = GET_TCB_PEND(OS_LIST_FIRST(objectList));
+    ListDelete(OS_LIST_FIRST(objectList));
+
+    OsSpinLockTaskRq(taskCb);
+
+    if ((taskCb->taskStatus & OS_TSK_TIMEOUT) != 0) {
+        OS_TSK_DELAY_LOCKED_DETACH(taskCb);
+        TSK_STATUS_CLEAR(taskCb, OS_TSK_TIMEOUT);
+    }
+
+    TSK_STATUS_CLEAR(taskCb, OS_TSK_QUEUE_PEND);
+    taskCb->taskPend = NULL;
+
+    if ((taskCb->taskStatus & OS_TSK_SUSPEND) == 0) {
+        OsTskReadyAddBgd(taskCb);
+    }
+
+    OsSpinUnlockTaskRq(taskCb);
+
+    return TRUE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsQueuePendNeedProc test_OsQueuePendNeedProc.c notifier_test_stubs.c
+ln -sf test_OsQueuePendNeedProc test
+[CASE] empty list
+  Expect: 0
+  Actual: 0
+[CASE] one waiter
+  Expect: 1
+  Actual: 1
+[CASE] list empty after proc
+  Expect: 1
+  Actual: 1
+[CASE] suspended waiter
+  Expect: 1
+  Actual: 1
+[CASE] empty again
+  Expect: 0
+  Actual: 0
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsQueuePendNeedProc.c: In function ‘main’:
+test_OsQueuePendNeedProc.c:7:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+    7 |     reset_task();
+      |     ^~~~~~~~~~
+In file included from test_OsQueuePendNeedProc.c:1:
+test_support.h: At top level:
+test_support.h:8:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    8 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:52:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   52 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:52:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   52 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:78:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   78 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:78:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   78 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:14:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   14 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:8:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    8 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

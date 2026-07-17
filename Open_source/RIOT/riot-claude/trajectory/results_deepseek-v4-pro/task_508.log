@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now reads:
+
+```c
+static inline gnrc_pktqueue_t *gnrc_pktqueue_remove_head(gnrc_pktqueue_t **queue)
+{
+    return gnrc_pktqueue_remove(queue, *queue);
+}
+```
+
+This retrieves the current head (`*queue`), passes it to `gnrc_pktqueue_remove` which performs `LL_DELETE` and clears `node->next`, then returns the old head. If the queue is empty (`*queue == NULL`), `gnrc_pktqueue_remove` returns NULL, so the behavior is correct for that edge case too.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/pktqueue.h
++++ sys/include/net/gnrc/pktqueue.h
+@@ -76,7 +76,7 @@
+  */
+ static inline gnrc_pktqueue_t *gnrc_pktqueue_remove_head(gnrc_pktqueue_t **queue)
+ {
+-    /* MASKED - implement this function */
++    return gnrc_pktqueue_remove(queue, *queue);
+ }
+ 
+ #ifdef __cplusplus
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktqueue
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  84473	  32232	  78208	 194913	  2f961	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffda511f000; bottom 0x00000042e000; size: 0x7ffda4cf1000 (140727368486912)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

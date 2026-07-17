@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The function now calls `PRT_HwiRestore(value)`, which mirrors the pattern established by the SMP version — `PRT_HwiLock` / `PRT_HwiRestore` is the non-SMP analog of `PRT_SplIrqLock` / `PRT_SplIrqUnlock`, confirmed by the header in `src/include/uapi/prt_hwi.h:694`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -55,7 +55,7 @@
+ 
+ static OS_SEC_L2_TEXT void OsLogLockRestore(uintptr_t value)
+ {
+-    /* MASKED - implement this function */
++    PRT_HwiRestore(value);
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    PRT_HwiRestore(value);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -include log_decl.h  -o test test_OsLogLockRestore.c log_lock_stub.c
+[CASE] restore call 1
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] restore call 2
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] restore call 3
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] restore call 4
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] restore call 5
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_OsLogLockRestore.c: In function ‘print_result’:
+test_OsLogLockRestore.c:14:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long unsigned int’ [-Wformat=]
+   14 |     printf("  Expected: 0x%lX\n", (unsigned long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long unsigned int
+      |                             long unsigned int
+      |                           %llX
+test_OsLogLockRestore.c:15:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long unsigned int’ [-Wformat=]
+   15 |     printf("  Actual  : 0x%lX\n", (unsigned long long)actual);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long unsigned int
+      |                             long unsigned int
+      |                           %llX
+
+
+

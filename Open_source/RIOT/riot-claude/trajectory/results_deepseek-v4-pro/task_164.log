@@ -1,0 +1,82 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It follows the same pattern as the malloc variant (`gnrc_pktbuf_malloc.c:209-218`) and the inverse operation in `gnrc_pktbuf_start_write`:
+
+- Iterates through the entire snip chain via `pkt->next`
+- Increments `pkt->users` (the reference count) by `num` for each snip
+- Holds the `gnrc_pktbuf_mutex` for thread safety
+- Asserts no overflow on the `uint8_t users` field
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -202,7 +202,13 @@
+ 
+ void gnrc_pktbuf_hold(gnrc_pktsnip_t *pkt, unsigned int num)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&gnrc_pktbuf_mutex);
++    while (pkt) {
++        assert(pkt->users + num <= 0xff);
++        pkt->users += num;
++        pkt = pkt->next;
++    }
++    mutex_unlock(&gnrc_pktbuf_mutex);
+ }
+ 
+ gnrc_pktsnip_t *gnrc_pktbuf_start_write(gnrc_pktsnip_t *pkt)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119918	  38864	  84456	 243238	  3b626	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............................................
+OK (45 tests)
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff2fcb4000; bottom 0x000000439000; size: 0x7fff2f87b000 (140733990809600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

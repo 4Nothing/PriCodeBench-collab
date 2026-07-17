@@ -1,0 +1,129 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `OsSemBusy` function is now implemented. Here's the logic:
+
+1. Gets the semaphore control block via `GET_SEM(semHandle)`.
+2. **Non-recursive binary semaphore**: Returns `TRUE` (busy) if the semaphore is binary type (`SEM_TYPE_BIN`), not recursive mutex, and count is 0 (no available resources).
+3. **Recursive mutex**: Returns `TRUE` (busy) if it's a recursive mutex type, count is 0, and the owner is not the currently running task (locked by someone else). If the running task owns it, it's not busy (re-entrant acquisition is allowed).
+4. **Counting semaphores**: Always returns `FALSE` (not busy) — counting semaphores with count of 0 just mean no resources available, not "busy" in the mutex sense.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem_init.c
++++ src/core/ipc/sem/prt_sem_init.c
+@@ -25,7 +25,17 @@
+ 
+ OS_SEC_L4_TEXT bool OsSemBusy(SemHandle semHandle)
+ {
+-    /* MASKED - implement this function */
++    struct TagSemCb *semCb = GET_SEM(semHandle);
++
++    if (GET_MUTEX_TYPE(semCb->semType) != SEM_MUTEX_TYPE_RECUR && semCb->semCount == 0 &&
++        GET_SEM_TYPE(semCb->semType) == SEM_TYPE_BIN) {
++        return TRUE;
++    } else if (GET_MUTEX_TYPE(semCb->semType) == SEM_MUTEX_TYPE_RECUR && semCb->semCount == 0 &&
++               semCb->semOwner != RUNNING_TASK->taskPid) {
++        return TRUE;
++    }
++
++    return FALSE;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsSemRegister(const struct SemModInfo *modInfo)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSemCb *semCb = GET_SEM(semHandle);
+
+    if (GET_MUTEX_TYPE(semCb->semType) != SEM_MUTEX_TYPE_RECUR && semCb->semCount == 0 &&
+        GET_SEM_TYPE(semCb->semType) == SEM_TYPE_BIN) {
+        return TRUE;
+    } else if (GET_MUTEX_TYPE(semCb->semType) == SEM_MUTEX_TYPE_RECUR && semCb->semCount == 0 &&
+               semCb->semOwner != RUNNING_TASK->taskPid) {
+        return TRUE;
+    }
+
+    return FALSE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSemBusy.c
+[CASE] bin count=0 busy
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] bin count=1 not busy
+  Expected: false
+  Actual  : false
+  Result  : PASS
+
+[CASE] recur mutex held by other
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] recur mutex held by self
+  Expected: false
+  Actual  : false
+  Result  : PASS
+
+[CASE] counting sem not busy
+  Expected: false
+  Actual  : false
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from support.h:4,
+                 from test_OsSemBusy.c:1:
+auto_stub.h:1516:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1516 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1515:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1515 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1514:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1514 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1513:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1513 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1512:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1512 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1511:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1511 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1510:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1510 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1509:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1509 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1508:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1508 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

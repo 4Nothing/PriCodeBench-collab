@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The non-SMP version of `OsSwTmrGetRemain` at `prt_swtmr_minor.c:63` now contains the same logic as the SMP version:
+
+- If `expectedTick` has passed (≤ `g_uniTicks`), returns `0` (timer expired).
+- Otherwise, returns `expectedTick - g_uniTicks` (remaining ticks).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -62,7 +62,14 @@
+ #else
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemain(struct TagSwTmrCtrl *swtmr)
+ {
+-    /* MASKED - implement this function */
++    if (swtmr->expectedTick <= g_uniTicks)
++    {
++        return 0;
++    }
++    else
++    {
++        return ((U32)(swtmr->expectedTick - g_uniTicks));
++    }
+ }
+ #endif
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (swtmr->expectedTick <= g_uniTicks)
+    {
+        return 0;
+    }
+    else
+    {
+        return ((U32)(swtmr->expectedTick - g_uniTicks));
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrGetRemain test_OsSwTmrGetRemain.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrGetRemain test
+[cursor=0, idx=50        ] expect=50, actual=0 => FAIL
+[cursor=49, idx=50       ] expect=1, actual=0 => FAIL
+[cursor=50, idx=50       ] expect=64, actual=0 => FAIL
+[cursor=60, idx=50       ] expect=54, actual=0 => FAIL
+[roll=1, idx=10, cur=0   ] expect=74, actual=0 => FAIL
+
+OsSwTmrGetRemain Pass-Rate: 0.00% (0/5)
+
+
+--- stderr ---
+test_OsSwTmrGetRemain.c: In function ‘main’:
+test_OsSwTmrGetRemain.c:15:5: warning: implicit declaration of function ‘OsSwTmrStart’ [-Wimplicit-function-declaration]
+   15 |     OsSwTmrStart(&t1, 50);
+      |     ^~~~~~~~~~~~
+
+
+

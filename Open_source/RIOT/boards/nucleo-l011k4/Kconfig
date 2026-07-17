@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l011k4" if BOARD_NUCLEO_L011K4
+
+config BOARD_NUCLEO_L011K4
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO32
+    select CPU_MODEL_STM32L011K4
+
+source "$(RIOTBOARD)/common/nucleo32/Kconfig"

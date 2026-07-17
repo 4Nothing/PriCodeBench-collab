@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l4r5zi" if BOARD_NUCLEO_L4R5ZI
+
+config BOARD_NUCLEO_L4R5ZI
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32L4R5ZI
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

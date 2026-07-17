@@ -1,0 +1,233 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSignalEntry` does:
+
+1. **Gets the current task** from `RUNNING_TASK` and reads `holdSignal` to determine which signal triggered the context switch
+2. **Iterates** `sigInfoList` via `LIST_FOR_EACH` to find the matching `sigInfoNode` for `signum`
+3. **Calls the signal handler** if one is registered in `sigVectors[signum]`
+4. **Cleans up pending state**: locks the task RQ, clears the pending bit, unlocks, then deletes and frees the signal info node
+5. **Restores the original context**: clears `OS_TSK_HOLD_SIGNAL`, restores `stackPointer` from `oldStackPointer`, zeroes out `holdSignal` and `oldStackPointer`, then calls `OsTskContextLoad` to resume the task at its pre-signal execution point
+
+The implementation follows the same patterns as the existing `OsHandleOneSignal` (for in-task signal handling) and matches the verified RISC-V assembly behavior.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -227,7 +227,39 @@
+ 
+ OS_SEC_L4_TEXT void OsSignalEntry(TskHandle taskId)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    int signum = runTsk->holdSignal;
++
++    sigInfoNode *infoNode = NULL;
++    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist)
++    {
++        if (infoNode->siginfo.si_signo != signum)
++        {
++            continue;
++        }
++
++        _sa_handler handler = runTsk->sigVectors[signum];
++        if (handler != NULL)
++        {
++            handler(signum);
++        }
++
++        /* 清除pending标记 */
++        OsSpinLockTaskRq(runTsk);
++        runTsk->sigPending &= ~sigMask(signum);
++        OsSpinUnlockTaskRq(runTsk);
++        ListDelete(&(infoNode->siglist));
++        PRT_MemFree((U32)OS_MID_SIGNAL, infoNode);
++        break;
++    }
++
++    /* 清除信号保持状态，恢复任务原始上下文 */
++    TSK_STATUS_CLEAR(runTsk, OS_TSK_HOLD_SIGNAL);
++    runTsk->stackPointer = runTsk->oldStackPointer;
++    runTsk->holdSignal = 0;
++    runTsk->oldStackPointer = NULL;
++
++    OsTskContextLoad((uintptr_t)runTsk);
+ }
+ 
+ OS_SEC_L4_TEXT U32 PRT_SignalDeliver(TskHandle taskId, signalInfo *info)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    int signum = runTsk->holdSignal;
+
+    sigInfoNode *infoNode = NULL;
+    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist)
+    {
+        if (infoNode->siginfo.si_signo != signum)
+        {
+            continue;
+        }
+
+        _sa_handler handler = runTsk->sigVectors[signum];
+        if (handler != NULL)
+        {
+            handler(signum);
+        }
+
+        /* 清除pending标记 */
+        OsSpinLockTaskRq(runTsk);
+        runTsk->sigPending &= ~sigMask(signum);
+        OsSpinUnlockTaskRq(runTsk);
+        ListDelete(&(infoNode->siglist));
+        PRT_MemFree((U32)OS_MID_SIGNAL, infoNode);
+        break;
+    }
+
+    /* 清除信号保持状态，恢复任务原始上下文 */
+    TSK_STATUS_CLEAR(runTsk, OS_TSK_HOLD_SIGNAL);
+    runTsk->stackPointer = runTsk->oldStackPointer;
+    runTsk->holdSignal = 0;
+    runTsk->oldStackPointer = NULL;
+
+    OsTskContextLoad((uintptr_t)runTsk);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSignalEntry test_OsSignalEntry.c notifier_test_stubs.c
+ln -sf test_OsSignalEntry test
+[CASE] handler executed
+  Expected: 42
+  Actual  : 42
+  Result  : PASS
+
+[CASE] hold flag cleared
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] sp restored
+  Expected: 0x12345678
+  Actual  : 0x12345678
+  Result  : PASS
+
+[CASE] holdSignal cleared
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] oldSP cleared
+  Expected: (nil)
+  Actual  : (nil)
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsSignalEntry.c:3:
+func_under_test.c: In function ‘OsSignalEntry’:
+func_under_test.c:1:45: warning: unused parameter ‘taskId’ [-Wunused-parameter]
+    1 | OS_SEC_L4_TEXT void OsSignalEntry(TskHandle taskId)
+      |                                   ~~~~~~~~~~^~~~~~
+In file included from test_OsSignalEntry.c:1:
+test_common.h: At top level:
+test_common.h:32:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   32 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:21:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   21 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1279:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1279 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1275:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1274:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1274 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1273:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1273 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1267:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1267 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1266:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1266 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from stub_prt_signal_env.h:6,
+                 from notifier_test_stubs.c:1:
+auto_stub.h:1279:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1279 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1275:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1274:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1274 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1273:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1273 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1267:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1267 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1266:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1266 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

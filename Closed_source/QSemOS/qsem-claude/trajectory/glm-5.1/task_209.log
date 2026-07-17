@@ -1,0 +1,113 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Null format check** — returns `-1` if `fmt` is `NULL`, avoiding a crash in `vsnprintf_s`
+2. **Format via `vsnprintf_s`** — formats the variadic args into a stack buffer of `LOG_MAX_SIZE` bytes, limiting the write to `LOG_MAX_SIZE - 1` (leaving room for the null terminator)
+3. **Format error check** — returns `-1` if `vsnprintf_s` fails (returns negative)
+4. **Delegate to `PRT_Log`** — passes the formatted string to `PRT_Log`, which handles all the shared validation (log subsystem init check, level/facility validation, filter rules, log on/off switch) and writes to the ring buffer
+
+This mirrors the existing pattern in the file — `PRT_LogFormat` handles the formatting concern, while all the logging infrastructure logic lives in `PRT_Log`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -281,5 +281,21 @@
+ 
+ extern U32 PRT_LogFormat(enum OsLogLevel level, enum OsLogFacility facility, const char *fmt, ...)
+ {
+-    /* MASKED - implement this function */
+-}
++    va_list ap;
++    char buf[LOG_MAX_SIZE];
++    int len;
++
++    if (fmt == NULL) {
++        return -1;
++    }
++
++    va_start(ap, fmt);
++    len = vsnprintf_s(buf, LOG_MAX_SIZE, LOG_MAX_SIZE - 1, fmt, ap);
++    va_end(ap);
++
++    if (len < 0) {
++        return -1;
++    }
++
++    return PRT_Log(level, facility, buf, (size_t)len);
++}
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    va_list ap;
+    char buf[LOG_MAX_SIZE];
+    int len;
+
+    if (fmt == NULL) {
+        return -1;
+    }
+
+    va_start(ap, fmt);
+    len = vsnprintf_s(buf, LOG_MAX_SIZE, LOG_MAX_SIZE - 1, fmt, ap);
+    va_end(ap);
+
+    if (len < 0) {
+        return -1;
+    }
+
+    return PRT_Log(level, facility, buf, (size_t)len);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LogFormat.c
+
+--- stderr ---
+test_PRT_LogFormat.c: In function ‘OsLog’:
+test_PRT_LogFormat.c:55:27: warning: unused parameter ‘level’ [-Wunused-parameter]
+   55 | U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen) {
+      |           ~~~~~~~~~~~~~~~~^~~~~
+test_PRT_LogFormat.c:55:53: warning: unused parameter ‘facility’ [-Wunused-parameter]
+   55 | U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen) {
+      |                                  ~~~~~~~~~~~~~~~~~~~^~~~~~~~
+test_PRT_LogFormat.c:55:75: warning: unused parameter ‘str’ [-Wunused-parameter]
+   55 | U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen) {
+      |                                                               ~~~~~~~~~~~~^~~
+In file included from test_PRT_LogFormat.c:69:
+func_under_test.c: In function ‘PRT_LogFormat’:
+func_under_test.c:19:12: warning: implicit declaration of function ‘PRT_Log’; did you mean ‘PRT_LogInit’? [-Wimplicit-function-declaration]
+   19 |     return PRT_Log(level, facility, buf, (size_t)len);
+      |            ^~~~~~~
+      |            PRT_LogInit
+test_PRT_LogFormat.c: In function ‘print_result’:
+test_PRT_LogFormat.c:74:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   74 |     printf("  Expected: 0x%lX\n", (long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+test_PRT_LogFormat.c:75:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   75 |     printf("  Actual  : 0x%lX\n", (long long)((U32)actual));
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+/usr/bin/ld: /tmp/ccy1aVui.o: in function `PRT_LogFormat':
+test_PRT_LogFormat.c:(.text+0x2cb): undefined reference to `PRT_Log'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

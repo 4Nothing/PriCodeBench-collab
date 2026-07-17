@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function follows the same structure as `gnrc_netif_pktq_push_back` (lines 99-111) but uses `gnrc_pktqueue_add` (`LL_APPEND`, adds to tail) instead of `LL_PREPEND` (adds to head).
+
+The queue semantics:
+- **`gnrc_netif_pktq_put`** — appends to the **tail** (standard FIFO enqueue for new packets)
+- **`gnrc_netif_pktq_push_back`** — prepends to the **head** (LIFO re-queue for a just-dequeued packet that couldn't be transmitted)
+- **`gnrc_netif_pktq_get`** — removes from the **head**
+
+This way, normal packet flow is FIFO via `put`/`get`, and a failed transmission can be pushed back to the front of the line with `push_back`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/netif/pktq/gnrc_netif_pktq.c
++++ sys/net/gnrc/netif/pktq/gnrc_netif_pktq.c
+@@ -57,7 +57,16 @@
+ 
+ int gnrc_netif_pktq_put(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    assert(netif != NULL);
++    assert(pkt != NULL);
++
++    gnrc_pktqueue_t *entry = _get_free_entry(pkt);
++
++    if (entry == NULL) {
++        return -1;
++    }
++    gnrc_pktqueue_add(&netif->send_queue.queue, entry);
++    return 0;
+ }
+ 
+ void gnrc_netif_pktq_sched_get(gnrc_netif_t *netif)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_netif_pktq
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netif/pktq
+   text	   data	    bss	    dec	    hex	filename
+  90294	  34080	  79080	 203454	  31abe	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdaf08c000; bottom 0x000000430000; size: 0x7ffdaec5c000 (140727535648768)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

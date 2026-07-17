@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `vfs_fcntl` does now:
+
+1. **Validates the fd** via `_fd_is_valid()` — returns the error (e.g. `-EBADF`) if invalid
+2. **`F_GETFL`** — handled directly at the VFS layer, returns `filp->flags` (matching the devfs driver's comment at `devfs.c:115`: "F_GETFL is handled directly by vfs_fcntl")
+3. **All other commands** (`F_SETFL`, `F_DUPFD`, etc.) — delegated to the driver's `fcntl` callback if it exists
+4. **Unsupported** — returns `-ENOTSUP` if the driver has no `fcntl` callback
+
+This follows the same dispatch pattern used by `vfs_fstat`, `vfs_lseek`, `vfs_fsync`, and other functions in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -167,7 +167,21 @@
+ 
+ int vfs_fcntl(int fd, int cmd, int arg)
+ {
+-    /* MASKED - implement this function */
++    int res = _fd_is_valid(fd);
++    if (res < 0) {
++        return res;
++    }
++    vfs_file_t *filp = &_vfs_open_files[fd];
++
++    switch (cmd) {
++    case F_GETFL:
++        return filp->flags;
++    default:
++        if (filp->f_op->fcntl != NULL) {
++            return filp->f_op->fcntl(filp, cmd, arg);
++        }
++        return -ENOTSUP;
++    }
+ }
+ 
+ int vfs_fstat(int fd, struct stat *buf)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123304	  45128	  79328	 247760	  3c7d0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......................
+vfs_file_op_tests.test_vfs_null_file_ops_fcntl (tests/unittests/tests-vfs/tests-vfs-file-ops.c 97) exp -22 was -95
+.................
+run 40 failures 1
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffee6923000; bottom 0x00000043b000; size: 0x7ffee64e8000 (140732762324992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

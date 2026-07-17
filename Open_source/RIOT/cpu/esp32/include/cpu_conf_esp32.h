@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: 2022 Gunar Schorcht
+ * SPDX-License-Identifier: LGPL-2.1-only
+ */
+
+#pragma once
+
+/**
+ * @ingroup     cpu_esp32
+ * @ingroup     config
+ * @brief       Compile-time configuration macros for ESP32 SoCs
+ * @{
+ *
+ * @file
+ * @brief       ESP32 specific compile-time configuration
+ *
+ * @author      Gunar Schorcht <gunar@schorcht.net>
+ */
+
+/** Number of DRAM sections that can be used as heap. */
+#define NUM_HEAPS (4)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+/** @} */

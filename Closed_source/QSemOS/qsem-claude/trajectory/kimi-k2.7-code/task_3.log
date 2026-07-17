@@ -1,0 +1,114 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsPerfNotifyHookReg` in `src/extended/perf/prt_perf_output.c:123`.
+
+The function now registers the notify hook by assigning it to `g_perfBufNotifyHook`, consistent with how `OsPerfFlushHookReg` registers the flush hook.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -122,7 +122,8 @@
+ 
+ void OsPerfNotifyHookReg(const PERF_BUF_NOTIFY_HOOK func)
+ {
+-    /* MASKED - implement this function */
++    g_perfBufNotifyHook = func;
++    return;
+ }
+ 
+ void OsPerfFlushHookReg(const PERF_BUF_FLUSH_HOOK func)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    g_perfBufNotifyHook = func;
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfNotifyHookReg.c
+[用例] No hook no notify
+  期望输出: notified=0
+  实际输出: notified=0
+  结果    : PASS
+
+[用例] Hook registered
+  期望输出: notified>=1
+  实际输出: notified=1
+  结果    : PASS
+
+[用例] Hook persists
+  期望输出: notified>=1
+  实际输出: notified=2
+  结果    : PASS
+
+[用例] Hook unregistered
+  期望输出: notified unchanged
+  实际输出: notified=2
+  结果    : PASS
+
+[用例] Hook re-registered
+  期望输出: notified increased
+  实际输出: notified=3
+  结果    : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfNotifyHookReg.c:2:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

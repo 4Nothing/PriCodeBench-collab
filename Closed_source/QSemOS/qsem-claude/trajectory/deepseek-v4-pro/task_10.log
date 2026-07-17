@@ -1,0 +1,91 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+**`OsSemPrioBListLock`** guards the `semBList` traversal that occurs in `OsCheckPrioritySet` (called via `g_checkPrioritySet` inside `PRT_TaskSetPriority`):
+
+- **When `OS_OPTION_SEM_PRIO_INHERIT` is defined**: Checks whether the task holds any semaphore mutexes (`semBList` is non-empty). If so, acquires the global semaphore priority spinlock (`OsSemPrioLock()`) and returns `1`; otherwise returns `0`.
+- **When `OS_OPTION_SEM_PRIO_INHERIT` is not defined**: Returns `0` (no-op), suppressing the unused parameter warning.
+
+The return value is passed to `OsSemPrioBListUnLock`, which releases the lock only when the flag is non-zero — ensuring the lock/unlock pair stays balanced. This matches the existing locking pattern used in `prt_sem.c` for protecting `semBList` linked-list operations against concurrent modification.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_priority.c
++++ src/core/kernel/task/smp/prt_task_priority.c
+@@ -73,7 +73,16 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSemPrioBListLock(struct TagTskCb *taskCb)
+ {
+-    /* MASKED - implement this function */
++#if defined(OS_OPTION_SEM_PRIO_INHERIT)
++    if (!ListEmpty(&taskCb->semBList)) {
++        OsSemPrioLock();
++        return 1;
++    }
++    return 0;
++#else
++    (void)taskCb;
++    return 0;
++#endif
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsSemPrioBListUnLock(U32 flag)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+#if defined(OS_OPTION_SEM_PRIO_INHERIT)
+    if (!ListEmpty(&taskCb->semBList)) {
+        OsSemPrioLock();
+        return 1;
+    }
+    return 0;
+#else
+    (void)taskCb;
+    return 0;
+#endif
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSemPrioBListLock.c
+[CASE] empty semBList returns 0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] non-empty (mocked) still 0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] NULL pointer not supported
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] another tcb returns 0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] repeat call returns 0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

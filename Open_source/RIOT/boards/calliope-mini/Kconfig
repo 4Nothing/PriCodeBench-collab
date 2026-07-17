@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "calliope-mini" if BOARD_CALLIOPE_MINI
+
+config BOARD_CALLIOPE_MINI
+    bool
+    default y
+    select BOARD_COMMON_NRF51
+    select CPU_MODEL_NRF51X22XXAB
+
+source "$(RIOTBOARD)/common/nrf51/Kconfig"

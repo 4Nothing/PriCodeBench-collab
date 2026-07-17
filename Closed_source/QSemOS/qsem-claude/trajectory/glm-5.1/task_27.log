@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what was done:
+
+The non-SMP `OsSwtmrNearestTickGet` at line 293 now reads `g_tmrSortLink.nearestTicks` under `OsIntLock()`/`OsIntRestore()` protection and returns it as `U64`. This mirrors the SMP version's logic (lines 259-269) but adapts for the non-SMP environment:
+
+- **SMP**: uses `CPU_SWTMR_SORT_LINK(coreId)` to get the per-core sort link, protects with `OsSplLock`/`OsSplUnlock` on the sort link's spinlock
+- **Non-SMP**: accesses the single global `g_tmrSortLink` directly, protects with `OsIntLock()`/`OsIntRestore()` (consistent with the non-SMP `OsSwtmrTargetCheck` pattern, since `g_tmrSortLink`'s spinlock is not initialized in the non-SMP code path)
+- `coreId` is suppressed with `(void)coreId` since it's unused in non-SMP mode (same convention as `OsSwtmrTargetCheck` at line 308)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -292,7 +292,15 @@
+  */
+ OS_SEC_TEXT U64 OsSwtmrNearestTickGet(U32 coreId)
+ {
+-    /* MASKED - implement this function */
++    U64 ticks;
++    uintptr_t intSave;
++
++    (void)coreId;
++    intSave = OsIntLock();
++    ticks = g_tmrSortLink.nearestTicks;
++    OsIntRestore(intSave);
++
++    return ticks;
+ }
+ 
+ OS_SEC_TEXT bool OsSwtmrTargetCheck(U32 coreId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U64 ticks;
+    uintptr_t intSave;
+
+    (void)coreId;
+    intSave = OsIntLock();
+    ticks = g_tmrSortLink.nearestTicks;
+    OsIntRestore(intSave);
+
+    return ticks;
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsSwtmrNearestTickGet test
+[CASE] none active -> forever
+  expected=18446744073709551615
+  actual  =18446744073709551615
+  result  =PASS
+
+[CASE] nearest 1500
+  expected=1500
+  actual  =1500
+  result  =PASS
+
+[CASE] nearest 1200
+  expected=1200
+  actual  =1200
+  result  =PASS
+
+[CASE] still 1200
+  expected=1200
+  actual  =1200
+  result  =PASS
+
+[CASE] none again
+  expected=18446744073709551615
+  actual  =18446744073709551615
+  result  =PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

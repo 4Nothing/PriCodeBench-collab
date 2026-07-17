@@ -1,0 +1,72 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `gnrc_netreg_init` at `sys/net/gnrc/netreg/gnrc_netreg.c:63` to zero out the `netreg` lookup table, reinitialize both mutexes, and reset the shared lock counter. This ensures the module returns to a clean initial state on each startup.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/netreg/gnrc_netreg.c
++++ sys/net/gnrc/netreg/gnrc_netreg.c
+@@ -62,7 +62,10 @@
+ 
+ void gnrc_netreg_init(void)
+ {
+-    /* MASKED - implement this function */
++    memset(netreg, 0, sizeof(netreg));
++    mutex_init(&_lock_for_counter);
++    mutex_init(&_lock_wait_exclusive);
++    _lock_counter = 0;
+ }
+ 
+ void gnrc_netreg_acquire_shared(void) {
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-netreg
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netreg
+   text	   data	    bss	    dec	    hex	filename
+  81302	  33016	  78376	 192694	  2f0b6	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+OK (13 tests)
+
+native: exiting
+
+--- stderr ---
+==327==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd809ea000; bottom 0x00000042d000; size: 0x7ffd805bd000 (140726756954112)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,75 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `hmac_sha256` function is now implemented at `/workspace/sys/hashes/sha256.c:137`. It follows the same convenience-wrapper pattern as `sha256()` (line 71): declare a `hmac_context_t`, assert the digest pointer, then call `hmac_sha256_init` → `hmac_sha256_update` → `hmac_sha256_final`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/sha256.c
++++ sys/hashes/sha256.c
+@@ -137,7 +137,12 @@
+ void hmac_sha256(const void *key, size_t key_length,
+                  const void *data, size_t len, void *digest)
+ {
+-    /* MASKED - implement this function */
++    hmac_context_t ctx;
++    assert(digest);
++
++    hmac_sha256_init(&ctx, key, key_length);
++    hmac_sha256_update(&ctx, data, len);
++    hmac_sha256_final(&ctx, digest);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221513	  74296	  82656	 378465	  5c661	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe33c1e000; bottom 0x00000045a000; size: 0x7ffe337c4000 (140729762201600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

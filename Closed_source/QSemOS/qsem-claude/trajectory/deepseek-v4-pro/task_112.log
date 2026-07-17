@@ -1,0 +1,103 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It mirrors `OsPerfStop` (lines 135–162) exactly:
+
+1. Gets the current CPU ID with `PRT_GetCoreID()`
+2. Guards against `g_pmu` being NULL (prints error, returns)
+3. Checks if the PMU is already started on this core via `pmuStatusPerCpu[cpuid]`
+4. If not started, calls `g_pmu->start()` — on failure prints an error, on success sets `pmuStatusPerCpu[cpuid] = PERF_PMU_STARTED`
+5. If already started, prints a status error (same pattern as the stop function)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -129,7 +129,25 @@
+ 
+ static void OsPerfStart(void)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 cpuid = PRT_GetCoreID();
++
++    if (g_pmu == NULL) {
++        printf("when start perf, pmu not registered!\n");
++        return;
++    }
++
++    if (g_perfCb.pmuStatusPerCpu[cpuid] != PERF_PMU_STARTED) {
++        ret = g_pmu->start();
++        if (ret != OS_OK) {
++            printf("perf start on core:%u failed, ret = 0x%x\n", cpuid, ret);
++            return;
++        }
++
++        g_perfCb.pmuStatusPerCpu[cpuid] = PERF_PMU_STARTED;
++    } else {
++        printf("core:%u status err 0x%x\n", cpuid, g_perfCb.pmuStatusPerCpu[cpuid]);
++    }
+ }
+ 
+ static void OsPerfStop(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 cpuid = PRT_GetCoreID();
+
+    if (g_pmu == NULL) {
+        printf("when start perf, pmu not registered!\n");
+        return;
+    }
+
+    if (g_perfCb.pmuStatusPerCpu[cpuid] != PERF_PMU_STARTED) {
+        ret = g_pmu->start();
+        if (ret != OS_OK) {
+            printf("perf start on core:%u failed, ret = 0x%x\n", cpuid, ret);
+            return;
+        }
+
+        g_perfCb.pmuStatusPerCpu[cpuid] = PERF_PMU_STARTED;
+    } else {
+        printf("core:%u status err 0x%x\n", cpuid, g_perfCb.pmuStatusPerCpu[cpuid]);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfStart.c test_stubs.c
+when start perf, pmu not registered!
+[No PMU registered] expect=0 actual=0 -> PASS
+[Start invoked once] expect=1 actual=1 -> PASS
+[Per-cpu status started] expect=1 actual=1 -> PASS
+core:0 status err 0x1
+[No duplicate start] expect=1 actual=1 -> PASS
+core:0 status err 0x1
+[Other cpu not affected in this test] expect=1 actual=1 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_OsPerfStart.c:19:21: warning: missing braces around initializer [-Wmissing-braces]
+   19 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_OsPerfStart.c:19:21: warning: missing braces around initializer [-Wmissing-braces]
+   19 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+In file included from test_OsPerfStart.c:3:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

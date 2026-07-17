@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsPerfOutPutInit` now does at `src/extended/perf/prt_perf_output.c:26`:
+
+1. **Initializes the ring buffer** by calling `PRT_RingbufInit(&g_perfOutputCb.ringbuf, buf, size)`, forwarding the provided buffer and size
+2. **Returns early** if `PRT_RingbufInit` fails, passing through the error code (the caller in `prt_perf.c` checks for `OS_OK`)
+3. **Sets the watermark** to `size / PERF_BUFFER_WATERMARK_ONE_N` — since `PERF_BUFFER_WATERMARK_ONE_N` is `2`, the watermark is half the buffer size. This is used by `OsPerfOutPutEnd` to trigger the notify hook when the used portion of the ring buffer crosses the threshold
+4. **Returns `OS_OK`** on success
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -25,7 +25,16 @@
+ 
+ U32 OsPerfOutPutInit(void *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++    ret = PRT_RingbufInit(&g_perfOutputCb.ringbuf, (char *)buf, size);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    g_perfOutputCb.waterMark = size / PERF_BUFFER_WATERMARK_ONE_N;
++
++    return OS_OK;
+ }
+ 
+ void OsPerfOutPutFlush(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+    ret = PRT_RingbufInit(&g_perfOutputCb.ringbuf, (char *)buf, size);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    g_perfOutputCb.waterMark = size / PERF_BUFFER_WATERMARK_ONE_N;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfOutPutInit.c
+[用例] Init NULL, size=64
+  期望输出: ret=0 remain=64
+  实际输出: ret=4294967295 remain=-1
+  结果    : FAIL
+
+[用例] Init user buf, size=32
+  期望输出: ret=0 remain=32
+  实际输出: ret=0 remain=32
+  结果    : PASS
+
+[用例] Init size=0
+  期望输出: ret=4294967295
+  实际输出: ret=4294967295
+  结果    : PASS
+
+[用例] Init size=1
+  期望输出: ret=0 remain=1
+  实际输出: ret=0 remain=1
+  结果    : PASS
+
+[用例] Init size=256
+  期望输出: ret=0 remain=256
+  实际输出: ret=0 remain=256
+  结果    : PASS
+
+Pass-Rate: 80.00% (4/5)
+
+--- stderr ---
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfOutPutInit.c:2:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

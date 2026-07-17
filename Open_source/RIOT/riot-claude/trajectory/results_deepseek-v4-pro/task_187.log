@@ -1,0 +1,111 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's a summary of what the implementation does:
+
+- **Iterates** the static `_vrb` array (up to `CONFIG_GNRC_SIXLOWPAN_FRAG_VRB_SIZE`)
+- **Skips** empty entries via `gnrc_sixlowpan_frag_vrb_entry_empty()`
+- **Matches** using the existing `_equal_index()` helper — the same one `gnrc_sixlowpan_frag_vrb_add` uses at line 64 to find existing entries by `(src, src_len, tag)`
+- **Returns** the matching VRB entry, or `NULL` if none found
+
+The pattern mirrors `gnrc_sixlowpan_frag_vrb_reverse` (line 193) in structure and follows the same DEBUG message conventions used throughout the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/sixlowpan/frag/vrb/gnrc_sixlowpan_frag_vrb.c
++++ sys/net/gnrc/network_layer/sixlowpan/frag/vrb/gnrc_sixlowpan_frag_vrb.c
+@@ -167,7 +167,27 @@
+ gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_get(
+         const uint8_t *src, size_t src_len, unsigned src_tag)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("6lo vrb: trying to get entry (%s, %u)\n",
++          gnrc_netif_addr_to_str(src, src_len, addr_str), src_tag);
++    assert(src_len != 0);
++    for (unsigned i = 0; i < CONFIG_GNRC_SIXLOWPAN_FRAG_VRB_SIZE; i++) {
++        gnrc_sixlowpan_frag_vrb_t *vrbe = &_vrb[i];
++
++        if (!gnrc_sixlowpan_frag_vrb_entry_empty(vrbe) &&
++            _equal_index(vrbe, src, src_len, src_tag)) {
++            DEBUG("6lo vrb: got VRB entry from (%s, %u)\n",
++                  gnrc_netif_addr_to_str(vrbe->super.src,
++                                         vrbe->super.src_len,
++                                         addr_str), vrbe->super.tag);
++            DEBUG("6lo vrb: => (%s, %u)\n",
++                  gnrc_netif_addr_to_str(vrbe->super.dst,
++                                         vrbe->super.dst_len,
++                                         addr_str), vrbe->out_tag);
++            return vrbe;
++        }
++    }
++    DEBUG("6lo vrb: no entry found\n");
++    return NULL;
+ }
+ 
+ gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_reverse(
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_sixlowpan_frag_vrb
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/fb
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/vrb
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+   text	   data	    bss	    dec	    hex	filename
+ 111537	  37496	  86760	 235793	  39911	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==474==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc66d62000; bottom 0x000000437000; size: 0x7ffc6692b000 (140722029375488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

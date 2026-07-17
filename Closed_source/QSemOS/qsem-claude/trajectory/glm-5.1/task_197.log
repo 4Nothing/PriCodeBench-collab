@@ -1,0 +1,99 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place at `prt_task_init.c:473-488`. Here's what it does:
+
+- **`RUNNING_TASK`** — gets the current task's TCB (same pattern used in 53+ kernel source files)
+- **NULL guard** — returns `NULL` when no task is running (e.g., before the scheduler starts)
+- **Lazy initialization** — if the task's `locale` hasn't been set yet, falls back to `libc_global_locale` (matching the initialization at line 390 where new TCBs are seeded with this default)
+- **Returns `&tskCb->locale`** — a pointer directly into the TCB, so callers see live updates when the locale changes
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -473,5 +473,16 @@
+ #if defined(OS_OPTION_LOCALE)
+ OS_SEC_L4_TEXT locale_t *PRT_LocaleCurrent(void)
+ {
+-    /* MASKED - implement this function */
+-}#endif+    struct TagTskCb *tskCb = RUNNING_TASK;
++
++    if (!tskCb) {
++        return NULL;
++    }
++
++    if (!tskCb->locale) {
++        tskCb->locale = (locale_t)libc_global_locale;
++    }
++
++    return &tskCb->locale;
++}
++#endif
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *tskCb = RUNNING_TASK;
+
+    if (!tskCb) {
+        return NULL;
+    }
+
+    if (!tskCb->locale) {
+        tskCb->locale = (locale_t)libc_global_locale;
+    }
+
+    return &tskCb->locale;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LocaleCurrent.c
+[CASE] NULL when no running task
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] address match
+  Expected: 110933620480632
+  Actual  : 110933620480632
+  Result  : PASS
+
+[CASE] value 0x1234
+  Expected: 4660
+  Actual  : 4660
+  Result  : PASS
+
+[CASE] pointer same
+  Expected: 110933620481272
+  Actual  : 110933620481272
+  Result  : PASS
+
+[CASE] updated value
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+[CASE] separate locales
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

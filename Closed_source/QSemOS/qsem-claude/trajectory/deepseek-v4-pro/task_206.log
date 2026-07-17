@@ -1,0 +1,163 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsLogUpdateTail` does:
+
+**Function signature**: `static U32 OsLogUpdateTail(U32 *tail)`
+
+**Behavior** — atomically advances the producer-side tail pointer in a lock-free ring buffer:
+
+1. **Retry loop** — reads head and tail atomically via `OsLogGetTailAndHead`, then attempts to commit under lock; retries if tail changed concurrently (CAS pattern).
+
+2. **U32 wraparound handling** — when `head` is near `U32_MAX` (within `BUFFER_BLOCK_NUM`), both head and tail are temporarily shifted forward by `2 * BUFFER_BLOCK_NUM` so the range check works correctly across the natural U32 overflow boundary.
+
+3. **Range validation** — rejects invalid states where `tail < head` or `tail >= head + BUFFER_BLOCK_NUM` (buffer overrun), returning `-1`.
+
+4. **Atomic commit** — under lock with a full memory fence, verifies tail hasn't changed since the read, then writes `tail + 1` to shared memory.
+
+5. **Returns** the *old* tail value via `*tail` (the slot the caller should use), and `0` for success.
+
+The only change was replacing the placeholder comment block at line 171-173 with the full implementation (lines 170-201).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -169,7 +169,35 @@
+ 
+ static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 currHead, currTail;
++    bool isOverflow;
++    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
++
++    while (1) {
++        isOverflow = false;
++        OsLogGetTailAndHead(&currHead, &currTail);
++        if (currHead > U32_MAX - BUFFER_BLOCK_NUM) {
++            isOverflow = true;
++            currTail += 2 * BUFFER_BLOCK_NUM;
++            currHead += 2 * BUFFER_BLOCK_NUM;
++        }
++        if (currTail < currHead || currTail >= currHead + BUFFER_BLOCK_NUM) {
++            return -1;
++        }
++        if (isOverflow) {
++            currTail -= 2 * BUFFER_BLOCK_NUM;
++        }
++        intSave = OsLogLockOn();
++        M_FENCE()
++        if (currTail == OsAtomicReadU32(tailPtr)) {
++            OsAtomicSetU32(tailPtr, currTail + 1);
++            OsLogLockRestore(intSave);
++            *tail = currTail;
++            return 0;
++        }
++        OsLogLockRestore(intSave);
++    }
+ }
+ 
+ static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 currHead, currTail;
+    bool isOverflow;
+    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
+
+    while (1) {
+        isOverflow = false;
+        OsLogGetTailAndHead(&currHead, &currTail);
+        if (currHead > U32_MAX - BUFFER_BLOCK_NUM) {
+            isOverflow = true;
+            currTail += 2 * BUFFER_BLOCK_NUM;
+            currHead += 2 * BUFFER_BLOCK_NUM;
+        }
+        if (currTail < currHead || currTail >= currHead + BUFFER_BLOCK_NUM) {
+            return -1;
+        }
+        if (isOverflow) {
+            currTail -= 2 * BUFFER_BLOCK_NUM;
+        }
+        intSave = OsLogLockOn();
+        M_FENCE()
+        if (currTail == OsAtomicReadU32(tailPtr)) {
+            OsAtomicSetU32(tailPtr, currTail + 1);
+            OsLogLockRestore(intSave);
+            *tail = currTail;
+            return 0;
+        }
+        OsLogLockRestore(intSave);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsLogUpdateTail.c
+[CASE] normal returns 0
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+[CASE] outTail equals old tail
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] mem tail advanced
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] tail<head error
+  Expected: 0xFFFFFFFFFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] >=head+N error
+  Expected: 0xFFFFFFFFFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] wrap ok
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+[CASE] advance again ok
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+test_OsLogUpdateTail.c: In function ‘print_result’:
+test_OsLogUpdateTail.c:41:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   41 |     printf("  Expected: 0x%lX\n", (long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+test_OsLogUpdateTail.c:42:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   42 |     printf("  Actual  : 0x%lX\n", (long long)((U32)actual));
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+
+
+

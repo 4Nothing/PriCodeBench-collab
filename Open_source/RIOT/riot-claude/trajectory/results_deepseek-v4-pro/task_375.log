@@ -1,0 +1,87 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `ztimer64_clock_init` does:
+
+1. **Stores the base clock** — `clock->base_clock = base_clock` links to the underlying 32-bit ztimer
+2. **Initializes fields to zero** — `first = NULL` (no active timers), `adjust_set/adjust_sleep = 0`, `checkpoint = 0`
+3. **Configures the base timer** — sets `callback = ztimer64_handler` and `arg = clock` so the base clock fires into `ztimer64_handler`, which processes the 64-bit timer linked list; clears `base.next`/`base.offset` so the timer isn't considered "set"
+4. **Starts the checkpoint timer** — calls `_ztimer64_update()` which arms a timer on the base clock at `ZTIMER64_CHECKPOINT_INTERVAL` ticks. This ensures `ztimer64_now()` gets called regularly to keep the 64-bit checkpoint tracking correct (the upper 33 bits in `clock->checkpoint` are updated whenever the base clock crosses the 2^31 boundary)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer64/ztimer64.c
++++ sys/ztimer64/ztimer64.c
+@@ -262,7 +262,18 @@
+ 
+ void ztimer64_clock_init(ztimer64_clock_t *clock, ztimer_clock_t *base_clock)
+ {
+-    /* MASKED - implement this function */
++    clock->base_clock = base_clock;
++    clock->first = NULL;
++    clock->adjust_set = 0;
++    clock->adjust_sleep = 0;
++    clock->checkpoint = 0;
++
++    clock->base_timer.base.next = NULL;
++    clock->base_timer.base.offset = 0;
++    clock->base_timer.callback = ztimer64_handler;
++    clock->base_timer.arg = clock;
++
++    _ztimer64_update(clock);
+ }
+ 
+ #if MODULE_ZTIMER64_USEC
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer64
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+  90558	  32504	  78368	 201430	  312d6	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==367==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff0e108000; bottom 0x000000430000; size: 0x7fff0dcd8000 (140733424959488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==367==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

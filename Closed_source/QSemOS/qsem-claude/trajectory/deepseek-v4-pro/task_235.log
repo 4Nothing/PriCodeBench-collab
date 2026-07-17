@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. The function now:
+
+1. Casts the `void *handle` to `struct DynModuleUnitInfo *`
+2. Returns early if `NULL` (safe no-op for invalid handles)
+3. Otherwise calls `OsDynModuleUnitFree()` — the existing static function at line 485 that fully tears down the module unit (frees `moduleStr`, `symTab` entries, `symTab`, `loadSegMem`, removes from `g_dynModuleInfoPool`, and frees `unitInfo` itself)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -634,7 +634,11 @@
+ 
+ void OsDynModuleUnload(void *handle)
+ {
+-    /* MASKED - implement this function */
++    struct DynModuleUnitInfo *unitInfo = (struct DynModuleUnitInfo *)handle;
++    if (unitInfo == NULL) {
++        return;
++    }
++    OsDynModuleUnitFree(unitInfo);
+ }const char *OsDynModuleGetError(void)
+ {
+     return (const char *)g_dynModuleErrorStr;
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct DynModuleUnitInfo *unitInfo = (struct DynModuleUnitInfo *)handle;
+    if (unitInfo == NULL) {
+        return;
+    }
+    OsDynModuleUnitFree(unitInfo);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleFileCheck.c
+[CASE] file check test
+  Expected: no crash
+  Actual  : no crash
+  Result  : PASS
+
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+In file included from test_OsDynModuleFileCheck.c:6:
+test_shims.h: In function ‘PRT_MemAllocAlign’:
+test_shims.h:165:13: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  165 |         if (posix_memalign(&p, align, size) != 0)
+      |             ^~~~~~~~~~~~~~
+In file included from test_OsDynModuleFileCheck.c:7:
+test_common.h: At top level:
+test_common.h:23:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   23 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:12:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   12 | static void print_result(const char *case_name, uint32_t expected, uint32_t actual)
+      |             ^~~~~~~~~~~~
+
+
+

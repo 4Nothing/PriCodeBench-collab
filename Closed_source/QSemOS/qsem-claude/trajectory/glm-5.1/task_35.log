@@ -1,0 +1,100 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward. `PRT_SemCreate` is a public API wrapper that delegates to `OsSemCreate` with the correct parameters for a counting semaphore:
+
+- **`SEM_TYPE_COUNT`** — counting semaphore type (as documented in the header)
+- **`SEM_MODE_FIFO`** — FIFO wake mode (as documented: "唤醒方式为FIFO")
+- **`0`** for cookie — unused by the underlying `OsSemCreateCb`
+
+This follows the same pattern as `PRT_SemMutexCreate` at line 188, which delegates to `OsSemCreate` with its own type/mode constants. `OsSemCreate` already handles `semHandle == NULL` validation, IRQ locking, and CB allocation — so `PRT_SemCreate` just needs to supply the right enum values.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem_init.c
++++ src/core/ipc/sem/prt_sem_init.c
+@@ -178,7 +178,7 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_SemCreate(U32 count, SemHandle *semHandle)
+ {
+-    /* MASKED - implement this function */
++    return OsSemCreate(count, SEM_TYPE_COUNT, SEM_MODE_FIFO, semHandle, 0);
+ }
+ 
+ #if defined(OS_OPTION_BIN_SEM)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return OsSemCreate(count, SEM_TYPE_COUNT, SEM_MODE_FIFO, semHandle, 0);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SemCreate.c
+[CASE] PRT_SemCreate overflow
+  Expected: 33556233
+  Actual  : 33556227
+  Result  : FAIL
+
+[CASE] PRT_SemCreate OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] Counting sem created
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+Pass-Rate: 66.67% (2/3)
+
+--- stderr ---
+In file included from prt_sem_external.h:2,
+                 from test_PRT_SemCreate.c:2:
+auto_stub.h:1516:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1516 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1515:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1515 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1514:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1514 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1513:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1513 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1512:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1512 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1511:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1511 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1510:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1510 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1509:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1509 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1508:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1508 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

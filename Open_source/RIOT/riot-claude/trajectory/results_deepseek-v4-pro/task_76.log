@@ -1,0 +1,72 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward: `crc16_ccitt_fcs_start` delegates to `crc16_ccitt_kermit_update` with the FCS initial seed of `0xFFFF`. This is consistent with:
+
+- The inline `crc16_ccitt_fcs_update` in the header, which already wraps `kermit_update` (noting "CCITT-FCS and CCITT-KERMIT only differ in the starting seed")
+- `fcs_calc`, which calls `fcs_start(buf, len) ^ 0xFFFFU` to produce the full FCS checksum (Init=0xFFFF, XorOut=0xFFFF)
+- `fcs_finish`, which continues from a partial CRC and applies the same final XOR
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/crc16_ccitt.c
++++ sys/checksum/crc16_ccitt.c
+@@ -125,7 +125,7 @@
+ 
+ uint16_t crc16_ccitt_fcs_start(const unsigned char *buf, size_t len)
+ {
+-    /* MASKED - implement this function */
++    return crc16_ccitt_kermit_update(0xFFFF, buf, len);
+ }
+ 
+ uint16_t crc16_ccitt_fcs_finish(uint16_t crc, const unsigned char *buf, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123095	  42464	  78120	 243679	  3b7df	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeb4869000; bottom 0x00000043a000; size: 0x7ffeb442f000 (140731922706432)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

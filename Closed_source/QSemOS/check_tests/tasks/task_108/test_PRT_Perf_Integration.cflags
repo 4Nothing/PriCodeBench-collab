@@ -1,0 +1,1 @@
+-DSKIP_OsPerfOutPutInit -DSKIP_OsPerfOutPutWrite -DSKIP_OsPerfOutPutRead -DSKIP_OsPerfOutPutFlush -DSKIP_OsPerfPmuGet

@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does, matching the documented behavior:
+
+1. **Counting semaphores** — returns `FALSE` immediately; post is always "valid" (needs real work).
+
+2. **Recursive mutex semaphores** (`OS_OPTION_SEM_RECUR_PV` enabled) — if the mutex type is `SEM_MUTEX_TYPE_RECUR` and `recurCount > 0`, the post is absorbed by the recursive depth: `recurCount` is decremented and `TRUE` is returned. This mirrors the pend-side logic in `OsSemPendNotNeedSche` (line 380-385) where recursive pends increment `recurCount` instead of consuming `semCount`.
+
+3. **Binary semaphore already idle** — if `semCount > 0`, the semaphore is already free (unheld), so the post is redundant; returns `TRUE` to avoid needlessly incrementing the count beyond `OS_SEM_FULL`.
+
+4. **Otherwise** — returns `FALSE`, allowing `PRT_SemPost` to proceed with the full post logic (waking a waiter or incrementing `semCount`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -485,7 +485,22 @@
+  */
+ OS_SEC_ALW_INLINE INLINE bool OsSemPostIsInvalid(struct TagSemCb *semPosted)
+ {
+-    /* MASKED - implement this function */
++    if (GET_SEM_TYPE(semPosted->semType) != SEM_TYPE_BIN) {
++        return FALSE;
++    }
++
++#if defined(OS_OPTION_SEM_RECUR_PV)
++    if (GET_MUTEX_TYPE(semPosted->semType) == SEM_MUTEX_TYPE_RECUR && semPosted->recurCount > 0) {
++        semPosted->recurCount--;
++        return TRUE;
++    }
++#endif
++
++    if (semPosted->semCount > 0) {
++        return TRUE;
++    }
++
++    return FALSE;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (GET_SEM_TYPE(semPosted->semType) != SEM_TYPE_BIN) {
+        return FALSE;
+    }
+
+#if defined(OS_OPTION_SEM_RECUR_PV)
+    if (GET_MUTEX_TYPE(semPosted->semType) == SEM_MUTEX_TYPE_RECUR && semPosted->recurCount > 0) {
+        semPosted->recurCount--;
+        return TRUE;
+    }
+#endif
+
+    if (semPosted->semCount > 0) {
+        return TRUE;
+    }
+
+    return FALSE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test_OsSemPostIsInvalid test_OsSemPostIsInvalid.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsSemPostIsInvalid test
+recur decremented => expected ret=1 recur=2 | actual ret=1 recur=2
+bin full => expected ret=1 recur=0 | actual ret=1 recur=0
+bin not full => expected ret=0 recur=0 | actual ret=0 recur=0
+count type => expected ret=0 recur=0 | actual ret=0 recur=0
+recur zero -> false => expected ret=0 recur=0 | actual ret=0 recur=0
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsSemPostIsInvalid.c:2:
+test_helpers.h:14:28: warning: ‘struct TagTskCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   14 | void test_init_task(struct TagTskCb *tcb, U32 pid, U32 prio);
+      |                            ^~~~~~~~
+test_helpers.h:15:27: warning: ‘struct TagSemCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                           ^~~~~~~~
+test_OsSemPostIsInvalid.c: In function ‘main’:
+test_OsSemPostIsInvalid.c:22:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   22 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_BIN, SEM_MUTEX_TYPE_RECUR), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostIsInvalid.c:29:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   29 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_BIN, 0), OS_SEM_FULL, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostIsInvalid.c:34:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   34 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_BIN, 0), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostIsInvalid.c:39:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   39 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+test_OsSemPostIsInvalid.c:44:19: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   44 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_BIN, SEM_MUTEX_TYPE_RECUR), 0, SEM_MODE_FIFO);
+      |                   ^~
+      |                   |
+      |                   struct TagSemCb *
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘struct TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+
+
+

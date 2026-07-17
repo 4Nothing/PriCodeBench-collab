@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation reads the `id` field from the CoAP UDP header and converts it from network to host byte order with `ntohs()` — the inverse of `coap_set_id()` which uses `htons()` on the same field.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -581,7 +581,7 @@
+  */
+ static inline unsigned coap_get_id(const coap_pkt_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    return ntohs(coap_get_udp_hdr_const(pkt)->id);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147774	  36040	  78120	 261934	  3ff2e	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffceafae000; bottom 0x00000043f000; size: 0x7ffceab6f000 (140724246343680)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

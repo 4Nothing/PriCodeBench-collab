@@ -1,0 +1,98 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what the function does:
+
+- **`init_opt == true`**: Starts iteration from the first CoAP option (right after the header + token), with `opt_num` at 0.
+- **`init_opt == false`**: Continues from the position stored in `opt->offset`, using `opt->opt_num` as the base for delta calculation.
+- Calls `_parse_option()` to decode the option header at the current position, extracting the delta and length.
+- Returns `-ENOENT` if no more options exist (past `pkt->payload` or at the payload marker), leaving `opt` and `value` unchanged.
+- Otherwise sets `*value` to the option value bytes, increments `opt->opt_num` by the delta, and advances `opt->offset` to the next option, ready for the next iteration. Returns the option value length.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -348,7 +348,31 @@
+ ssize_t coap_opt_get_next(const coap_pkt_t *pkt, coap_optpos_t *opt,
+                           uint8_t **value, bool init_opt)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *pkt_pos;
++    uint16_t opt_num;
++
++    if (init_opt) {
++        pkt_pos = pkt->buf + coap_get_total_hdr_len(pkt);
++        opt_num = 0;
++    }
++    else {
++        pkt_pos = pkt->buf + opt->offset;
++        opt_num = opt->opt_num;
++    }
++
++    uint16_t delta;
++    int opt_len;
++    uint8_t *val = _parse_option(pkt, pkt_pos, &delta, &opt_len);
++
++    if (!val) {
++        return -ENOENT;
++    }
++
++    *value = val;
++    opt->opt_num = opt_num + delta;
++    opt->offset = (uintptr_t)(val + opt_len) - (uintptr_t)pkt->buf;
++
++    return (ssize_t)opt_len;
+ }
+ 
+ ssize_t coap_opt_get_string(coap_pkt_t *pkt, uint16_t optnum,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147794	  36040	  78120	 261954	  3ff42	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe4a3cc000; bottom 0x00000043f000; size: 0x7ffe49f8d000 (140730139463680)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

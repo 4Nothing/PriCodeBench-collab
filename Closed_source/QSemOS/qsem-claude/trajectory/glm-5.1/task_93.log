@@ -1,0 +1,143 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implementation complete. The function `OsRingbufWriteLoop` is the mirror of `OsRingbufReadLoop` (line 116):
+
+1. **Calculate the right segment**: `right = size - endIdx` — the available space from the write index to the end of the buffer.
+2. **Copy what fits**: `cpSize = min(right, size)` bytes from `buf` into `fifo + endIdx`.
+3. **Update state**: decrement `remain` and advance `endIdx`. If `endIdx` reaches `size`, wrap it to `0`.
+4. **Handle remainder**: if fewer bytes were written than requested (`cpSize < size`), the buffer wrapped. The remaining data (`buf + cpSize`, `size - cpSize`) is written via `OsRingbufWriteLinear`, which writes linearly from the new `endIdx` (now at 0) into the contiguous free space at the beginning of the buffer.
+5. **Return total bytes written**.
+
+This function is called from `PRT_RingbufWrite` when `startIdx <= endIdx` (free space is split across the end and beginning of the buffer, requiring a wrap).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_ringbuf.c
++++ src/extended/perf/prt_perf_ringbuf.c
+@@ -64,7 +64,30 @@
+ 
+ static U32 OsRingbufWriteLoop(Ringbuf *ringbuf, const char *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 right;
++    U32 cpSize;
++
++    right = ringbuf->size - ringbuf->endIdx;
++    cpSize = (right < size) ? right : size;
++
++    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, right, buf, cpSize);
++    if (ret != OS_OK) {
++        printf("write loop ring buffer failed, endIdx: %u, right:%u, cpSize=%u\n", ringbuf->endIdx, right, cpSize);
++        return 0;
++    }
++
++    ringbuf->remain -= cpSize;
++    ringbuf->endIdx += cpSize;
++    if (ringbuf->endIdx == ringbuf->size) {
++        ringbuf->endIdx = 0;
++    }
++
++    if (cpSize < size) {
++        cpSize += OsRingbufWriteLinear(ringbuf, buf + cpSize, size - cpSize);
++    }
++
++    return cpSize;
+ }
+ 
+ U32 PRT_RingbufWrite(Ringbuf *ringbuf, const char *buf, U32 size)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 right;
+    U32 cpSize;
+
+    right = ringbuf->size - ringbuf->endIdx;
+    cpSize = (right < size) ? right : size;
+
+    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, right, buf, cpSize);
+    if (ret != OS_OK) {
+        printf("write loop ring buffer failed, endIdx: %u, right:%u, cpSize=%u\n", ringbuf->endIdx, right, cpSize);
+        return 0;
+    }
+
+    ringbuf->remain -= cpSize;
+    ringbuf->endIdx += cpSize;
+    if (ringbuf->endIdx == ringbuf->size) {
+        ringbuf->endIdx = 0;
+    }
+
+    if (cpSize < size) {
+        cpSize += OsRingbufWriteLinear(ringbuf, buf + cpSize, size - cpSize);
+    }
+
+    return cpSize;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRingbufWriteLoop.c notifier_test_stubs.c
+Case 1 (write 4) -> Expected: 4, Actual: 4
+Case 2 (wrap + linear total) -> Expected: 5, Actual: 5
+Case 3 (endIdx after wrap) -> Expected: 3, Actual: 3
+Case 4 (exact remain=3) -> Expected: 3, Actual: 3
+Case 5 (size 0) -> Expected: 0, Actual: 0
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsRingbufWriteLoop.c:3:
+auto_stub.h:602:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  602 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:601:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  601 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:600:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  600 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:599:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  599 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:598:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  598 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:597:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  597 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:596:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  596 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:595:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  595 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:594:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  594 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:593:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  593 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:592:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  592 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:591:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  591 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:590:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  590 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:589:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  589 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

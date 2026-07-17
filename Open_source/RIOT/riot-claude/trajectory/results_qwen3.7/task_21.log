@@ -1,0 +1,43 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation of `bhp_msg_isr_cb` in `sys/bhp/msg.c` does three things:
+
+1. **Casts** the opaque `void *bhp_msg_ctx` to `bhp_msg_t *`
+2. **Asserts** the target PID is valid (i.e., `bhp_msg_claim_thread` was called first), as documented in the header
+3. **Sends** the pre-built message (type `BHP_MSG_BH_REQUEST`, content pointing to `&bhp_msg->bhp`) to the target thread via `msg_send_int`, the standard RIOT OS API for ISR-context message sends
+
+The receiving thread picks this up and calls `bhp_msg_handler()` → `bhp_irq_handler()` to run the registered callback outside interrupt context. This mirrors the event-based counterpart `bhp_event_isr_cb` in `event.c`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bhp/msg.c
++++ sys/bhp/msg.c
+@@ -17,6 +17,7 @@
+  *
+  * @}
+  */
++#include <assert.h>
+ #include <stdio.h>
+ #include "bhp/msg.h"
+ 
+@@ -30,5 +31,8 @@
+ 
+ void bhp_msg_isr_cb(void *bhp_msg_ctx)
+ {
+-    /* MASKED - implement this function */
++    bhp_msg_t *bhp_msg = bhp_msg_ctx;
++
++    assert(bhp_msg->pid != KERNEL_PID_UNDEF);
++    msg_send_int(&bhp_msg->msg, bhp_msg->pid);
+ }
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

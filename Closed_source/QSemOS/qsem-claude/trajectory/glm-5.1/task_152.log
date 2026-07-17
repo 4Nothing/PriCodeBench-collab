@@ -1,0 +1,101 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what it does:
+
+- **`OsSpinLockInitInner(&spinLock->rawLock)`** — initializes the raw spinlock value to `OS_SPINLOCK_UNLOCK` (0, meaning "unlocked"). On ARM SMP architectures this writes `0` to the lock word; on other architectures it's a no-op.
+- **`return OS_OK`** — returns success, matching the contract expected by all callers (`prt_perf.c:351`, `prt_log.c:89`, `rpmsg_service.c:326`).
+
+This mirrors the exact pattern used by the arch-level `OsSplLockInit` inline functions in the ARMv8 and ARMv7-R headers.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/spinlock/prt_spinlock.c
++++ src/core/kernel/spinlock/prt_spinlock.c
+@@ -30,7 +30,8 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_SplLockInit(struct PrtSpinLock *spinLock)
+ {
+-    /* MASKED - implement this function */
++    OsSpinLockInitInner(&spinLock->rawLock);
++    return OS_OK;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsSpinLockInitInner(&spinLock->rawLock);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_PRT_SplLockInit test_PRT_SplLockInit.c notifier_test_stubs.c
+
+--- stderr ---
+In file included from test_PRT_SplLockInit.c:31:
+func_under_test.c: In function ‘PRT_SplLockInit’:
+func_under_test.c:3:5: warning: implicit declaration of function ‘OsSpinLockInitInner’; did you mean ‘OsSplLockInit’? [-Wimplicit-function-declaration]
+    3 |     OsSpinLockInitInner(&spinLock->rawLock);
+      |     ^~~~~~~~~~~~~~~~~~~
+      |     OsSplLockInit
+In file included from test_PRT_SplLockInit.c:29:
+auto_stub.h: At top level:
+auto_stub.h:1514:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1514 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1513:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1513 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1512:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1512 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1511:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1511 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1510:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1510 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1509:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1509 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1508:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1508 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1504:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1504 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1503:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1503 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1502:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1502 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1501:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1501 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/ccGhTJSA.o: in function `PRT_SplLockInit':
+test_PRT_SplLockInit.c:(.text+0x49): undefined reference to `OsSpinLockInitInner'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:14: test_PRT_SplLockInit] Error 1
+
+
+

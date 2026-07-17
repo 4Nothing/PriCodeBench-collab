@@ -1,0 +1,4 @@
+-DSKIP_PRT_PerfInit
+-DSKIP_OsPmuInit -DSKIP_OsHwPmuInit -DSKIP_OsTimedPmuInit -DSKIP_OsSwPmuInit
+-DSKIP_OsPerfOutPutInit -DSKIP_OsPerfOutPutWrite -DSKIP_OsPerfOutPutRead -DSKIP_OsPerfOutPutFlush
+-DSKIP_OsPerfHdrInit -DSKIP_PRT_PerfStart -DSKIP_PRT_PerfStop -DSKIP_PRT_PerfDataRead

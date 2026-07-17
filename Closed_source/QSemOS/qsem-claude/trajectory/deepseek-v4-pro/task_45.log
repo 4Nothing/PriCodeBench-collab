@@ -1,0 +1,129 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+**`OsRwLockPendFindPosSub`** finds the correct insertion position for `runTask` within a priority-sorted pending list, called only when the insertion point is in the middle (not at the head or tail).
+
+**Logic:**
+- Iterates through the lock-pending list using `LIST_FOR_EACH_SAFE`
+- If a pending task has **higher** priority (`pendedTask->priority < runTask->priority`): skip past it (runTask goes after)
+- If a pending task has **lower** priority (`pendedTask->priority > runTask->priority`): return `&pendedTask->pendList` to insert runTask before that task
+- If **equal** priority: return `pendedTask->pendList.next` to insert runTask right after that task (FIFO ordering for same-priority tasks)
+- Returns `NULL` if runTask's priority is lower than all tasks in the list (edge case already guarded by the caller)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -33,7 +33,22 @@
+ 
+ struct TagListObject *OsRwLockPendFindPosSub(const struct TagTskCb *runTask, const struct TagListObject *lockList)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *pendedTask;
++    struct TagListObject *node = NULL;
++
++    LIST_FOR_EACH_SAFE(pendedTask, lockList, struct TagTskCb, pendList) {
++        if (pendedTask->priority < runTask->priority) {
++            continue;
++        } else if (pendedTask->priority > runTask->priority) {
++            node = &pendedTask->pendList;
++            break;
++        } else {
++            node = pendedTask->pendList.next;
++            break;
++        }
++    }
++
++    return node;
+ }
+ 
+ struct TagListObject *OsRwLockPendFindPos(struct TagTskCb *runTask, struct TagListObject *lockList)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *pendedTask;
+    struct TagListObject *node = NULL;
+
+    LIST_FOR_EACH_SAFE(pendedTask, lockList, struct TagTskCb, pendList) {
+        if (pendedTask->priority < runTask->priority) {
+            continue;
+        } else if (pendedTask->priority > runTask->priority) {
+            node = &pendedTask->pendList;
+            break;
+        } else {
+            node = pendedTask->pendList.next;
+            break;
+        }
+    }
+
+    return node;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockPendFindPosSub.c
+Case 1: expect=1, actual=1
+Case 2: expect=1, actual=1
+Case 3: expect=1, actual=1
+Case 4: expect=1, actual=1
+Case 5: expect=1, actual=1
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwLockPendFindPosSub.c:1:
+test_common.h:54:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   54 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:43:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   43 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+test_common.h:31:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   31 | static void print_case_result(int case_no, unsigned expected, unsigned actual)
+      |             ^~~~~~~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1422:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1422 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1421:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1421 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1420 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1418:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1416:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1416 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1415:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1415 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1410:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1410 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1409:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1409 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

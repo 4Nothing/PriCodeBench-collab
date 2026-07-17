@@ -1,0 +1,74 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Asserts** `payload_representation == UNICOAP_PAYLOAD_NONCONTIGUOUS` — matching the `@pre` from the header doc
+- **Delegates** to the existing `iolist_append()` helper (lines 48-61) which walks to the end of the iolist chain and attaches the new chunk, or sets it as the head if the list is empty
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/unicoap/utils.c
++++ sys/net/application_layer/unicoap/utils.c
+@@ -120,7 +120,8 @@
+ 
+ void unicoap_message_payload_append_chunk(unicoap_message_t* message, iolist_t* chunk)
+ {
+-    /* MASKED - implement this function */
++    assert(message->payload_representation == UNICOAP_PAYLOAD_NONCONTIGUOUS);
++    iolist_append(&message->payload_chunks, chunk);
+ }
+ 
+ static inline iolist_t* _append_payload_to_iolist(const unicoap_message_t* message,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+   text	   data	    bss	    dec	    hex	filename
+ 125120	  43144	  82464	 250728	  3d368	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffea0da7000; bottom 0x00000043b000; size: 0x7ffea096c000 (140731592654848)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

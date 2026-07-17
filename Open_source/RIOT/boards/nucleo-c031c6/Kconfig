@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2024 BISSELL Homecare, Inc.
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-c031c6" if BOARD_NUCLEO_C031C6
+
+config BOARD_NUCLEO_C031C6
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32C031C6
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

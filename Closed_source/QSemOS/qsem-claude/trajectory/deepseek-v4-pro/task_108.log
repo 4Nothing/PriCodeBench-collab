@@ -1,0 +1,164 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. I replaced the placeholder `/* MASKED - implement this function */` with the full function body.
+
+**What the function does:** It serializes perf sample data into a `PerfSampleData` struct based on the `g_perfCb.sampleType` bitmask. For each flag set in the sample type, it writes the corresponding field to the struct sequentially (using raw pointer arithmetic on a `char *`), then returns the total number of bytes written. The caller (`OsPerfHandleOverFlow`) writes exactly that many bytes to the output ring buffer.
+
+**Fields populated, in order:**
+| Flag | Field | Source |
+|---|---|---|
+| `PERF_RECORD_CPU` | `cpuid` | `PRT_GetCoreID()` |
+| `PERF_RECORD_TID` | `taskId` | `PRT_TaskSelf()` |
+| `PERF_RECORD_TYPE` | `eventId` | `event->eventId` |
+| `PERF_RECORD_PERIOD` | `period` | `event->period` |
+| `PERF_RECORD_TIMESTAMP` | `time` | `OsCurCycleGet64()` |
+| `PERF_RECORD_IP` | `pc` | `regs->pc` |
+| `PERF_RECORD_CALLCHAIN` | `callChain` | `OsPerfBackTrace()` + depth count |
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -197,7 +197,56 @@
+ 
+ static U32 OsPerfCollectData(Event *event, PerfSampleData *data, PerfRegs *regs)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 size = 0;
++    U32 depth;
++    TskHandle threadId;
++    U32 sampleType = g_perfCb.sampleType;
++    char *p = (char *)data;
++
++    if (sampleType & PERF_RECORD_CPU) {
++        *(U32 *)(p + size) = PRT_GetCoreID();
++        size += sizeof(data->cpuid);
++    }
++
++    if (sampleType & PERF_RECORD_TID) {
++        ret = PRT_TaskSelf(&threadId);
++        if (ret != OS_OK) {
++            PRT_Printf("when perf collect data, get task info failed, ret = 0x%x\n", ret);
++            return size;
++        }
++        *(U32 *)(p + size) = threadId;
++        size += sizeof(data->taskId);
++    }
++
++    if (sampleType & PERF_RECORD_TYPE) {
++        *(U32 *)(p + size) = event->eventId;
++        size += sizeof(data->eventId);
++    }
++
++    if (sampleType & PERF_RECORD_PERIOD) {
++        *(U32 *)(p + size) = event->period;
++        size += sizeof(data->period);
++    }
++
++    if (sampleType & PERF_RECORD_TIMESTAMP) {
++        *(U64 *)(p + size) = OsCurCycleGet64();
++        size += sizeof(data->time);
++    }
++
++    if (sampleType & PERF_RECORD_IP) {
++        *(uintptr_t *)(p + size) = regs->pc;
++        size += sizeof(data->pc);
++    }
++
++    if (sampleType & PERF_RECORD_CALLCHAIN) {
++        depth = OsPerfBackTrace((uintptr_t *)(p + size + sizeof(data->callChain.ipNr)),
++                                PERF_MAX_CALLCHAIN_DEPTH, regs);
++        *(U32 *)(p + size) = (U32)depth;
++        size += sizeof(data->callChain.ipNr) + PERF_MAX_CALLCHAIN_DEPTH * sizeof(data->callChain.ip[0]);
++    }
++
++    return size;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 size = 0;
+    U32 depth;
+    TskHandle threadId;
+    U32 sampleType = g_perfCb.sampleType;
+    char *p = (char *)data;
+
+    if (sampleType & PERF_RECORD_CPU) {
+        *(U32 *)(p + size) = PRT_GetCoreID();
+        size += sizeof(data->cpuid);
+    }
+
+    if (sampleType & PERF_RECORD_TID) {
+        ret = PRT_TaskSelf(&threadId);
+        if (ret != OS_OK) {
+            PRT_Printf("when perf collect data, get task info failed, ret = 0x%x\n", ret);
+            return size;
+        }
+        *(U32 *)(p + size) = threadId;
+        size += sizeof(data->taskId);
+    }
+
+    if (sampleType & PERF_RECORD_TYPE) {
+        *(U32 *)(p + size) = event->eventId;
+        size += sizeof(data->eventId);
+    }
+
+    if (sampleType & PERF_RECORD_PERIOD) {
+        *(U32 *)(p + size) = event->period;
+        size += sizeof(data->period);
+    }
+
+    if (sampleType & PERF_RECORD_TIMESTAMP) {
+        *(U64 *)(p + size) = OsCurCycleGet64();
+        size += sizeof(data->time);
+    }
+
+    if (sampleType & PERF_RECORD_IP) {
+        *(uintptr_t *)(p + size) = regs->pc;
+        size += sizeof(data->pc);
+    }
+
+    if (sampleType & PERF_RECORD_CALLCHAIN) {
+        depth = OsPerfBackTrace((uintptr_t *)(p + size + sizeof(data->callChain.ipNr)),
+                                PERF_MAX_CALLCHAIN_DEPTH, regs);
+        *(U32 *)(p + size) = (U32)depth;
+        size += sizeof(data->callChain.ipNr) + PERF_MAX_CALLCHAIN_DEPTH * sizeof(data->callChain.ip[0]);
+    }
+
+    return size;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfCollectData.c test_stubs.c
+[Size with CPU only] expect=4 actual=4 -> PASS
+[Size with CPU+TID+TYPE] expect=12 actual=12 -> PASS
+[Size with PERIOD+TIMESTAMP] expect=12 actual=12 -> PASS
+[Size with IP only] expect=8 actual=8 -> PASS
+[Size with callchain] expect=84 actual=84 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsPerfCollectData.c:1:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+test_stubs.c:99:5: warning: ‘OsPerfCollectData’ defined but not used [-Wunused-function]
+   99 | U32 OsPerfCollectData(Event *event, PerfSampleData *data, PerfRegs *regs) {
+      |     ^~~~~~~~~~~~~~~~~
+
+
+

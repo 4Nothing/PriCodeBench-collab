@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-FileCopyrightText: 2022 Gunar Schorcht
+# SPDX-License-Identifier: LGPL-2.1-only
+
+if HAS_ARCH_ESP32
+
+# define configuration menu entries that common for all ESP32x SoC variants
+
+rsource "esp-lcd/Kconfig"
+rsource "periph/Kconfig"
+
+endif

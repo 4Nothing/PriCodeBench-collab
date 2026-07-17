@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `NotifierChainRegister` does:
+
+1. **Walks the linked list** using the same double-pointer pattern as `NotifierChainUnregister`, finding the correct insertion point based on priority (higher priority nodes come first; same-priority nodes keep registration order with newer ones after existing ones).
+2. **Links** the new block's `next` to the remainder of the list at the insertion point.
+3. **Plugs** the new block into the chain by updating the appropriate pointer (either the head or a predecessor's `next`).
+4. **Returns 0** for success.
+
+The implementation is consistent with the existing code style — no error checking (nil pointers, duplicates), matching the simplicity of `NotifierChainUnregister`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -23,7 +23,12 @@
+ static int NotifierChainRegister(struct NotifierBlock **nl,
+         struct NotifierBlock *n)
+ {
+-    /* MASKED - implement this function */
++    while (*nl != NULL && (*nl)->priority >= n->priority) {
++        nl = &((*nl)->next);
++    }
++    n->next = *nl;
++    *nl = n;
++    return 0;
+ }
+ 
+ static int NotifierChainUnregister(struct NotifierBlock **nl,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    while (*nl != NULL && (*nl)->priority >= n->priority) {
+        nl = &((*nl)->next);
+    }
+    n->next = *nl;
+    *nl = n;
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_NotifierChainRegister.c notifier_test_stubs.c
+After insert a(10): [10] 
+[CASE 1] insert first returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 2] head is a
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert b(5): [10] [5] 
+[CASE 3] insert low prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 4] order a->b
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert c(7): [10] [7] [5] 
+[CASE 5] insert mid prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 6] order a->c->b
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert d(20): [20] [10] [7] [5] 
+[CASE 7] insert highest prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 8] head is d
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 9] double register returns -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

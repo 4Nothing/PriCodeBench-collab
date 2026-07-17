@@ -1,0 +1,8 @@
+add_subdirectory(boot)
+add_subdirectory(cache)
+add_subdirectory(exc)
+add_subdirectory(hwi)
+if(${CONFIG_OS_OPTION_STACKTRACE})
+add_subdirectory(stacktrace)
+endif()
+add_library_ex(prt_port.c)

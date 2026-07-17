@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same patterns as the existing code:
+
+- **Validation**: Same mutex locking, `fib_is_sr_in_table` check, and `fib_sr_check_lifetime` check as `fib_sr_read_head` and other sr functions.
+- **NULL-aware setters**: Per the header documentation, each parameter pointer being NULL means "don't change that field".
+- **Lifetime conversion**: Uses the same `fib_lifetime_to_absolute` helper and `(uint32_t)FIB_LIFETIME_NO_EXPIRE` sentinel comparison as `fib_sr_create`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -824,7 +824,36 @@
+ int fib_sr_set(fib_table_t *table, fib_sr_t *fib_sr, kernel_pid_t *sr_iface_id,
+                uint32_t *sr_flags, uint32_t *sr_lifetime)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr_check_lifetime(fib_sr) == -ENOENT) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOENT;
++    }
++
++    if (sr_iface_id != NULL) {
++        fib_sr->sr_iface_id = *sr_iface_id;
++    }
++
++    if (sr_flags != NULL) {
++        fib_sr->sr_flags = *sr_flags;
++    }
++
++    if (sr_lifetime != NULL) {
++        if (*sr_lifetime < (uint32_t)FIB_LIFETIME_NO_EXPIRE) {
++            fib_lifetime_to_absolute(*sr_lifetime, &fib_sr->sr_lifetime);
++        }
++        else {
++            fib_sr->sr_lifetime = FIB_LIFETIME_NO_EXPIRE;
++        }
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return 0;
+ }
+ 
+ int fib_sr_delete(fib_table_t *table, fib_sr_t *fib_sr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127040	  36808	  86856	 250704	  3d350	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc38f41000; bottom 0x000000439000; size: 0x7ffc38b08000 (140721259577344)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

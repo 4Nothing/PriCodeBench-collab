@@ -1,0 +1,112 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `PRT_TaskIrqLock` now:
+
+1. Saves the interrupt state via `OsIntLock()` (disables interrupts)
+2. Increments the task lock counter via `OS_TSK_LOCK()` (prevents rescheduling)
+3. Returns the saved interrupt state as a `uintptr_t`
+
+This mirrors the pattern of the existing `PRT_TaskLock()` but returns the interrupt state instead of restoring it, so the caller can pass it to `PRT_TaskIrqUnlock(uintptr_t intSave)` when the critical section is done. The unlock counterpart `OsTaskIrqUnlock` decrements the lock counter and conditionally triggers rescheduling before restoring interrupts with that saved value.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -199,7 +199,13 @@
+ }
+ OS_SEC_L0_TEXT uintptr_t PRT_TaskIrqLock(void)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++
++    intSave = OsIntLock();
++
++    OS_TSK_LOCK();
++
++    return intSave;
+ }
+ /*
+  * 描述：解锁锁任务调度
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+
+    intSave = OsIntLock();
+
+    OS_TSK_LOCK();
+
+    return intSave;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskIrqLock.c common_test.c
+===== PRT_TaskIrqLock =====
+[lock==1] expect=1 actual=1 -> PASS
+[ret==first intsave] expect=100 actual=100 -> PASS
+[lock==2] expect=2 actual=2 -> PASS
+[ret==next intsave] expect=101 actual=101 -> PASS
+[no restore yet] expect=0 actual=0 -> PASS
+[no scheduling] expect=0 actual=0 -> PASS
+[lock==3] expect=3 actual=3 -> PASS
+[ret progresses] expect=102 actual=102 -> PASS
+Pass-Rate: 100.00% (8/8)
+
+--- stderr ---
+In file included from prt_task_internal.h:2,
+                 from test_PRT_TaskIrqLock.c:2:
+auto_stub.h:1265:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1265 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1264:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1264 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1263:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1263 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1262:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1262 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1261:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1261 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1260:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1260 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1259:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1259 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1258:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1258 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1257:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1257 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1256:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1256 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1255:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1255 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1254:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1254 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1253:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1253 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1252:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1252 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

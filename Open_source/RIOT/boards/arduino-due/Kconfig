@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "arduino-due" if BOARD_ARDUINO_DUE
+
+config BOARD_ARDUINO_DUE
+    bool
+    default y
+    select BOARD_COMMON_ARDUINO_DUE
+
+source "$(RIOTBOARD)/common/arduino-due/Kconfig"

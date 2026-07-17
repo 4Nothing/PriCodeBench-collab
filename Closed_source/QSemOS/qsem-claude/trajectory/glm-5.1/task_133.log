@@ -1,0 +1,99 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- Extracts the `eventId` from the `Event` struct — same as the SW PMU pattern
+- If the event ID matches `PERF_COUNT_CPU_CLOCK` (the only timed event, enum value 0), returns `"cpu-clock"` — following the Linux perf naming convention
+- Otherwise returns `"unknown"` — matching the fallback behavior in both the SW and HW PMU implementations
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/pmu/prt_perf_timed_pmu.c
++++ src/extended/perf/pmu/prt_perf_timed_pmu.c
+@@ -130,7 +130,11 @@
+ 
+ static char *OsPerfGetEventName(Event *event)
+ {
+-    /* MASKED - implement this function */
++    U32 eventId = event->eventId;
++    if (eventId == PERF_COUNT_CPU_CLOCK) {
++        return "cpu-clock";
++    }
++    return "unknown";
+ }
+ 
+ U32 OsTimedPmuInit()
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 eventId = event->eventId;
+    if (eventId == PERF_COUNT_CPU_CLOCK) {
+        return "cpu-clock";
+    }
+    return "unknown";
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsPerfGetEventName.c test_stubs.c notifier_test_stubs.c
+Expected: timed
+Actual  : cpu-clock
+
+Expected: unknown
+Actual  : unknown
+
+Expected: unknown
+Actual  : unknown
+
+Expected: timed
+Actual  : cpu-clock
+
+Expected: unknown
+Actual  : unknown
+
+Pass rate: 3/5 (60%)
+
+--- stderr ---
+test_OsPerfGetEventName.c: In function ‘main’:
+test_OsPerfGetEventName.c:60:5: warning: implicit declaration of function ‘print_rate’ [-Wimplicit-function-declaration]
+   60 |     print_rate();
+      |     ^~~~~~~~~~
+In file included from ../../include/../include/perf/prt_perf_pmu.h:2,
+                 from prt_perf_pmu.h:2,
+                 from test_stubs.c:4:
+../../include/qsem_test_stubs.h:209:1: warning: braces around scalar initializer
+  209 | SwTmrFreeList g_tmrFreeList = {{NULL}, 0};
+      | ^~~~~~~~~~~~~
+../../include/qsem_test_stubs.h:209:1: note: (near initialization for ‘g_tmrFreeList.freeList’)
+../../include/qsem_test_stubs.h:626:41: warning: ‘struct TagOsRunQue’ declared inside parameter list will not be visible outside of this definition or declaration
+  626 | static inline void OsEnqueueTask(struct TagOsRunQue *rq, struct TagTskCb *task, U32 unused) { (void)rq; (void)task; (void)unused; }
+      |                                         ^~~~~~~~~~~
+../../include/qsem_test_stubs.h:627:41: warning: ‘struct TagOsRunQue’ declared inside parameter list will not be visible outside of this definition or declaration
+  627 | static inline void OsDequeueTask(struct TagOsRunQue *rq, struct TagTskCb *task, U32 unused) { (void)rq; (void)task; (void)unused; }
+      |                                         ^~~~~~~~~~~
+../../include/qsem_test_stubs.h:628:42: warning: ‘struct TagOsRunQue’ declared inside parameter list will not be visible outside of this definition or declaration
+  628 | static inline void OsIncNrRunning(struct TagOsRunQue *rq) { (void)rq; }
+      |                                          ^~~~~~~~~~~
+../../include/qsem_test_stubs.h:629:42: warning: ‘struct TagOsRunQue’ declared inside parameter list will not be visible outside of this definition or declaration
+  629 | static inline void OsDecNrRunning(struct TagOsRunQue *rq) { (void)rq; }
+      |                                          ^~~~~~~~~~~
+../../include/qsem_test_stubs.h:726:56: warning: missing braces around initializer [-Wmissing-braces]
+  726 | SwTmrSortLinkAttr g_tmrSortLinkAttr[OS_MAX_CORE_NUM] = {{0}};
+      |                                                        ^
+      |                                                          {}
+../../include/qsem_test_stubs.h: In function ‘OsDynModuleSetError’:
+../../include/qsem_test_stubs.h:939:60: warning: unused parameter ‘fmt’ [-Wunused-parameter]
+  939 | __attribute__((weak)) void OsDynModuleSetError(const char *fmt, ...) { }
+      |                                                ~~~~~~~~~~~~^~~
+
+
+

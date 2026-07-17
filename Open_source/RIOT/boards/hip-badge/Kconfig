@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2023 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "hip-badge" if BOARD_HIP_BADGE
+
+config BOARD_HIP_BADGE
+    bool
+    default y
+    select BOARD_COMMON_ESP32C3
+    select CPU_MODEL_ESP32C3
+
+source "$(RIOTBOARD)/common/esp32c3/Kconfig"

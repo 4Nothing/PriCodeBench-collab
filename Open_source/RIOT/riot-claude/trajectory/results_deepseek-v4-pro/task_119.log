@@ -1,0 +1,69 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It creates a local `fletcher16_ctx_t`, initializes it (seeding both sums to `0xff`), feeds the data through `fletcher16_update`, and finalizes with `fletcher16_finish` to return the 16-bit checksum. This follows the same pattern used by the existing incremental API in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/fletcher16.c
++++ sys/checksum/fletcher16.c
+@@ -53,5 +53,8 @@
+ 
+ uint16_t fletcher16(const uint8_t *data, size_t bytes)
+ {
+-    /* MASKED - implement this function */
++    fletcher16_ctx_t ctx;
++    fletcher16_init(&ctx);
++    fletcher16_update(&ctx, data, bytes);
++    return fletcher16_finish(&ctx);
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 123095	  42464	  78120	 243679	  3b7df	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff3024f000; bottom 0x00000043a000; size: 0x7fff2fe15000 (140733996683264)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `fmt_is_upper` at `sys/include/fmt.h:75-78` — a simple range check `(c >= 'A' && c <= 'Z')` matching the pattern of `fmt_is_digit` on line 65.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/fmt.h
++++ sys/include/fmt.h
+@@ -74,7 +74,7 @@
+  */
+ static inline int fmt_is_upper(char c)
+ {
+-    /* MASKED - implement this function */
++    return (c >= 'A' && c <= 'Z');
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-fmt
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 132512	  42848	  78120	 253480	  3de28	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.................................
+OK (33 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeb9d9b000; bottom 0x00000043d000; size: 0x7ffeb995e000 (140732012027904)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

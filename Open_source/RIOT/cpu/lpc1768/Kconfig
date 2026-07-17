@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_LPC176X
+    bool
+    select CPU_CORE_CORTEX_M3
+
+## CPU Models
+config CPU_MODEL_LPC1768
+    bool
+    select CPU_FAM_LPC176X
+
+## Common CPU symbols
+config CPU_FAM
+    default "lpc176x" if CPU_FAM_LPC176X
+
+config CPU_MODEL
+    default "lpc1768" if CPU_MODEL_LPC1768
+
+config CPU
+    default "lpc1768" if CPU_MODEL_LPC1768
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

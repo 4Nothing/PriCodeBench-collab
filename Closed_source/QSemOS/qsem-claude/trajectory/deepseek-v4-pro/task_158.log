@@ -1,0 +1,82 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**`OsResortSemList`** — Called in `OsPriorityInherit` after a semaphore owner task's priority has been elevated. When the owner task is itself blocked on a priority-mode semaphore (`SEM_MODE_PRIOR`), its position in that semaphore's pending list must be re-sorted to match its new priority.
+
+The logic mirrors `OsSemPendListPut`'s priority-ordered insertion (lines 264-276):
+1. Gets the semaphore the task is pending on from `taskCb->taskPend`
+2. Removes the task from the semaphore's `semList` via `ListDelete`
+3. Iterates the remaining list to find the first task with lower priority (higher priority number)
+4. Inserts before that task, maintaining ascending priority order (highest priority = lowest number first)
+5. If no lower-priority task exists, appends to the tail
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -145,7 +145,21 @@
+  */
+ OS_SEC_ALW_INLINE INLINE void OsResortSemList(struct TagTskCb *taskCb)
+ {
+-    /* MASKED - implement this function */
++    struct TagSemCb *sem = (struct TagSemCb *)taskCb->taskPend;
++    struct TagTskCb *curTskCb = NULL;
++
++    ListDelete(&taskCb->pendList);
++
++    LIST_FOR_EACH(curTskCb, &sem->semList, struct TagTskCb, pendList)
++    {
++        if (curTskCb->priority > taskCb->priority)
++        {
++            ListTailAdd(&taskCb->pendList, &curTskCb->pendList);
++            return;
++        }
++    }
++
++    ListTailAdd(&taskCb->pendList, &sem->semList);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSemCb *sem = (struct TagSemCb *)taskCb->taskPend;
+    struct TagTskCb *curTskCb = NULL;
+
+    ListDelete(&taskCb->pendList);
+
+    LIST_FOR_EACH(curTskCb, &sem->semList, struct TagTskCb, pendList)
+    {
+        if (curTskCb->priority > taskCb->priority)
+        {
+            ListTailAdd(&taskCb->pendList, &curTskCb->pendList);
+            return;
+        }
+    }
+
+    ListTailAdd(&taskCb->pendList, &sem->semList);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -O2 -finline-functions -I. -I../../include  -o test_OsResortSemList test_OsResortSemList.c test_stubs.c notifier_test_stubs.c
+rm -f test; ln -sf test_OsResortSemList test
+[Case] Priority reorder - task maintained in list
+  Before count: 4, After count: 4, taskCb found: 1
+  Result: PASS
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+
+
+

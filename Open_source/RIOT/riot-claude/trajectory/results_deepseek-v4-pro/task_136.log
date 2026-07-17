@@ -1,0 +1,111 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Allocates** a new packet snip with space for an `ipv6_hdr_t` via `gnrc_pktbuf_add`, prepending it to the payload chain
+2. **Zero-initializes** the entire header with `memset` (handles tc=0, fl=0, hl=0, and unspecified addresses)
+3. **Sets version** to 6 using `ipv6_hdr_set_version()`
+4. **Sets payload length** to the sum of all payload snip sizes using `gnrc_pkt_len()`, converted to network byte order
+5. **Sets next header** to `PROTNUM_RESERVED` (255)
+6. **Copies source/destination addresses** if non-NULL (they remain `::` / unspecified if NULL)
+7. **Returns** the new IPv6 header snip, or NULL on allocation failure
+
+This matches the documented behavior in `sys/include/net/gnrc/ipv6/hdr.h:31-47`: version=6, tc/fl/hl=0, nh=PROTNUM_RESERVED, with optional src/dst addresses.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/hdr/gnrc_ipv6_hdr.c
++++ sys/net/gnrc/network_layer/ipv6/hdr/gnrc_ipv6_hdr.c
+@@ -35,7 +35,28 @@
+ gnrc_pktsnip_t *gnrc_ipv6_hdr_build(gnrc_pktsnip_t *payload, const ipv6_addr_t *src,
+                                     const ipv6_addr_t *dst)
+ {
+-    /* MASKED - implement this function */
++    gnrc_pktsnip_t *snip;
++    ipv6_hdr_t *hdr;
++
++    snip = gnrc_pktbuf_add(payload, NULL, sizeof(ipv6_hdr_t), HDR_NETTYPE);
++    if (snip == NULL) {
++        return NULL;
++    }
++
++    hdr = snip->data;
++    memset(hdr, 0, sizeof(ipv6_hdr_t));
++    ipv6_hdr_set_version(hdr);
++    hdr->len = byteorder_htons((uint16_t)gnrc_pkt_len(payload));
++    hdr->nh = PROTNUM_RESERVED;
++
++    if (src != NULL) {
++        memcpy(&hdr->src, src, sizeof(ipv6_addr_t));
++    }
++    if (dst != NULL) {
++        memcpy(&hdr->dst, dst, sizeof(ipv6_addr_t));
++    }
++
++    return snip;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_hdr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/ztimer
+
+--- stderr ---
+[01m[K/workspace/sys/net/gnrc/network_layer/ipv6/hdr/gnrc_ipv6_hdr.c:25:13:[m[K [01;31m[Kerror: [m[K'[01m[Kaddr_str[m[K' defined but not used [[01;31m[K-Werror=unused-variable[m[K]
+   25 | static char [01;31m[Kaddr_str[m[K[IPV6_ADDR_MAX_STR_LEN];
+      |             [01;31m[K^~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[4]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/gnrc_ipv6_hdr/gnrc_ipv6_hdr.o] Error 1
+make[3]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/net/gnrc/network_layer/ipv6/hdr] Error 2
+make[3]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/net/gnrc] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

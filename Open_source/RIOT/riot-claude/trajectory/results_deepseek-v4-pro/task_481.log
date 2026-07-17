@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete at `sys/include/chunked_ringbuffer.h:102-136`. Here's what the function does:
+
+1. **Discards unfinished chunks** (lines 105-110): If `cur_start != NULL` (an in-progress chunk exists), resets `cur` back to `cur_start`. Also clears `protect` if it was pointing at the discarded chunk — matching the same logic in `crb_end_chunk`'s discard path.
+
+2. **Checks for a free chunk slot** (lines 112-126): Iterates the `chunk_start` array starting from `chunk_cur` looking for a `NULL` entry. If all `CONFIG_CHUNK_NUM_MAX` slots are occupied, there's nowhere to store the completed chunk when `crb_end_chunk` is called, so returns `false` early.
+
+3. **Checks buffer space** (lines 128-132): If `protect` is non-NULL (valid data exists that must not be overwritten) and `cur` is at the protection boundary, writing even one byte would corrupt data — returns `false`.
+
+4. **Starts the new chunk** (line 134): Sets `cur_start = cur` to mark the new chunk's beginning and returns `true`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/chunked_ringbuffer.h
++++ sys/include/chunked_ringbuffer.h
+@@ -101,7 +101,38 @@
+  */
+ static inline bool crb_start_chunk(chunk_ringbuf_t *rb)
+ {
+-    /* MASKED - implement this function */
++    /* discard any unfinished chunk */
++    if (rb->cur_start != NULL) {
++        rb->cur = rb->cur_start;
++        if (rb->protect == rb->cur_start) {
++            rb->protect = NULL;
++        }
++    }
++
++    /* check that a free chunk slot exists */
++    unsigned idx = rb->chunk_cur;
++    bool slot_free = false;
++    for (unsigned i = 0; i < CONFIG_CHUNK_NUM_MAX; i++) {
++        if (rb->chunk_start[idx] == NULL) {
++            slot_free = true;
++            break;
++        }
++        if (++idx == CONFIG_CHUNK_NUM_MAX) {
++            idx = 0;
++        }
++    }
++    if (!slot_free) {
++        return false;
++    }
++
++    /* refuse to start if the buffer is full (cur at the protected boundary
++       with valid data present — writing would overwrite it) */
++    if (rb->protect != NULL && rb->cur == rb->protect) {
++        return false;
++    }
++
++    rb->cur_start = rb->cur;
++    return true;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/chunked_ringbuffer
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  84148	  32600	  78120	 194868	  2f934	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+OK (2 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffda67b3000; bottom 0x00000042e000; size: 0x7ffda6385000 (140727392161792)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

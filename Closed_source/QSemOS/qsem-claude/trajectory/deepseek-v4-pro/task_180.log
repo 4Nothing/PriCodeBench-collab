@@ -1,0 +1,48 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**`OsQueueGetNodeSize`** (`prt_queue_init.c:41-44`) converts a user-provided raw data size into the actual node size needed for queue memory allocation:
+
+1. **`ALIGN(nodeSize, OS_QUEUE_NODE_SIZE_ALIGN)`** — rounds the raw data size up to a 4-byte boundary
+2. **`+ OS_QUEUE_NODE_HEAD_LEN`** — adds 4 bytes for the `QueNode` header (fields `size` and `srcPid`, each 2 bytes)
+
+This matches the usage throughout the file: the caller in `OsQueueCreatParaCheck` validates the result fits in a `U16`, and `OsQueueCreate` uses it to compute per-node memory (`nodeNum * nodeSize`) and to index into the queue buffer (`queueCb->queue[index * nodeSize]`). The same `nodeSize - OS_QUEUE_NODE_HEAD_LEN` pattern appears in `prt_queue.c` when computing available buffer space for data copy.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -40,7 +40,7 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsQueueGetNodeSize(U16 nodeSize)
+ {
+-    /* MASKED - implement this function */
++    return ALIGN(nodeSize, OS_QUEUE_NODE_SIZE_ALIGN) + OS_QUEUE_NODE_HEAD_LEN;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreatParaCheck(U16 nodeNum, U16 nodeSize, const U32 *queueId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return ALIGN(nodeSize, OS_QUEUE_NODE_SIZE_ALIGN) + OS_QUEUE_NODE_HEAD_LEN;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueGetNodeSize.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 5 / total 5)
+
+--- stderr ---
+
+
+

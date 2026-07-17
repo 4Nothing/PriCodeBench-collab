@@ -1,0 +1,165 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `OsPriorityInherit` does:
+
+**Purpose**: Implements priority inheritance to prevent priority inversion. When a higher-priority task (`runTsk`) blocks on a mutex (binary semaphore) held by a lower-priority task, the owner's priority is elevated to match the waiter's priority.
+
+**Logic**:
+1. **Early return for non-mutex**: If the semaphore isn't a binary type (`SEM_TYPE_BIN`), return immediately — priority inheritance only applies to mutexes.
+2. **Find the owner**: Look up the task control block for `semPended->semOwner`.
+3. **Iterate while owner priority is lower** (larger numeric value means lower priority):  
+   - If the owner is **ready**: remove from ready queue, update priority, re-add to ready queue, and return.  
+   - If the owner is **not pending** on any semaphore: just update priority and return.  
+   - If the owner is **pending on another semaphore**:  
+     - Resort the priority wait queue if that semaphore uses priority wake mode.  
+     - If the pending semaphore is also a mutex, **chain** the inheritance — find the next owner up the chain and continue the loop (multi-level inheritance).  
+     - Otherwise, stop the chain.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -172,7 +172,49 @@
+  */
+ OS_SEC_L0_TEXT void OsPriorityInherit(struct TagSemCb *semPended, struct TagTskCb *runTsk)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *semOwnerTask;
++    struct TagSemCb *recurSem;
++    TskPrior newPriority = runTsk->priority;
++
++    if (GET_SEM_TYPE(semPended->semType) != SEM_TYPE_BIN) {
++        return;
++    }
++
++    semOwnerTask = GET_TCB_HANDLE(semPended->semOwner);
++
++    OsSpinLockTaskRq(semOwnerTask);
++    while (semOwnerTask->priority > newPriority) {
++        /* 信号量持有任务处于就绪状态，调整就绪队列后退出 */
++        if (TSK_STATUS_TST(semOwnerTask, OS_TSK_READY)) {
++            OsTskReadyDel(semOwnerTask);
++            semOwnerTask->priority = newPriority;
++            /* 添加到就绪链表同优先级尾部 */
++            OsTskReadyAdd(semOwnerTask);
++            OsSpinUnlockTaskRq(semOwnerTask);
++            return;
++        }
++        semOwnerTask->priority = newPriority;
++        /* 信号量持有任务不处于信号量阻塞状态与就绪状态，直接退出 */
++        if (!TSK_STATUS_TST(semOwnerTask, OS_TSK_PEND)) {
++            OsSpinUnlockTaskRq(semOwnerTask);
++            return;
++        }
++        /* 信号量持有任务也处于阻塞状态，获取所阻塞的信号量 */
++        recurSem = (struct TagSemCb *)semOwnerTask->taskPend;
++        /* 如果是优先级唤醒模式先重排信号量的阻塞优先级队列 */
++        if (recurSem->semMode == SEM_MODE_PRIOR) {
++            OsResortSemList(semOwnerTask);
++        }
++        OsSpinUnlockTaskRq(semOwnerTask);
++        /* 所阻塞的信号量不为互斥型，直接退出 */
++        if (GET_SEM_TYPE(recurSem->semType) != SEM_TYPE_BIN) {
++            return;
++        }
++        /* 所阻塞的信号量类型为互斥型，多级优先级继承，提升拥有该互斥信号量的任务优先级 */
++        semOwnerTask = GET_TCB_HANDLE(recurSem->semOwner);
++        OsSpinLockTaskRq(semOwnerTask);
++    }
++    OsSpinUnlockTaskRq(semOwnerTask);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *semOwnerTask;
+    struct TagSemCb *recurSem;
+    TskPrior newPriority = runTsk->priority;
+
+    if (GET_SEM_TYPE(semPended->semType) != SEM_TYPE_BIN) {
+        return;
+    }
+
+    semOwnerTask = GET_TCB_HANDLE(semPended->semOwner);
+
+    OsSpinLockTaskRq(semOwnerTask);
+    while (semOwnerTask->priority > newPriority) {
+        /* 信号量持有任务处于就绪状态，调整就绪队列后退出 */
+        if (TSK_STATUS_TST(semOwnerTask, OS_TSK_READY)) {
+            OsTskReadyDel(semOwnerTask);
+            semOwnerTask->priority = newPriority;
+            /* 添加到就绪链表同优先级尾部 */
+            OsTskReadyAdd(semOwnerTask);
+            OsSpinUnlockTaskRq(semOwnerTask);
+            return;
+        }
+        semOwnerTask->priority = newPriority;
+        /* 信号量持有任务不处于信号量阻塞状态与就绪状态，直接退出 */
+        if (!TSK_STATUS_TST(semOwnerTask, OS_TSK_PEND)) {
+            OsSpinUnlockTaskRq(semOwnerTask);
+            return;
+        }
+        /* 信号量持有任务也处于阻塞状态，获取所阻塞的信号量 */
+        recurSem = (struct TagSemCb *)semOwnerTask->taskPend;
+        /* 如果是优先级唤醒模式先重排信号量的阻塞优先级队列 */
+        if (recurSem->semMode == SEM_MODE_PRIOR) {
+            OsResortSemList(semOwnerTask);
+        }
+        OsSpinUnlockTaskRq(semOwnerTask);
+        /* 所阻塞的信号量不为互斥型，直接退出 */
+        if (GET_SEM_TYPE(recurSem->semType) != SEM_TYPE_BIN) {
+            return;
+        }
+        /* 所阻塞的信号量类型为互斥型，多级优先级继承，提升拥有该互斥信号量的任务优先级 */
+        semOwnerTask = GET_TCB_HANDLE(recurSem->semOwner);
+        OsSpinLockTaskRq(semOwnerTask);
+    }
+    OsSpinUnlockTaskRq(semOwnerTask);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsPriorityInherit.c test_stubs.c notifier_test_stubs.c
+inherit once => expected owner prio=10, actual=10
+non-binary no change => expected owner prio=20, actual=20
+owner ready adjusted => expected owner prio=10, actual=10
+chained inherit not increasing => expected owner prio=10, actual=10
+no boost when waiter lower => expected owner prio=8, actual=8
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsPriorityInherit.c:6:
+func_under_test.c: In function ‘OsPriorityInherit’:
+func_under_test.c:34:13: warning: implicit declaration of function ‘OsResortSemList’ [-Wimplicit-function-declaration]
+   34 |             OsResortSemList(semOwnerTask);
+      |             ^~~~~~~~~~~~~~~
+test_stubs.c: In function ‘test_init_task’:
+test_stubs.c:82:5: warning: implicit declaration of function ‘memset’ [-Wimplicit-function-declaration]
+   82 |     memset(tcb, 0, sizeof(TagTskCb));
+      |     ^~~~~~
+test_stubs.c:4:1: note: include ‘<string.h>’ or provide a declaration of ‘memset’
+    3 | #include "test_helpers.h"
+  +++ |+#include <string.h>
+    4 | 
+test_stubs.c:82:5: warning: incompatible implicit declaration of built-in function ‘memset’ [-Wbuiltin-declaration-mismatch]
+   82 |     memset(tcb, 0, sizeof(TagTskCb));
+      |     ^~~~~~
+test_stubs.c:82:5: note: include ‘<string.h>’ or provide a declaration of ‘memset’
+test_stubs.c: In function ‘test_init_sem’:
+test_stubs.c:97:5: warning: incompatible implicit declaration of built-in function ‘memset’ [-Wbuiltin-declaration-mismatch]
+   97 |     memset(sem, 0, sizeof(TagSemCb));
+      |     ^~~~~~
+test_stubs.c:97:5: note: include ‘<string.h>’ or provide a declaration of ‘memset’
+
+
+

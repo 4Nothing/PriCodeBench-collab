@@ -1,0 +1,73 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It follows the same pattern as `tsrb_empty` and `tsrb_avail` — disabling IRQs, computing the result, restoring IRQs, and returning.
+
+The logic: in a power-of-two ring buffer with unsigned counters, the buffer is full when `(writes - reads) == size`. This is the natural complement of `tsrb_empty` (`reads == writes`, or equivalently `writes - reads == 0`). Unsigned arithmetic handles counter wrap-around correctly because `size` is a power of two.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/tsrb.h
++++ sys/include/tsrb.h
+@@ -119,7 +119,10 @@
+  */
+ static inline int tsrb_full(const tsrb_t *rb)
+ {
+-    /* MASKED - implement this function */
++    unsigned irq_state = irq_disable();
++    int retval = ((rb->writes - rb->reads) == rb->size);
++    irq_restore(irq_state);
++    return retval;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-tsrb
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  82319	  32176	  78272	 192767	  2f0ff	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffecddfa000; bottom 0x00000042e000; size: 0x7ffecd9cc000 (140732348022784)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

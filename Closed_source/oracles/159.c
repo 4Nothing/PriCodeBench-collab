@@ -1,0 +1,39 @@
+OS_SEC_L0_TEXT void OsSemPendListGet(struct TagSemCb *semPended)
+{
+    /* 任务阻塞链表上的第一个任务/优先级最高的任务 */
+    struct TagTskCb *taskCb = GET_TCB_PEND(OS_LIST_FIRST(&(semPended->semList)));
+
+    ListDelete(OS_LIST_FIRST(&(semPended->semList)));
+
+    OsSpinLockTaskRq(taskCb);
+    /* 如果阻塞的任务属于定时等待的任务时候，去掉其定时等待标志位，并将其从去除 */
+    if (TSK_STATUS_TST(taskCb, OS_TSK_TIMEOUT)) {
+        OS_TSK_DELAY_LOCKED_DETACH(taskCb);
+        TSK_STATUS_CLEAR(taskCb, OS_TSK_TIMEOUT);
+    }
+
+    /* 必须先去除 OS_TSK_TIMEOUT 态，再入队[睡眠时是先出ready队，再置OS_TSK_TIMEOUT态] */
+    TSK_STATUS_CLEAR(taskCb, OS_TSK_PEND);
+    taskCb->taskPend = NULL;
+    /* 如果去除信号量阻塞位后，该任务不处于阻塞态则将该任务挂入就绪队列并触发任务调度 */
+    if (!TSK_STATUS_TST(taskCb, OS_TSK_SUSPEND)) {
+        OsTskReadyAddBgd(taskCb);
+    }
+    OsSpinUnlockTaskRq(taskCb);
+
+    semPended->semOwner = taskCb->taskPid;
+#if defined(OS_OPTION_BIN_SEM)
+    /*
+     * 如果释放的是互斥信号量，就从释放此互斥信号量任务的持有链表上摘除它，
+     * 再把它挂接到新的持有它的任务的持有链表上；然后尝试降低任务的优先级
+     */
+    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN) {
+        // 此处需要受到 semIfPrio 锁保护
+        ListDelete(&semPended->semBList);
+        ListTailAdd(&semPended->semBList, &taskCb->semBList);  
+#if defined(OS_OPTION_SEM_PRIO_INHERIT)
+        (void)OsPriorityRestore();
+#endif
+    }
+#endif
+}

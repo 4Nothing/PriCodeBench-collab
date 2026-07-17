@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- Copies at most `count - 1` characters from `src` to `dest`, iterating character by character
+- Always NUL-terminates the destination (making it preferred over `strncpy`)
+- Does NOT zero-fill the remainder of the buffer (unlike `strncpy`)
+- Returns the number of characters copied (excluding the NUL) on success
+- Returns `-E2BIG` if the source was truncated (i.e., there were more characters in `src` than would fit)
+
+The implementation follows the precondition from the header (`sys/include/string_utils.h:165`) that `count >= 1`, so the `count - 1` in the loop condition is safe.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/libc/string.c
++++ sys/libc/string.c
+@@ -21,7 +21,18 @@
+ 
+ ssize_t strscpy(char *dest, const char *src, size_t count)
+ {
+-    /* MASKED - implement this function */
++    size_t i;
++
++    for (i = 0; i < count - 1 && src[i] != '\0'; i++) {
++        dest[i] = src[i];
++    }
++    dest[i] = '\0';
++
++    if (src[i] != '\0') {
++        return -E2BIG;
++    }
++
++    return (ssize_t)i;
+ }
+ 
+ const void *memchk(const void *data, uint8_t c, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-libc
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79389	  32272	  78120	 189781	  2e555	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+libc_tests.test_libc_strscpy (tests/unittests/tests-libc/tests-libc.c 27) exp 5 was -7
+.....
+run 6 failures 1
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe7f62f000; bottom 0x00000042d000; size: 0x7ffe7f202000 (140731031232512)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

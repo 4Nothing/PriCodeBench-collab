@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation replaces the TODO with the function body. Here's the reasoning:
+
+- The list is a circular singly-linked list where `list->next` points to the **last** element, and `last->next` points to the **first** element.
+- To rotate the list (first becomes last, second becomes first), the circular chain itself doesn't change — only `list->next` needs to advance by one position.
+- Edge cases: an empty list (`list->next == NULL`) or a single-element list (`list->next == list->next->next`) are no-ops since rotating has no effect.
+
+The function is O(1) — just a single pointer assignment.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -199,7 +199,9 @@
+  */
+ static inline void clist_lpoprpush(clist_node_t *list)
+ {
+-    /* MASKED - implement this function */
++    if (list->next && (list->next != list->next->next)) {
++        list->next = list->next->next;
++    }
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 135013	  51816	  96776	 283605	  453d5	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc1d995000; bottom 0x000000440000; size: 0x7ffc1d555000 (140720800616448)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

@@ -1,0 +1,100 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. Here's what it does:
+
+1. **Iterates section headers** — reads the ELF section headers from `unitInfo->moduleStr` and scans for relocation sections (`SHT_RELA` or `SHT_REL`).
+
+2. **Resolves symbol tables** — for each relocation section, follows `sh_link` to get the corresponding `.dynsym` symbol table, then follows that table's `sh_link` to get the `.dynstr` string table.
+
+3. **Processes each relocation entry** — iterates every entry in the relocation section and calls `OsDynModuleRelocatePrepare` (defined at line 283) to handle the actual relocation arithmetic, using the symbol table, string table, and section header.
+
+4. **Flushes caches on non-x86** — on ARM64 and other architectures, invalidates both the data and instruction caches after relocation so the processor sees the patched code.
+
+5. **Returns `OS_MODULE_OK`** on success, or the error code from the first failed relocation.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -328,7 +328,29 @@
+ 
+ static U32 OsDynModuleProcessRelocationSection(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 i, j, ret;
++    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
++    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
++    uintptr_t reloc;
++    for (i = 0; i < elfInfo->e_shnum; i++) {
++        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
++            continue;
++        }
++        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
++        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
++        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
++        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
++            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
++            if (ret != OS_MODULE_OK) {
++                return ret;
++            }
++        }
++    }
++#ifndef OS_ARCH_X86_64
++    os_asm_invalidate_dcache_all();
++    os_asm_invalidate_icache_all();
++#endif
++    return OS_MODULE_OK;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i, j, ret;
+    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
+    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
+    uintptr_t reloc;
+    for (i = 0; i < elfInfo->e_shnum; i++) {
+        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
+            continue;
+        }
+        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
+        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
+        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
+        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
+            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
+            if (ret != OS_MODULE_OK) {
+                return ret;
+            }
+        }
+    }
+#ifndef OS_ARCH_X86_64
+    os_asm_invalidate_dcache_all();
+    os_asm_invalidate_icache_all();
+#endif
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleProcessRelocationSection.c
+[CASE] ELF no sections
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+
+
+

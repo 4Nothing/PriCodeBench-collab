@@ -1,0 +1,69 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented at line 621. It copies the solicited-node multicast prefix (FF02:0:0:0:0:1:FF00::/104, i.e. the first 13 bytes) to `out`, then copies the low-order 24 bits (last 3 bytes) from `in` — exactly as specified in [RFC 4291, section 2.7.1](https://tools.ietf.org/html/rfc4291#section-2.7.1).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -620,7 +620,8 @@
+  */
+ static inline void ipv6_addr_set_solicited_nodes(ipv6_addr_t *out, const ipv6_addr_t *in)
+ {
+-    /* MASKED - implement this function */
++    memcpy(out, &ipv6_addr_solicited_node_prefix, sizeof(ipv6_addr_t) - 3);
++    memcpy(&out->u8[13], &in->u8[13], 3);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193301	  41928	  78152	 313381	  4c825	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff58bf0000; bottom 0x00000044c000; size: 0x7fff587a4000 (140734677794816)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

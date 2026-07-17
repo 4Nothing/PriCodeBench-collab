@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors `gnrc_netreg_register`: validate the type, acquire the exclusive lock, mutate the linked list (`LL_DELETE` instead of `LL_PREPEND`), and release the lock. The function is `void` so invalid types simply return early rather than returning `-EINVAL`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/netreg/gnrc_netreg.c
++++ sys/net/gnrc/netreg/gnrc_netreg.c
+@@ -167,7 +167,15 @@
+ 
+ void gnrc_netreg_unregister(gnrc_nettype_t type, gnrc_netreg_entry_t *entry)
+ {
+-    /* MASKED - implement this function */
++    if (_INVALID_TYPE(type)) {
++        return;
++    }
++
++    _gnrc_netreg_acquire_exclusive();
++
++    LL_DELETE(netreg[type], entry);
++
++    _gnrc_netreg_release_exclusive();
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-netreg
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/gnrc/netreg
+   text	   data	    bss	    dec	    hex	filename
+  81270	  33016	  78376	 192662	  2f096	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+OK (13 tests)
+
+native: exiting
+
+--- stderr ---
+==327==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff05baa000; bottom 0x00000042d000; size: 0x7fff0577d000 (140733285126144)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

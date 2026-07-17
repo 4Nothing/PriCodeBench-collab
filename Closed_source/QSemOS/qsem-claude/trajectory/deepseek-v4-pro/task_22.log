@@ -1,0 +1,188 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Line 89-91** — Returns `OS_ERRNO_TIMER_INPUT_PTR_NULL` if `createPara` is NULL
+- **Line 93-95** — Returns `OS_ERRNO_TIMER_PROC_FUNC_NULL` if the callback function is NULL (this is the key check that the higher-level `PRT_TimerCreate` doesn't perform)
+- **Line 97-99** — Returns `OS_ERRNO_TIMER_INTERVAL_INVALID` if the interval is 0
+- **Line 101-103** — Returns `OS_ERRNO_TIMER_MODE_INVALID` if the mode is neither `OS_TIMER_LOOP` nor `OS_TIMER_ONCE`
+- **Line 105** — Returns `OS_OK` if all checks pass
+
+The checks mirror the validation pattern in `PRT_TimerCreate` (the public API), with the addition of the callback null check — which is critical since `OsSwTmrCreateTimerCbInit` copies the callback pointer directly into the control block for later invocation without further validation.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -86,7 +86,23 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSwTmrCreateTimerParaChk(struct TimerCreatePara *createPara)
+ {
+-    /* MASKED - implement this function */
++    if (createPara == NULL) {
++        return OS_ERRNO_TIMER_INPUT_PTR_NULL;
++    }
++
++    if (createPara->callBackFunc == NULL) {
++        return OS_ERRNO_TIMER_PROC_FUNC_NULL;
++    }
++
++    if (createPara->interval == 0) {
++        return OS_ERRNO_TIMER_INTERVAL_INVALID;
++    }
++
++    if ((createPara->mode != OS_TIMER_LOOP) && (createPara->mode != OS_TIMER_ONCE)) {
++        return OS_ERRNO_TIMER_MODE_INVALID;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsSwTmrCreateTimerCbInit(struct TimerCreatePara *createPara,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (createPara == NULL) {
+        return OS_ERRNO_TIMER_INPUT_PTR_NULL;
+    }
+
+    if (createPara->callBackFunc == NULL) {
+        return OS_ERRNO_TIMER_PROC_FUNC_NULL;
+    }
+
+    if (createPara->interval == 0) {
+        return OS_ERRNO_TIMER_INTERVAL_INVALID;
+    }
+
+    if ((createPara->mode != OS_TIMER_LOOP) && (createPara->mode != OS_TIMER_ONCE)) {
+        return OS_ERRNO_TIMER_MODE_INVALID;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrCreateTimerParaChk.c
+[CASE] cb null
+  expected=0x2000D02
+  actual  =0x2000D02
+  result  =PASS
+
+[CASE] wrong group id
+  expected=0x2000D11
+  actual  =0x0
+  result  =FAIL
+
+[CASE] interval not suited
+  expected=0x2000D09
+  actual  =0x0
+  result  =FAIL
+
+[CASE] overflow boundary ok
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] large ok
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+[CASE] overflow detected
+  expected=0x2000D0F
+  actual  =0x0
+  result  =FAIL
+
+[CASE] success
+  expected=0x0
+  actual  =0x0
+  result  =PASS
+
+Pass-Rate: 57.14% (4/7)
+
+--- stderr ---
+In file included from test_OsSwTmrCreateTimerParaChk.c:3:
+test_util.h:42:13: warning: ‘TU_check_ptr’ defined but not used [-Wunused-function]
+   42 | static void TU_check_ptr(const char *caseName, const void *expected, const void *actual)
+      |             ^~~~~~~~~~~~
+test_util.h:33:13: warning: ‘TU_check_bool’ defined but not used [-Wunused-function]
+   33 | static void TU_check_bool(const char *caseName, int expected, int actual)
+      |             ^~~~~~~~~~~~~
+test_util.h:24:13: warning: ‘TU_check_u64’ defined but not used [-Wunused-function]
+   24 | static void TU_check_u64(const char *caseName, unsigned long long expected, unsigned long long actual)
+      |             ^~~~~~~~~~~~
+In file included from prt_swtmr_internal.h:2,
+                 from test_OsSwTmrCreateTimerParaChk.c:2:
+auto_stub.h:1324:15: warning: ‘g_checkSwtmrTickProcess’ defined but not used [-Wunused-variable]
+ 1324 | static bool (*g_checkSwtmrTickProcess)(U32) = NULL;
+      |               ^~~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1323:14: warning: ‘g_getSwtmrNearestTick’ defined but not used [-Wunused-variable]
+ 1323 | static U64 (*g_getSwtmrNearestTick)(U32) = NULL;
+      |              ^~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1321:12: warning: ‘g_uniTicks’ defined but not used [-Wunused-variable]
+ 1321 | static U64 g_uniTicks = 0;
+      |            ^~~~~~~~~~
+auto_stub.h:1320:21: warning: ‘g_tickSwTmrGroupId’ defined but not used [-Wunused-variable]
+ 1320 | static TimerGroupId g_tickSwTmrGroupId = 0;
+      |                     ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:36: warning: ‘g_tmrSortLink’ defined but not used [-Wunused-variable]
+ 1319 | static struct TagSwTmrSortLinkAttr g_tmrSortLink[OS_MAX_CORE_NUM];
+      |                                    ^~~~~~~~~~~~~
+auto_stub.h:1317:29: warning: ‘g_swtmrCbArray’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagSwTmrCtrl *g_swtmrCbArray = NULL;
+      |                             ^~~~~~~~~~~~~~
+auto_stub.h:1311:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1311 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1310:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1310 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1309:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1309 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1308:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1308 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1307:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1307 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1306:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1306 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1305:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1305 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1304:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1304 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1303:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1303 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1302:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1302 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1301:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1301 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1300:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1300 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1299:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1299 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1298:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1298 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

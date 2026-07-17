@@ -1,0 +1,50 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function:
+
+- Returns `NULL` if `result` or `addr` is NULL, or if `result_len < IPV4_ADDR_MAX_STR_LEN` (16 bytes, the space needed for `"xxx.xxx.xxx.xxx\0"`)
+- Formats the four octets from `addr->u8[0..3]` via `snprintf` as dotted-decimal notation
+- Returns `result` on success
+
+This matches the contract documented in `sys/include/net/ipv4/addr.h:106` and follows the `inet_ntop4` pattern referenced in the original comment.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv4/addr/ipv4_addr_to_str.c
++++ sys/net/network_layer/ipv4/addr/ipv4_addr_to_str.c
+@@ -12,6 +12,7 @@
+  * @file
+  */
+ 
++#include <stdio.h>
+ #include <stdlib.h>
+ 
+ #include "net/ipv4/addr.h"
+@@ -19,7 +20,15 @@
+ /* based on inet_ntop4() by Paul Vixie */
+ char *ipv4_addr_to_str(char *result, const ipv4_addr_t *addr, uint8_t result_len)
+ {
+-    /* MASKED - implement this function */
++    if ((result == NULL) || (addr == NULL) ||
++        (result_len < IPV4_ADDR_MAX_STR_LEN)) {
++        return NULL;
++    }
++
++    snprintf(result, result_len, "%u.%u.%u.%u",
++             addr->u8[0], addr->u8[1], addr->u8[2], addr->u8[3]);
++
++    return result;
+ }
+ 
+ /** @} */
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

@@ -1,0 +1,86 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what it does:
+
+1. **Disables IRQs** to prevent the RTT alarm callback from racing with our read of the counter, `rtc_now`, and `last_alarm` (same pattern as `rtc_get_time_ms` at line 141)
+2. **Reads the RTT counter** via `rtt_get_counter()`
+3. **Computes seconds** via `_rtc_now(now)`, which returns `rtc_now + SECONDS(now - last_alarm)` — the stored RTC timestamp plus the number of full seconds elapsed since the last alarm
+4. **Computes microseconds** by taking the sub-second RTT ticks (`SUBSECONDS(now - last_alarm)`) and converting to microseconds with the same ratio used in `rtt_rtc_settimeofday` (but inverted). The `uint64_t` cast prevents overflow since `RTT_SECOND * US_PER_SEC` can exceed 32 bits
+5. **Restores IRQs**
+
+This is symmetric with `rtt_rtc_settimeofday` (line 214):
+- `set`: `now = ((uint64_t)us * RTT_SECOND) / US_PER_SEC` — us → ticks
+- `get`: `*us = ((uint64_t)ticks * US_PER_SEC) / RTT_SECOND` — ticks → us
+
+
+============================================================
+=== Diff ===
+============================================================
+--- drivers/rtt_rtc/rtt_rtc.c
++++ drivers/rtt_rtc/rtt_rtc.c
+@@ -224,5 +224,12 @@
+ 
+ void rtt_rtc_gettimeofday(uint32_t *s, uint32_t *us)
+ {
+-    /* MASKED - implement this function */
+-}
++    uint32_t now;
++    unsigned state = irq_disable();
++
++    now = rtt_get_counter();
++    *s  = _rtc_now(now);
++    *us = ((uint64_t)SUBSECONDS(now - last_alarm) * US_PER_SEC) / RTT_SECOND;
++
++    irq_restore(state);
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-rtt_rtc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/rtt_rtc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/rtc_utils
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  89096	  32224	  78728	 200048	  30d70	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+==346==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff17609000; bottom 0x00000042f000; size: 0x7fff171da000 (140733581205504)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

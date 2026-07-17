@@ -1,0 +1,216 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `PRT_TimerCreate` in `src/core/kernel/timer/prt_timer.c`.
+
+The function now:
+- Returns `OS_ERRNO_TIMER_INPUT_PTR_NULL` if `createPara` or `tmrHandle` is `NULL`
+- Validates `interval`, `mode`, and `type`
+- Maps hardware/software timers to the `g_timerApi` dispatch table
+- Returns `OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED` when the backend create handler is missing
+- Calls the backend `createTimer` and returns its result
+
+I verified the implementation compiles cleanly against the test stubs.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/prt_timer.c
++++ src/core/kernel/timer/prt_timer.c
+@@ -23,7 +23,48 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_TimerCreate(struct TimerCreatePara *createPara, TimerHandle *tmrHandle)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 timerType;
++
++    if ((createPara == NULL) || (tmrHandle == NULL)) {
++        return OS_ERRNO_TIMER_INPUT_PTR_NULL;
++    }
++
++    if (createPara->interval == 0) {
++        ret = OS_ERRNO_TIMER_INTERVAL_INVALID;
++        goto OS_TIMER_CREATE_ERR;
++    }
++
++    if ((createPara->mode != OS_TIMER_LOOP) && (createPara->mode != OS_TIMER_ONCE)) {
++        ret = OS_ERRNO_TIMER_MODE_INVALID;
++        goto OS_TIMER_CREATE_ERR;
++    }
++
++    switch (createPara->type) {
++        case OS_TIMER_HARDWARE:
++            timerType = OS_TIMER_HARDWARE;
++            break;
++
++        case OS_TIMER_SOFTWARE:
++            timerType = OS_TIMER_SOFTWARE;
++            break;
++
++        default:
++            ret = OS_ERRNO_TIMER_TYPE_INVALID;
++            goto OS_TIMER_CREATE_ERR;
++    }
++
++    if (g_timerApi[timerType].createTimer == NULL) {
++        ret = OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED;
++        goto OS_TIMER_CREATE_ERR;
++    }
++
++    ret = g_timerApi[timerType].createTimer(createPara, tmrHandle);
++    return ret;
++
++OS_TIMER_CREATE_ERR:
++    OS_ERROR_LOG_REPORT(OS_ERR_LEVEL_HIGH, "timer create error, timer type is 0x%x\n", createPara->type);
++    return ret;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 timerType;
+
+    if ((createPara == NULL) || (tmrHandle == NULL)) {
+        return OS_ERRNO_TIMER_INPUT_PTR_NULL;
+    }
+
+    if (createPara->interval == 0) {
+        ret = OS_ERRNO_TIMER_INTERVAL_INVALID;
+        goto OS_TIMER_CREATE_ERR;
+    }
+
+    if ((createPara->mode != OS_TIMER_LOOP) && (createPara->mode != OS_TIMER_ONCE)) {
+        ret = OS_ERRNO_TIMER_MODE_INVALID;
+        goto OS_TIMER_CREATE_ERR;
+    }
+
+    switch (createPara->type) {
+        case OS_TIMER_HARDWARE:
+            timerType = OS_TIMER_HARDWARE;
+            break;
+
+        case OS_TIMER_SOFTWARE:
+            timerType = OS_TIMER_SOFTWARE;
+            break;
+
+        default:
+            ret = OS_ERRNO_TIMER_TYPE_INVALID;
+            goto OS_TIMER_CREATE_ERR;
+    }
+
+    if (g_timerApi[timerType].createTimer == NULL) {
+        ret = OS_ERRNO_TIMER_NOT_INIT_OR_GROUP_NOT_CREATED;
+        goto OS_TIMER_CREATE_ERR;
+    }
+
+    ret = g_timerApi[timerType].createTimer(createPara, tmrHandle);
+    return ret;
+
+OS_TIMER_CREATE_ERR:
+    OS_ERROR_LOG_REPORT(OS_ERR_LEVEL_HIGH, "timer create error, timer type is 0x%x\n", createPara->type);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TimerCreate.c
+[CASE] Null createPara
+  Expected: 0x02000D01
+  Actual  : 0x02000D01
+  Result  : PASS
+
+[CASE] Null handle ptr
+  Expected: 0x02000D01
+  Actual  : 0x02000D01
+  Result  : PASS
+
+[CASE] Interval zero
+  Expected: 0x02000D04
+  Actual  : 0x02000D04
+  Result  : PASS
+
+[CASE] Invalid mode
+  Expected: 0x02000D05
+  Actual  : 0x02000D05
+  Result  : PASS
+
+[CASE] Invalid type
+  Expected: 0x02000D06
+  Actual  : 0x02000D06
+  Result  : PASS
+
+[CASE] Missing create handler (SW)
+  Expected: 0x02000D08
+  Actual  : 0x02000D08
+  Result  : PASS
+
+[CASE] Success SW
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] Success HW
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+Pass-Rate: 100.00% (8/8)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_PRT_TimerCreate.c:1:
+auto_stub.h:347:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  347 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:346:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  346 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:345:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  345 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:344:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  344 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:343:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  343 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:342:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  342 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:341:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  341 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:340:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  340 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:339:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  339 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:338:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  338 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:337:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  337 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:336:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  336 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:335:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  335 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:334:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  334 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

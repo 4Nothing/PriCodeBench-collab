@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now reads:
+
+```c
+static inline void ipv6_addr_set_loopback(ipv6_addr_t *addr)
+{
+    memcpy(addr, &ipv6_addr_loopback, sizeof(ipv6_addr_t));
+}
+```
+
+This copies the static `ipv6_addr_loopback` constant (which equals `::1` per RFC 4291 §2.5.3) into the given address — consistent with how `ipv6_addr_set_all_nodes_multicast` and `ipv6_addr_set_all_routers_multicast` are implemented in the same file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -519,7 +519,7 @@
+  */
+ static inline void ipv6_addr_set_loopback(ipv6_addr_t *addr)
+ {
+-    /* MASKED - implement this function */
++    memcpy(addr, &ipv6_addr_loopback, sizeof(ipv6_addr_t));
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193979	  41928	  78152	 314059	  4cacb	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcbdd2b000; bottom 0x00000044c000; size: 0x7ffcbd8df000 (140723488681984)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

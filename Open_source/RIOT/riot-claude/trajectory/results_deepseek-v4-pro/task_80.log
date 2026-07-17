@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the `crc32` function now does:
+
+1. **Casts** `const void *buf` to `const uint8_t *data` for byte-wise iteration.
+2. **Initializes** the CRC accumulator to `0xFFFFFFFF` — the standard CRC-32 initial value.
+3. **Processes each byte** by XORing it into the accumulator and passing through the existing `crc32_for_byte` helper, which either uses the precomputed `crc32_tab[]` lookup table (when `crc32_fast` module is enabled) or falls back to bitwise polynomial division.
+4. **Finalizes** by XORing with `0xFFFFFFFF`, per the IEEE 802.3 / Ethernet CRC-32 specification (using polynomial `0xEDB88320`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/crc32.c
++++ sys/checksum/crc32.c
+@@ -105,7 +105,14 @@
+ 
+ uint32_t crc32(const void *buf, size_t size)
+ {
+-    /* MASKED - implement this function */
++    const uint8_t *data = buf;
++    uint32_t crc = 0xFFFFFFFF;
++
++    for (size_t i = 0; i < size; i++) {
++        crc = crc32_for_byte(crc ^ data[i]);
++    }
++
++    return crc ^ 0xFFFFFFFF;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123096	  42464	  78120	 243680	  3b7e0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc982ae000; bottom 0x00000043a000; size: 0x7ffc97e74000 (140722857000960)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

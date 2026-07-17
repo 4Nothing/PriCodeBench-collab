@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_PerfInit` does, based on the codebase patterns:
+
+1. **Status guard** — Returns `OS_ERRNO_PERF_STATUS_INVALID` if perf has already been initialized (state machine: `PERF_UNINIT` → `PERF_STOPED`).
+2. **Spinlock init** — Calls `OsSpinLockInitInner` on `g_perfSpin.rawLock`, consistent with how `prt_perf_ringbuf.c:196` initializes locks in this module.
+3. **PMU init** — Delegates to `OsPmuInit()` which conditionally initializes hardware, timed, and software PMUs based on build config. Returns the specific error code on failure.
+4. **Output buffer init** — Delegates to `OsPerfOutPutInit(buf, size)`, which either uses the caller-provided buffer or allocates one. Maps failure to `OS_ERRNO_PERF_BUF_ERROR`.
+5. **Status finalization** — Under the spinlock, sets `g_perfCb.status = PERF_STOPED` and initializes all per-CPU PMU statuses to `PERF_PMU_STOPED`, making the module ready for `PRT_PerfConfig` → `PRT_PerfStart`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -344,7 +344,34 @@
+ 
+ U32 PRT_PerfInit(void *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 i;
++    U32 intSave;
++
++    if (g_perfCb.status != PERF_UNINIT) {
++        return OS_ERRNO_PERF_STATUS_INVALID;
++    }
++
++    OsSpinLockInitInner(&g_perfSpin.rawLock);
++
++    ret = OsPmuInit();
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    ret = OsPerfOutPutInit(buf, size);
++    if (ret != OS_OK) {
++        return OS_ERRNO_PERF_BUF_ERROR;
++    }
++
++    PERF_LOCK(intSave);
++    g_perfCb.status = PERF_STOPED;
++    for (i = 0; i < PRT_KERNEL_CORE_NUM; i++) {
++        g_perfCb.pmuStatusPerCpu[i] = PERF_PMU_STOPED;
++    }
++    PERF_UNLOCK(intSave);
++
++    return OS_OK;
+ }
+ 
+ U32 PRT_PerfConfig(PerfConfigAttr *attr)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 i;
+    U32 intSave;
+
+    if (g_perfCb.status != PERF_UNINIT) {
+        return OS_ERRNO_PERF_STATUS_INVALID;
+    }
+
+    OsSpinLockInitInner(&g_perfSpin.rawLock);
+
+    ret = OsPmuInit();
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    ret = OsPerfOutPutInit(buf, size);
+    if (ret != OS_OK) {
+        return OS_ERRNO_PERF_BUF_ERROR;
+    }
+
+    PERF_LOCK(intSave);
+    g_perfCb.status = PERF_STOPED;
+    for (i = 0; i < PRT_KERNEL_CORE_NUM; i++) {
+        g_perfCb.pmuStatusPerCpu[i] = PERF_PMU_STOPED;
+    }
+    PERF_UNLOCK(intSave);
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfInit.c test_stubs.c
+
+--- stderr ---
+In file included from test_PRT_PerfInit.c:9:
+func_under_test.c: In function ‘PRT_PerfInit’:
+func_under_test.c:11:5: warning: implicit declaration of function ‘OsSpinLockInitInner’ [-Wimplicit-function-declaration]
+   11 |     OsSpinLockInitInner(&g_perfSpin.rawLock);
+      |     ^~~~~~~~~~~~~~~~~~~
+func_under_test.c:11:36: error: request for member ‘rawLock’ in something not a structure or union
+   11 |     OsSpinLockInitInner(&g_perfSpin.rawLock);
+      |                                    ^
+func_under_test.c:25:21: error: ‘PRT_KERNEL_CORE_NUM’ undeclared (first use in this function)
+   25 |     for (i = 0; i < PRT_KERNEL_CORE_NUM; i++) {
+      |                     ^~~~~~~~~~~~~~~~~~~
+func_under_test.c:25:21: note: each undeclared identifier is reported only once for each function it appears in
+In file included from test_PRT_PerfInit.c:8:
+test_util.h: At top level:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+make: *** [Makefile:13: test] Error 1
+
+
+

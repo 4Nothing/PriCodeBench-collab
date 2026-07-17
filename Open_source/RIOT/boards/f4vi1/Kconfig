@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "f4vi1" if BOARD_F4VI1
+
+config BOARD_F4VI1
+    bool
+    default y
+    select CPU_MODEL_STM32F415RG
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+config CLOCK_HSE
+    default 16000000
+
+config CLOCK_PLL_M
+    default 16
+
+config CLOCK_PLL_N
+    default 336 if USEMODULE_PERIPH_USBDEV
+    default 360
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

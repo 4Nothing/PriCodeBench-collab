@@ -1,0 +1,49 @@
+/*
+ * SPDX-FileCopyrightText: 2016 Leon George
+ * SPDX-License-Identifier: LGPL-2.1-only
+ */
+
+#pragma once
+
+/**
+ * @addtogroup      cpu_cc26x2_cc13x2
+ * @{
+ *
+ * @file
+ * @brief           Implementation specific CPU configuration options
+ *
+ * @author          Leon M. George <leon@georgemail.eu>
+ * @author          Anton Gerasimov <tossel@gmail.com>
+ *
+ */
+
+#ifndef SET_MODE_CONF_1_ALT_DCDC_IPEAK
+#define SET_MODE_CONF_1_ALT_DCDC_IPEAK 0x2 /**< 12 mA */
+#endif
+
+#ifndef SET_MODE_CONF_XOSC_FREQ
+#define SET_MODE_CONF_XOSC_FREQ        0x2 /**< 48 MHz xtal */
+#endif
+
+#define __FPU_PRESENT                  1U  /**< Presence of FPU */
+#include "cpu_conf_cc26xx_cc13xx.h"
+
+#include "cc26x2_cc13x2_aux.h"
+#include "cc26x2_cc13x2_fcfg.h"
+#include "cc26x2_cc13x2_prcm.h"
+#include "cc26x2_cc13x2_setup.h"
+
+/**
+ * @brief   Bit-Band configuration
+ */
+#define CPU_HAS_BITBAND 1
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+/** @} */

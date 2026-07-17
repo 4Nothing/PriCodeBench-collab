@@ -1,0 +1,150 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Direct neighbor lookup**: Uses `_nib_onl_nc_get()` to find the address in the neighbor cache. If found and the entry is managed (not unmanaged), calls `_nib_nc_set_reachable()` to update the NUD state to REACHABLE and start the reachability timer.
+
+2. **Off-link destination fallback**: If the address isn't a direct neighbor, iterates over off-link destination cache entries looking for an exact match. If found, marks the entry's next-hop router as reachable — since an upper-layer confirmation from an off-link host implies the router forwarding those packets is reachable.
+
+3. **Exclusion cases from the spec**:
+   - **Unmanaged entries** (created via `gnrc_ipv6_nib_nc_set()`) are ignored since they're always considered reachable
+   - **Entries whose next-hop isn't in the NC** — if the destination cache entry's next-hop hasn't been resolved to an NC entry yet, it's silently skipped
+
+The function is protected by `_nib_acquire()`/`_nib_release()` for thread safety, consistent with the rest of the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
+@@ -128,7 +128,36 @@
+ 
+ void gnrc_ipv6_nib_nc_mark_reachable(const ipv6_addr_t *ipv6)
+ {
+-    /* MASKED - implement this function */
++    _nib_onl_entry_t *node;
++
++    assert(ipv6 != NULL);
++    _nib_acquire();
++    node = _nib_onl_nc_get(ipv6, 0);
++    if ((node != NULL) &&
++        ((node->info & GNRC_IPV6_NIB_NC_INFO_NUD_STATE_MASK) !=
++         GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED)) {
++        _nib_nc_set_reachable(node);
++    }
++#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
++    else {
++        _nib_offl_entry_t *offl = NULL;
++
++        while ((offl = _nib_offl_iter(offl))) {
++            if ((offl->mode & _DC) &&
++                (offl->pfx_len == IPV6_ADDR_BIT_LEN) &&
++                ipv6_addr_equal(&offl->pfx, ipv6)) {
++                node = offl->next_hop;
++                if ((node != NULL) && (node->mode & _NC) &&
++                    ((node->info & GNRC_IPV6_NIB_NC_INFO_NUD_STATE_MASK) !=
++                     GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED)) {
++                    _nib_nc_set_reachable(node);
++                }
++                break;
++            }
++        }
++    }
++#endif /* CONFIG_GNRC_IPV6_NIB_ARSM */
++    _nib_release();
+ }
+ 
+ bool gnrc_ipv6_nib_nc_iter(unsigned iface, void **state,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313459	  72304	  92296	 478059	  74b6b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................................................................................................................................
+OK (152 tests)
+
+native: exiting
+
+--- stderr ---
+make[3]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.18 s in the future
+make[3]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.076 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.67 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.46 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.44 s in the future
+make[5]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.15 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.15 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.056 s in the future
+make[4]: Warning: File '/tmp/build/bin/native64/riotbuild/riotbuild.h' has modification time 0.053 s in the future
+make[3]: warning:  Clock skew detected.  Your build may be incomplete.
+make[3]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+make[5]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+make[4]: warning:  Clock skew detected.  Your build may be incomplete.
+==600==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd8d5e6000; bottom 0x000000470000; size: 0x7ffd8d176000 (140726970572800)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

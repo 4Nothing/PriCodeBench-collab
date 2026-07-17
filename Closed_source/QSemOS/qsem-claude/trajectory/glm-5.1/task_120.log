@@ -1,0 +1,125 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_PerfInit` does:
+
+1. **SMP spinlock init** (`#ifdef OS_OPTION_SMP`): Initializes `g_perfSpin` via `PRT_SplLockInit`. Returns `OS_ERROR` on failure.
+
+2. **State check**: Under the lock, verifies `g_perfCb.status == PERF_UNINIT`. Returns `OS_ERRNO_PERF_STATUS_INVALID` if perf has already been initialized or is in an unexpected state.
+
+3. **PMU init**: Calls `OsPmuInit()` which initializes hardware, timed, and software PMUs (per `#ifdef` config options). Propagates the specific error code (`OS_ERRNO_PERF_HW_INIT_ERROR`, `OS_ERRNO_PERF_TIMED_INIT_ERROR`, or `OS_ERRNO_PERF_SW_INIT_ERROR`) on failure.
+
+4. **Output buffer init**: Calls `OsPerfOutPutInit(buf, size)` to set up the ring buffer (allocates memory if `buf` is NULL). Maps failures to `OS_ERRNO_PERF_BUF_ERROR`.
+
+5. **Transition state**: On success, sets `g_perfCb.status = PERF_STOPED`, moving from `PERF_UNINIT` → `PERF_STOPED` in the state machine (`PERF_UNINIT → PERF_STOPED → PERF_STARTED → PERF_STOPED`).
+
+The lock is released via the `PERF_INIT_ERROR` goto label in all paths (success and failure).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -344,7 +344,38 @@
+ 
+ U32 PRT_PerfInit(void *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 intSave;
++
++#if defined(OS_OPTION_SMP)
++    ret = PRT_SplLockInit(&g_perfSpin);
++    if (ret != OS_OK) {
++        PRT_Printf("perf spin lock init failed, ret = 0x%x\n", ret);
++        return OS_ERROR;
++    }
++#endif
++
++    PERF_LOCK(intSave);
++    if (g_perfCb.status != PERF_UNINIT) {
++        ret = OS_ERRNO_PERF_STATUS_INVALID;
++        goto PERF_INIT_ERROR;
++    }
++
++    ret = OsPmuInit();
++    if (ret != OS_OK) {
++        goto PERF_INIT_ERROR;
++    }
++
++    ret = OsPerfOutPutInit(buf, size);
++    if (ret != OS_OK) {
++        ret = OS_ERRNO_PERF_BUF_ERROR;
++        goto PERF_INIT_ERROR;
++    }
++    g_perfCb.status = PERF_STOPED;
++PERF_INIT_ERROR:
++    PERF_UNLOCK(intSave);
++
++    return ret;
+ }
+ 
+ U32 PRT_PerfConfig(PerfConfigAttr *attr)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 intSave;
+
+#if defined(OS_OPTION_SMP)
+    ret = PRT_SplLockInit(&g_perfSpin);
+    if (ret != OS_OK) {
+        PRT_Printf("perf spin lock init failed, ret = 0x%x\n", ret);
+        return OS_ERROR;
+    }
+#endif
+
+    PERF_LOCK(intSave);
+    if (g_perfCb.status != PERF_UNINIT) {
+        ret = OS_ERRNO_PERF_STATUS_INVALID;
+        goto PERF_INIT_ERROR;
+    }
+
+    ret = OsPmuInit();
+    if (ret != OS_OK) {
+        goto PERF_INIT_ERROR;
+    }
+
+    ret = OsPerfOutPutInit(buf, size);
+    if (ret != OS_OK) {
+        ret = OS_ERRNO_PERF_BUF_ERROR;
+        goto PERF_INIT_ERROR;
+    }
+    g_perfCb.status = PERF_STOPED;
+PERF_INIT_ERROR:
+    PERF_UNLOCK(intSave);
+
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfInit.c test_stubs.c
+[Init OK] expect=0 actual=0 -> PASS
+[Init when already in STOPED] expect=4103 actual=4103 -> PASS
+[HW init fails] expect=4097 actual=4097 -> PASS
+[TIMED init fails] expect=4098 actual=4098 -> PASS
+[SW init fails] expect=4099 actual=4099 -> PASS
+[Buffer init fails] expect=4104 actual=4104 -> PASS
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+In file included from test_PRT_PerfInit.c:8:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

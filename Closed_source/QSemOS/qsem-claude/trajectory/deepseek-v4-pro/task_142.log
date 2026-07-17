@@ -1,0 +1,189 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The `OsHwiDispatchTail` function now:
+
+1. **Processes pending ticks** — If `TICK_NO_RESPOND_CNT > 0`, enters a loop calling `g_tickDispatcher()` with interrupts enabled/disabled between each call, guarded by `OS_FLG_TICK_ACTIVE` to prevent re-entrancy. IRQ time is recorded when the discount option is configured.
+
+2. **Checks RR time slice** — Calls `OsHwiEndCheckTimeSlice()` (when `OS_OPTION_RR_SCHED` is defined) to update the current task's remaining time slice and requeue it if exhausted.
+
+3. **Runs the scheduler** — Calls `OsMainSchedule()`, which checks `OS_FLG_TSK_REQ`, performs a context switch if a higher-priority task is ready, and always ends by loading the current task's context via `OsTskContextLoad`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sched/prt_sched_single.c
++++ src/core/kernel/sched/prt_sched_single.c
+@@ -124,5 +124,29 @@
+  */
+ OS_SEC_L0_TEXT void OsHwiDispatchTail(void)
+ {
+-    /* MASKED - implement this function */
++    U64 irqStartTime = 0;
++    if (TICK_NO_RESPOND_CNT > 0) {
++        if ((UNI_FLAG & OS_FLG_TICK_ACTIVE) != 0) {
++            return;
++        }
++#if defined(OS_OPTION_RR_SCHED) && defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
++        irqStartTime = OsCurCycleGet64();
++#endif
++        UNI_FLAG |= OS_FLG_TICK_ACTIVE;
++
++        do {
++            OsIntEnable();
++            g_tickDispatcher();
++            OsIntDisable();
++            TICK_NO_RESPOND_CNT--;
++        } while (TICK_NO_RESPOND_CNT > 0);
++
++        UNI_FLAG &= ~OS_FLG_TICK_ACTIVE;
++        OS_IRQ_TIME_RECORD(irqStartTime);
++    }
++#if defined(OS_OPTION_RR_SCHED)
++    OsHwiEndCheckTimeSlice(OsCurCycleGet64());
++#endif
++
++    OsMainSchedule();
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U64 irqStartTime = 0;
+    if (TICK_NO_RESPOND_CNT > 0) {
+        if ((UNI_FLAG & OS_FLG_TICK_ACTIVE) != 0) {
+            return;
+        }
+#if defined(OS_OPTION_RR_SCHED) && defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
+        irqStartTime = OsCurCycleGet64();
+#endif
+        UNI_FLAG |= OS_FLG_TICK_ACTIVE;
+
+        do {
+            OsIntEnable();
+            g_tickDispatcher();
+            OsIntDisable();
+            TICK_NO_RESPOND_CNT--;
+        } while (TICK_NO_RESPOND_CNT > 0);
+
+        UNI_FLAG &= ~OS_FLG_TICK_ACTIVE;
+        OS_IRQ_TIME_RECORD(irqStartTime);
+    }
+#if defined(OS_OPTION_RR_SCHED)
+    OsHwiEndCheckTimeSlice(OsCurCycleGet64());
+#endif
+
+    OsMainSchedule();
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsHwiDispatchTail.c test_support.c notifier_test_stubs.c
+[Case] No tick -> schedule
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Tick handled enable
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Tick handled disable
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Active skip
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] IRQ time recorded
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Schedule after tail
+  Expect: 1
+  Actual: 1
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsHwiDispatchTail.c:31:13: warning: ‘test_dispatcher_increments’ defined but not used [-Wunused-function]
+   31 | static void test_dispatcher_increments(void)
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_OsHwiDispatchTail.c:9:
+auto_stub.h:1670:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1670 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1669:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1669 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1668:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1668 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1666 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1665:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1665 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1664:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1663:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1663 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1660:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1660 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1659:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1659 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_support.c:4:
+auto_stub.h:1670:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1670 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1669:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1669 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1668:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1668 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1666 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1665:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1665 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1664:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1663:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1663 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1660:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1660 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1659:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1659 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

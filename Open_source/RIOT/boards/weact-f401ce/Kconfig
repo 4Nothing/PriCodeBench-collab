@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "weact-f401ce" if BOARD_WEACT_F401CE
+
+config BOARD_WEACT_F401CE
+    bool
+    default y
+    select BOARD_COMMON_WEACT_F4X1CX
+    select CPU_MODEL_STM32F401CE
+
+source "$(RIOTBOARD)/common/weact-f4x1cx/Kconfig"

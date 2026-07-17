@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented. The function now reads the ECN field from `v_tc_fl.u8[0]` bits 3-2, which matches where `ipv6_hdr_set_tc_ecn` writes it (mask `0x0c`, shifted left by 2). The getter reverses that: mask with `0x0c` and shift right by 2 to return the 2-bit ECN value.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/hdr.h
++++ sys/include/net/ipv6/hdr.h
+@@ -214,7 +214,7 @@
+  */
+ static inline uint8_t ipv6_hdr_get_tc_ecn(const ipv6_hdr_t *hdr)
+ {
+-    /* MASKED - implement this function */
++    return (hdr->v_tc_fl.u8[0] & 0x0c) >> 2;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_hdr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  85998	  34256	  78152	 198406	  30706	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==343==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffefe32d000; bottom 0x000000430000; size: 0x7ffefdefd000 (140733158772736)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

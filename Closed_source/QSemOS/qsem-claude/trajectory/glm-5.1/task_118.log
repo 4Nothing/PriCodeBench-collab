@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. The function now:
+
+1. Acquires the perf spinlock via `PERF_LOCK(intSave)` — consistent with every other public perf API (`PRT_PerfConfig`, `PRT_PerfStart`, `PRT_PerfStop`, `PRT_PerfNotifyHookReg`, `PRT_PerfFlushHookReg`)
+2. Delegates to `OsPerfOutPutRead(dest, size)`, which flushes the buffer (calling any registered flush hook) and then reads from the ring buffer via `PRT_RingbufRead`
+3. Releases the lock and returns the byte count that `OsPerfOutPutRead` returns (the actual number of bytes read from the ring buffer)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -478,7 +478,14 @@
+ 
+ U32 PRT_PerfDataRead(char *dest, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 intSave;
++
++    PERF_LOCK(intSave);
++    ret = OsPerfOutPutRead(dest, size);
++    PERF_UNLOCK(intSave);
++
++    return ret;
+ }
+ 
+ void PRT_PerfNotifyHookReg(const PERF_BUF_NOTIFY_HOOK func)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 intSave;
+
+    PERF_LOCK(intSave);
+    ret = OsPerfOutPutRead(dest, size);
+    PERF_UNLOCK(intSave);
+
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfDataRead.c test_stubs.c
+[Read length] expect=5 actual=5 -> PASS
+[First byte] expect=104 actual=104 -> PASS
+[Third byte] expect=108 actual=108 -> PASS
+[Next byte zero] expect=0 actual=0 -> PASS
+[Zero-size read returns 0] expect=0 actual=0 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_PRT_PerfDataRead.c:6:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now matches the SHA-512 pattern, calling `sha512_common_final(ctx, digest, SHA384_DIGEST_LENGTH)` with the 48-byte digest length specific to SHA-384. The common final function handles padding, hash export, and context clearing — SHA-384 differs from SHA-512 only in the initial hash values (set by `sha384_init`) and the truncated 384-bit output length.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/hashes/sha384.h
++++ sys/include/hashes/sha384.h
+@@ -73,7 +73,7 @@
+  */
+ static inline void sha384_final(sha384_context_t *ctx, void *digest)
+ {
+-    /* MASKED - implement this function */
++    sha512_common_final(ctx, digest, SHA384_DIGEST_LENGTH);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221513	  74296	  82656	 378465	  5c661	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff2dfa9000; bottom 0x00000045a000; size: 0x7fff2db4f000 (140733960220672)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

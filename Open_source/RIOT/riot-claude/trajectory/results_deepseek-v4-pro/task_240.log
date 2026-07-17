@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the logic:
+
+- **Empty queue**: `new_obj` becomes the first element.
+- **Front insertion**: If `new_obj` has a lower (more urgent) priority than the current head, it's inserted at the front.
+- **General case**: Traverse the list while the next node's priority is `<= new_obj->priority`, then insert after the current node. The `<=` ensures that nodes with equal priority maintain FIFO order (new items append after existing same-priority items), matching the header's documented behavior.
+- `new_obj->next` is always reset to `NULL` before insertion to ensure it's cleanly detached from any previous list.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/priority_queue.c
++++ core/lib/priority_queue.c
+@@ -50,7 +50,27 @@
+ 
+ void priority_queue_add(priority_queue_t *root, priority_queue_node_t *new_obj)
+ {
+-    /* MASKED - implement this function */
++    new_obj->next = NULL;
++
++    priority_queue_node_t *node = root->first;
++
++    if (node == NULL) {
++        root->first = new_obj;
++        return;
++    }
++
++    if (new_obj->priority < node->priority) {
++        new_obj->next = node;
++        root->first = new_obj;
++        return;
++    }
++
++    while (node->next != NULL && node->next->priority <= new_obj->priority) {
++        node = node->next;
++    }
++
++    new_obj->next = node->next;
++    node->next = new_obj;
+ }
+ 
+ #if IS_ACTIVE(ENABLE_DEBUG)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 134997	  51816	  96776	 283589	  453c5	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd6fa36000; bottom 0x000000440000; size: 0x7ffd6f5f6000 (140726471974912)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

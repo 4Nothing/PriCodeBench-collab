@@ -1,0 +1,108 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented at `prt_sys_time.c:105-112`. It mirrors `PRT_ClkDelayMs` exactly — converting microseconds to cycles via `OS_US2CYCLE(delay, g_systemClock)` and then delegating to `OsTimerDelayCount` for the busy-wait loop.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sys/prt_sys_time.c
++++ src/core/kernel/sys/prt_sys_time.c
+@@ -104,5 +104,9 @@
+  */
+ OS_SEC_L4_TEXT void PRT_ClkDelayUs(U32 delay)
+ {
+-    /* MASKED - implement this function */
++    U64 cycles;
++
++    cycles = OS_US2CYCLE(delay, g_systemClock);
++
++    OsTimerDelayCount(cycles);
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U64 cycles;
+
+    cycles = OS_US2CYCLE(delay, g_systemClock);
+
+    OsTimerDelayCount(cycles);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_ClkDelayUs.c
+[Case 1] 1MHz, 0us -> 0 cycles
+  Expected: cycles=0
+  Actual  : cyclesReached=1, reads=1
+[Case 2] 1MHz, 1us -> 1 cycle
+  Expected: cycles=1
+  Actual  : cyclesReached=2, reads=2
+[Case 3] 1MHz, 50us -> 50 cycles
+  Expected: cycles=50
+  Actual  : cyclesReached=51, reads=51
+[Case 4] 2MHz, 10us -> 20 cycles
+  Expected: cycles=20
+  Actual  : cyclesReached=21, reads=21
+[Case 5] 48MHz, 5us -> 240 cycles
+  Expected: cycles=240
+  Actual  : cyclesReached=241, reads=241
+[Case 6] 3Hz (low), 1000000us -> 3 cycles
+  Expected: cycles=3
+  Actual  : cyclesReached=4, reads=4
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_attr_external.h:2,
+                 from test_PRT_ClkDelayUs.c:4:
+auto_stub.h:800:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  800 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:799:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  799 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:798:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  798 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:797:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  797 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:796:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  796 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:795:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  795 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:794:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  794 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:793:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  793 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:792:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  792 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:791:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  791 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:790:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  790 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:789:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  789 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:788:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  788 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:787:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  787 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "bluepill-stm32f030c8" if BOARD_BLUEPILL_STM32F030C8
+
+config BOARD_BLUEPILL_STM32F030C8
+    bool
+    default y
+    select CPU_MODEL_STM32F030C8

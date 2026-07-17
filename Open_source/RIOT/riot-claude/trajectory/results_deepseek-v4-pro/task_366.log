@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established patterns in the file:
+
+- **`vfs_closedir`** pattern for handle validation (`dirp` NULL → `-EINVAL`, `dirp->mp` NULL → `-EBADF`)
+- **`vfs_fstat`/`vfs_read`** pattern for output buffer validation (`entry` NULL → `-EFAULT`)
+- **`vfs_fstat`** pattern for "operation not supported" check (`readdir` NULL → `-EINVAL`)
+- Direct delegation to the driver's `readdir`, which returns 1 (entry filled), 0 (end of stream), or <0 (error) as documented in the header
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -491,7 +491,21 @@
+ 
+ int vfs_readdir(vfs_DIR *dirp, vfs_dirent_t *entry)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_readdir: %p, %p\n", (void *)dirp, (void *)entry);
++    if (dirp == NULL) {
++        return -EINVAL;
++    }
++    if (entry == NULL) {
++        return -EFAULT;
++    }
++    if (dirp->mp == NULL) {
++        return -EBADF;
++    }
++    if (dirp->d_op == NULL || dirp->d_op->readdir == NULL) {
++        /* driver does not implement readdir() */
++        return -EINVAL;
++    }
++    return dirp->d_op->readdir(dirp, entry);
+ }
+ 
+ int vfs_closedir(vfs_DIR *dirp)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123346	  45128	  79328	 247802	  3c7fa	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==362==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffec1cc2000; bottom 0x00000043b000; size: 0x7ffec1887000 (140732145364992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

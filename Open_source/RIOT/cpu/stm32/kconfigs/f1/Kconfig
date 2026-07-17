@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_F1
+    bool
+    select CPU_CORE_CORTEX_M3
+    select CPU_STM32
+
+if CPU_FAM_F1
+
+config CPU_FAM
+    default "f1"
+
+endif # CPU_FAM_F1

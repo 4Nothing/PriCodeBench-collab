@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2020 iosabi
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "qn9080dk" if BOARD_QN9080DK
+
+config BOARD_QN9080DK
+    bool
+    default y
+    select BOARD_COMMON_QN908X
+    select CPU_MODEL_QN9080XHN
+
+    # Put defined MCU peripherals here (in alphabetical order)
+    select BOARD_HAS_XTAL32K
+    select BOARD_HAS_XTAL_32M
+
+source "$(RIOTBOARD)/common/qn908x/Kconfig"

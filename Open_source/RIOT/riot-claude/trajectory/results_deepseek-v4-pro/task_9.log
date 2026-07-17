@@ -1,0 +1,104 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+- **First pass**: Counts digit characters in the input string (any non-digit acts as a separator and is skipped)
+- **Buffer check**: Returns `-ENOBUFS` if the number of digits exceeds `dst_len * 2` (2 digits per byte)
+- **Second pass**: Iterates the string from right to left, packing each digit into the BCD buffer:
+  - Even positions (0, 2, 4...) go into the **low nibble** of `byte[position/2]`
+  - Odd positions (1, 3, 5...) go into the **high nibble** via `digit << 4`
+- **Return value**: `(digits + 1) / 2` — the number of bytes written (ceiling of digits/2)
+
+The nibble layout matches the existing `bcd_buf_from_u32` format (line 30-58) and is compatible with the `_BCD_CONVERT` macro (line 61-67) that reads it back. For example, `"123"` produces bytes `[0x23, 0x01]`, identical to what `bcd_buf_from_u32(123, ...)` produces.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bcd/bcd.c
++++ sys/bcd/bcd.c
+@@ -93,5 +93,34 @@
+ 
+ int bcd_buf_from_str(const char *str, size_t len, void *dst, size_t dst_len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *tgt = dst;
++    size_t digits = 0;
++    size_t pos = 0;
++
++    for (size_t i = 0; i < len; i++) {
++        if (_is_digit(str[i])) {
++            digits++;
++        }
++    }
++
++    if (digits > dst_len * 2) {
++        return -ENOBUFS;
++    }
++
++    memset(dst, 0, dst_len);
++
++    for (size_t i = len; i > 0; i--) {
++        if (_is_digit(str[i - 1])) {
++            uint8_t digit = str[i - 1] - '0';
++            size_t byte_idx = pos / 2;
++            if (pos & 1) {
++                tgt[byte_idx] |= digit << 4;
++            } else {
++                tgt[byte_idx] |= digit;
++            }
++            pos++;
++        }
++    }
++
++    return (digits + 1) / 2;
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bcd
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/bcd
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  78081	  31952	  78120	 188153	  2def9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff980f0000; bottom 0x00000042d000; size: 0x7fff97cc3000 (140735740129280)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

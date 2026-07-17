@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "sodaq-explorer" if BOARD_SODAQ_EXPLORER
+
+config BOARD_SODAQ_EXPLORER
+    bool
+    default y
+    select BOARD_COMMON_SODAQ
+    select CPU_MODEL_SAMD21J18A
+
+source "$(RIOTBOARD)/common/sodaq/Kconfig"

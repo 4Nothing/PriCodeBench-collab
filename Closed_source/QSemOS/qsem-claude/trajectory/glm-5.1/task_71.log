@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsSwTmrStop` now does:
+
+1. **Reckon remaining ticks (if `reckonOff == FALSE`)**: Calls `OsSwTmrGetRemain()` before unlinking the timer from the sort link — this is necessary because the non-SMP version of that function traverses `prev` pointers to compute the remaining tick count. The result is stored as a raw tick value in `idxRollNum`.
+
+2. **Unlinks from the sort link**: Removes the timer from its slot's doubly-linked circular list by patching its neighbors' pointers (`next->prev = prev`, `prev->next = next`).
+
+3. **Transitions state**: Sets the timer state to `OS_TIMER_CREATED` (not running, but still exists).
+
+4. **Clears list pointers**: Sets `prev` and `next` to `NULL` since the timer is no longer in any linked list.
+
+The implementation works for both SMP and non-SMP configurations — `OsSwTmrGetRemain()` is already defined conditionally above in the same file, and the list unlinking logic is identical in both cases.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -121,7 +121,16 @@
+  */
+ OS_SEC_L2_TEXT void OsSwTmrStop(struct TagSwTmrCtrl *swtmr, bool reckonOff)
+ {
+-    /* MASKED - implement this function */
++    if (reckonOff == FALSE) {
++        swtmr->idxRollNum = OsSwTmrGetRemain(swtmr);
++    }
++
++    swtmr->next->prev = swtmr->prev;
++    swtmr->prev->next = swtmr->next;
++
++    swtmr->state = (U8)OS_TIMER_CREATED;
++    swtmr->prev = NULL;
++    swtmr->next = NULL;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (reckonOff == FALSE) {
+        swtmr->idxRollNum = OsSwTmrGetRemain(swtmr);
+    }
+
+    swtmr->next->prev = swtmr->prev;
+    swtmr->prev->next = swtmr->next;
+
+    swtmr->state = (U8)OS_TIMER_CREATED;
+    swtmr->prev = NULL;
+    swtmr->next = NULL;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrStop test_OsSwTmrStop.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrStop test
+[stop set remain         ] expect=40, actual=40 => PASS
+[state CREATED           ] expect=2, actual=2 => PASS
+[stop keep idx           ] expect=3355443200, actual=3355443200 => PASS
+[unlink mid->c.next==a   ] expect=0x7ffdf277aad0, actual=0x7ffdf277aad0 => PASS
+[unlink mid->a.prev==c   ] expect=0x7ffdf277ab70, actual=0x7ffdf277ab70 => PASS
+[first removed -> head next x] expect=0x7ffdf277abc0, actual=0x7ffdf277abc0 => PASS
+[prev NULL               ] expect=(nil), actual=(nil) => PASS
+[next NULL               ] expect=(nil), actual=(nil) => PASS
+
+OsSwTmrStop Pass-Rate: 100.00% (8/8)
+
+
+--- stderr ---
+test_OsSwTmrStop.c: In function ‘setup_three_in_slot’:
+test_OsSwTmrStop.c:12:5: warning: implicit declaration of function ‘OsSwTmrStart’; did you mean ‘OsSwTmrStop’? [-Wimplicit-function-declaration]
+   12 |     OsSwTmrStart(a, base);
+      |     ^~~~~~~~~~~~
+      |     OsSwTmrStop
+
+
+

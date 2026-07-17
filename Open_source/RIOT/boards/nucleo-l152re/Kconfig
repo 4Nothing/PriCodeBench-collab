@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l152re" if BOARD_NUCLEO_L152RE
+
+config BOARD_NUCLEO_L152RE
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32L152RE
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

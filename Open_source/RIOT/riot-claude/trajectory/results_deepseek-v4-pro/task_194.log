@@ -1,0 +1,128 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the logic:
+
+- **Void addressing mode** (beacons, ACKs): frame passes since there's no destination to filter
+- **Reserved addressing mode**: frame is rejected
+- **PAN ID check**: the destination PAN ID (parsed from the MHR in little-endian format) must match the filter's `pan` or the broadcast PAN (0xFFFF)
+- **Short address check**: the broadcast address (0xFFFF) always passes; otherwise compared byte-by-byte against `short_addr`, accounting for the endianness difference (MHR is little-endian, `short_addr` is network/big-endian)
+- **Extended address check**: compared byte-by-byte against `ext_addr`, with the same endianness handling — MHR byte `i` corresponds to `ext_addr->uint8[7-i]`. Returns 1 if `ext_addr` is NULL for a long destination.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -257,7 +257,61 @@
+ int ieee802154_dst_filter(const uint8_t *mhr, uint16_t pan,
+                           network_uint16_t short_addr, const eui64_t *ext_addr)
+ {
+-    /* MASKED - implement this function */
++    uint8_t dst_mode = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++
++    /* frames without a destination address (beacons, ACKs) pass the filter */
++    if (dst_mode == IEEE802154_FCF_DST_ADDR_VOID) {
++        return 0;
++    }
++
++    /* reserved addressing mode => reject */
++    if (dst_mode != IEEE802154_FCF_DST_ADDR_SHORT &&
++        dst_mode != IEEE802154_FCF_DST_ADDR_LONG) {
++        return 1;
++    }
++
++    int offset = 3; /* skip FCF (2 bytes) + seq (1 byte) */
++
++    /* destination PAN ID is stored little-endian in the MHR */
++    uint16_t dst_pan = mhr[offset] | ((uint16_t)mhr[offset + 1] << 8);
++    offset += 2;
++
++    /* check PAN ID against filter or broadcast PAN */
++    if (dst_pan != pan && dst_pan != 0xffff) {
++        return 1;
++    }
++
++    if (dst_mode == IEEE802154_FCF_DST_ADDR_SHORT) {
++        /* short address is stored little-endian in the MHR */
++        uint16_t dst_addr = mhr[offset] | ((uint16_t)mhr[offset + 1] << 8);
++
++        /* broadcast short address always passes */
++        if (dst_addr == 0xffff) {
++            return 0;
++        }
++
++        /* compare against filter short_addr (network byte order) */
++        if (mhr[offset] == short_addr.u8[1] &&
++            mhr[offset + 1] == short_addr.u8[0]) {
++            return 0;
++        }
++    }
++    else {
++        /* extended address is stored little-endian in the MHR */
++        if (ext_addr == NULL) {
++            return 1;
++        }
++
++        for (int i = 0; i < 8; i++) {
++            if (mhr[offset + i] != ext_addr->uint8[7 - i]) {
++                return 1;
++            }
++        }
++
++        return 0;
++    }
++
++    return 1;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 154351	  36616	  78152	 269119	  41b3f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................................................
+OK (69 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc20732000; bottom 0x000000441000; size: 0x7ffc202f1000 (140720848441344)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

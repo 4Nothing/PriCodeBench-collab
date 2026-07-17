@@ -1,0 +1,75 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The `tsrb_init` function at `sys/include/tsrb.h:63` now:
+
+- Asserts that `bufsize` is a power of two (as the docs require)
+- Sets `rb->buf`, `rb->size`, `rb->reads` (0), and `rb->writes` (0) — matching the `TSRB_INIT` macro
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/tsrb.h
++++ sys/include/tsrb.h
+@@ -62,7 +62,11 @@
+  */
+ static inline void tsrb_init(tsrb_t *rb, uint8_t *buffer, unsigned bufsize)
+ {
+-    /* MASKED - implement this function */
++    assert(bufsize > 0 && (bufsize & (bufsize - 1)) == 0);
++    rb->buf = buffer;
++    rb->size = bufsize;
++    rb->reads = 0;
++    rb->writes = 0;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-tsrb
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+   text	   data	    bss	    dec	    hex	filename
+  82319	  32176	  78272	 192767	  2f0ff	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdf5990000; bottom 0x00000042e000; size: 0x7ffdf5562000 (140728719515648)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what it does:
+
+- **Disables IRQs** before touching the timer list (matching the pattern in `ztimer64_set_at`)
+- **Guards with `_is_set()`** — if the timer isn't active (`target == 0`), it's a no-op (matching the documented behavior: "does nothing if timer is not found")
+- **Removes from the linked list** via `_del_entry_from_list()`, which also clears the timer's `next` and `target` fields via `_clear()`
+- **Updates the hardware timer** only if the removed entry was at the list head (`_del_entry_from_list` returns 1), since that means the next-fire target changed
+- **Restores IRQs** on the way out
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer64/ztimer64.c
++++ sys/ztimer64/ztimer64.c
+@@ -59,7 +59,15 @@
+ 
+ void ztimer64_remove(ztimer64_clock_t *clock, ztimer64_t *timer)
+ {
+-    /* MASKED - implement this function */
++    unsigned state = irq_disable();
++
++    if (_is_set(timer)) {
++        if (_del_entry_from_list(clock, &timer->base)) {
++            _ztimer64_update(clock);
++        }
++    }
++
++    irq_restore(state);
+ }
+ 
+ void ztimer64_set_at(ztimer64_clock_t *clock, ztimer64_t *timer, uint64_t val)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer64
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+  90396	  32504	  78368	 201268	  31234	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==367==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc49eb9000; bottom 0x000000430000; size: 0x7ffc49a89000 (140721544269824)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==367==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

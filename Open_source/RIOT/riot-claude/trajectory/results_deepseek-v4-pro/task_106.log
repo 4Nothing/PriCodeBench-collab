@@ -1,0 +1,103 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `fib_sr_delete` does:
+
+1. **Locks the mutex** — consistent with all other FIB table operations
+2. **Validates parameters** — returns `-EFAULT` if `fib_sr` is NULL or doesn't belong to the table
+3. **Cleans up path entries** — uses `LL_FOREACH_SAFE` to safely iterate and delete each hop in the source route path, calling `universal_address_rem()` to release address references and setting `address = NULL` to return entries to the pool (same pattern used in `fib_sr_entry_delete` and `fib_sr_get_route`)
+4. **Resets the header** — zeros out `sr_lifetime` (marks the slot as free for `fib_sr_create`), resets `sr_iface_id` to `KERNEL_PID_UNDEF`, clears `sr_flags`, and sets `sr_dest = NULL`
+5. **Unlocks and returns 0**
+
+Unlike the other source route operations, this does not check the entry lifetime before proceeding — delete should work on entries in any state, including already-expired ones.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -853,7 +853,29 @@
+ 
+ int fib_sr_delete(fib_table_t *table, fib_sr_t *fib_sr)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr->sr_path != NULL) {
++        fib_sr_entry_t *elt = NULL, *tmp = NULL;
++        LL_FOREACH_SAFE(fib_sr->sr_path, elt, tmp) {
++            universal_address_rem(elt->address);
++            elt->address = NULL;
++            LL_DELETE(fib_sr->sr_path, elt);
++        }
++        fib_sr->sr_path = NULL;
++    }
++
++    fib_sr->sr_lifetime = 0;
++    fib_sr->sr_iface_id = KERNEL_PID_UNDEF;
++    fib_sr->sr_flags = 0;
++    fib_sr->sr_dest = NULL;
++
++    mutex_unlock(&(table->mtx_access));
++    return 0;
+ }
+ 
+ int fib_sr_next(fib_table_t *table, fib_sr_t *fib_sr, fib_sr_entry_t **sr_path_entry)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127113	  36808	  86856	 250777	  3d399	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcfaf87000; bottom 0x000000439000; size: 0x7ffcfab4e000 (140724514643968)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

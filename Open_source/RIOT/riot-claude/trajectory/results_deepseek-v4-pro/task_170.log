@@ -1,0 +1,187 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `gnrc_pktbuf_realloc_data` now does in `/workspace/sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c:160-266`:
+
+**Cases handled:**
+
+1. **Same size** — returns 0 immediately, no lock needed.
+2. **Shrink to zero** — frees the data, sets `data = NULL`, `size = 0`.
+3. **Grow from zero** (data was NULL) — allocates new data via `_pktbuf_alloc`.
+4. **Shrink** — if the aligned size decreases, frees the excess tail portion via `gnrc_pktbuf_free_internal`; otherwise just updates `size`.
+5. **Expand in-place** — walks the free list to find a free block starting exactly at `pkt->data + _align(pkt->size)`. If found and large enough, consumes from it (splitting or removing the free block entirely, following the same pattern as `_pktbuf_alloc`).
+6. **Fallback** — allocates a new region, `memcpy`s the old data, frees the old region.
+
+The implementation follows the existing code's conventions: alignment via `_align()`, canary clearing with `CONFIG_GNRC_PKTBUF_CHECK_USE_AFTER_FREE`, `DEVELHELP` max-byte tracking, and mutex protection.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -159,7 +159,110 @@
+ 
+ int gnrc_pktbuf_realloc_data(gnrc_pktsnip_t *pkt, size_t size)
+ {
+-    /* MASKED - implement this function */
++    assert(pkt != NULL);
++    assert(((pkt->size == 0) && (pkt->data == NULL)) ||
++           ((pkt->size > 0) && (pkt->data != NULL)));
++
++    if (size == pkt->size) {
++        return 0;
++    }
++
++    mutex_lock(&gnrc_pktbuf_mutex);
++
++    if ((size == 0) && (pkt->data != NULL)) {
++        gnrc_pktbuf_free_internal(pkt->data, pkt->size);
++        pkt->data = NULL;
++        pkt->size = 0;
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return 0;
++    }
++
++    if (pkt->data == NULL) {
++        void *new_data = _pktbuf_alloc(size);
++        if (new_data == NULL) {
++            mutex_unlock(&gnrc_pktbuf_mutex);
++            return ENOMEM;
++        }
++        pkt->data = new_data;
++        pkt->size = size;
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return 0;
++    }
++
++    size_t old_aligned = _align(pkt->size);
++    size_t new_aligned = _align(size);
++
++    if (new_aligned <= old_aligned) {
++        if (new_aligned < old_aligned) {
++            gnrc_pktbuf_free_internal((uint8_t *)pkt->data + new_aligned,
++                                      old_aligned - new_aligned);
++        }
++        pkt->size = size;
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return 0;
++    }
++
++    /* Try to expand in place if the adjacent region is free */
++    _unused_t *prev = NULL, *free_block = _first_unused;
++    void *expand_addr = (uint8_t *)pkt->data + old_aligned;
++    size_t extra_needed = new_aligned - old_aligned;
++
++    while (free_block && ((void *)free_block < expand_addr)) {
++        prev = free_block;
++        free_block = free_block->next;
++    }
++
++    if (free_block && ((void *)free_block == expand_addr) &&
++        (free_block->size >= extra_needed)) {
++        if (sizeof(_unused_t) > (free_block->size - extra_needed)) {
++            if (prev == NULL) {
++                _first_unused = free_block->next;
++            }
++            else {
++                prev->next = free_block->next;
++            }
++        }
++        else {
++            _unused_t *new_free = (_unused_t *)((uintptr_t)free_block + extra_needed);
++            if (prev == NULL) {
++                _first_unused = new_free;
++            }
++            else {
++                prev->next = new_free;
++            }
++            new_free->next = free_block->next;
++            new_free->size = free_block->size - extra_needed;
++        }
++
++        if (CONFIG_GNRC_PKTBUF_CHECK_USE_AFTER_FREE) {
++            memset(expand_addr, ~GNRC_PKTBUF_CANARY, extra_needed);
++        }
++
++#ifdef DEVELHELP
++        uint16_t last_byte = (uint16_t)(((uint8_t *)pkt->data + new_aligned) -
++                                        &(_static_buf[0]));
++        if (last_byte > max_byte_count) {
++            max_byte_count = last_byte;
++        }
++#endif
++
++        pkt->size = size;
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return 0;
++    }
++
++    /* Allocate new region, copy, free old */
++    void *new_data = _pktbuf_alloc(size);
++    if (new_data == NULL) {
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return ENOMEM;
++    }
++    memcpy(new_data, pkt->data, pkt->size);
++    gnrc_pktbuf_free_internal(pkt->data, pkt->size);
++    pkt->data = new_data;
++    pkt->size = size;
++    mutex_unlock(&gnrc_pktbuf_mutex);
++    return 0;
+ }
+ 
+ void gnrc_pktbuf_hold(gnrc_pktsnip_t *pkt, unsigned int num)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 120500	  38864	  84456	 243820	  3b86c	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................................
+gnrc_pktbuf_tests.test_pktbuf_merge_data__memfull (tests/unittests/tests-pktbuf/tests-pktbuf.c 669) exp 12 was 0
+.............
+run 45 failures 1
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff0f5e9000; bottom 0x000000439000; size: 0x7fff0f1b0000 (140733446815744)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

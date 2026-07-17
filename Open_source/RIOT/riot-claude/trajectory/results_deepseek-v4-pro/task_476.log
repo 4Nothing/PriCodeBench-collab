@@ -1,0 +1,74 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation at `sys/include/net/nanocoap.h:2029` is:
+
+```c
+return coap_opt_put_string(buf, lastonum, COAP_OPT_URI_PATH, uri, '/');
+```
+
+It follows the same delegation pattern used by the neighboring functions (`coap_opt_put_location_path` at line 1994, `coap_opt_put_uri_query` at line 2045) — calling `coap_opt_put_string` with the appropriate CoAP option number (`COAP_OPT_URI_PATH`, which is 11) and separator (`/`). This splits the URI path on `/` to produce the correct sequence of Uri-Path options per RFC 7252.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -2026,7 +2026,7 @@
+ static inline size_t coap_opt_put_uri_path(uint8_t *buf, uint16_t lastonum,
+                                            const char *uri)
+ {
+-    /* MASKED - implement this function */
++    return coap_opt_put_string(buf, lastonum, COAP_OPT_URI_PATH, uri, '/');
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147774	  36040	  78120	 261934	  3ff2e	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffddf0e000; bottom 0x00000043f000; size: 0x7fffddacf000 (140736912486400)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "ublox-c030-u201" if BOARD_UBLOX_C030_U201
+
+config BOARD_UBLOX_C030_U201
+    bool
+    default y
+    select CPU_MODEL_STM32F437VG
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+config CLOCK_HSE
+    default 12000000
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

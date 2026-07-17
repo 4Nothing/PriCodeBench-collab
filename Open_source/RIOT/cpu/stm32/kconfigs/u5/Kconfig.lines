@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2021 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# This file was auto-generated from ST ProductsList.xlsx sheet using the
+# script in cpu/stm32/dist/kconfig/gen_kconfig.py
+# See cpu/stm32/dist/kconfig/README.md for details
+
+# CPU lines
+config CPU_LINE_STM32U575XX
+    bool
+    select CPU_FAM_U5
+
+config CPU_LINE_STM32U585XX
+    bool
+    select CPU_FAM_U5

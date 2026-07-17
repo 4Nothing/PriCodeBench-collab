@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the exact same pattern as `mtd_write` (line 152): validate the device/driver, compute page and offset from the absolute address using the page size, and delegate to `mtd_read_page` which handles bounds checking and the actual read loop.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- drivers/mtd/mtd.c
++++ drivers/mtd/mtd.c
+@@ -90,7 +90,15 @@
+ 
+ int mtd_read(mtd_dev_t *mtd, void *dest, uint32_t addr, uint32_t count)
+ {
+-    /* MASKED - implement this function */
++    if (!mtd || !mtd->driver) {
++        return -ENODEV;
++    }
++
++    /* page size is always a power of two */
++    const uint32_t page_shift = bitarithm_msb(mtd->page_size);
++    const uint32_t page_mask = mtd->page_size - 1;
++
++    return mtd_read_page(mtd, dest, addr >> page_shift, addr & page_mask, count);
+ }
+ 
+ int mtd_read_page(mtd_dev_t *mtd, void *dest, uint32_t page, uint32_t offset,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-mtd
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/mtd
+"make" -C /workspace/drivers/mtd
+"make" -C /workspace/drivers/mtd_emulated
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+"make" -C /workspace/cpu/native/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 104062	  33560	  79168	 216790	  34ed6	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......
+OK (6 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==357==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe4c3f0000; bottom 0x000000433000; size: 0x7ffe4bfbd000 (140730173214720)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

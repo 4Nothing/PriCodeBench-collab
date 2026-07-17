@@ -1,0 +1,163 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsDynModuleUnitFree` now does:
+
+1. **Takes interrupt lock** — consistent with other functions in the file (`OsModuleIntLock`/`OsModuleIntUnlock`), preventing concurrent access to the pool
+2. **NULL guard** — returns early if `unitInfo` is NULL
+3. **Frees symbol table** — iterates `symTab` entries, frees each `name` string, then frees the `symTab` array itself — same pattern used in `OsDynModuleSaveSymTab`'s `FAIL_RET` cleanup
+4. **Frees load segment memory** (`loadSegMem`) — allocated via `PRT_MemAllocAlign` in `OsDynModuleAllocMemForLoadSeg`
+5. **Frees module string** (`moduleStr`) — allocated in `OsDynModuleGetFileContent`; this covers both the error path in `OsDynModuleLoad` (where `moduleStr` is still set) and the normal `OsDynModuleUnload` path
+6. **Frees error string** (`error`) — field on the struct
+7. **Clears pool entry** — sets `g_dynModuleInfoPool[unitInfo->unitNo]` to NULL so the slot can be reused
+8. **Frees the unit info struct itself** — allocated in `OsDynModuleUnitAlloc`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -484,7 +484,45 @@
+ 
+ static void OsDynModuleUnitFree(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U16 i;
++    uintptr_t intSave = OsModuleIntLock();
++
++    if (unitInfo == NULL) {
++        OsModuleIntUnlock(intSave);
++        return;
++    }
++
++    if (unitInfo->symTab != NULL) {
++        for (i = 0; i < unitInfo->symNum; i++) {
++            if (unitInfo->symTab[i].name != NULL) {
++                (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->symTab[i].name);
++                unitInfo->symTab[i].name = NULL;
++            }
++        }
++        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->symTab);
++        unitInfo->symTab = NULL;
++    }
++
++    if (unitInfo->loadSegMem != NULL) {
++        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->loadSegMem);
++        unitInfo->loadSegMem = NULL;
++    }
++
++    if (unitInfo->moduleStr != NULL) {
++        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->moduleStr);
++        unitInfo->moduleStr = NULL;
++    }
++
++    if (unitInfo->error != NULL) {
++        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->error);
++        unitInfo->error = NULL;
++    }
++
++    g_dynModuleInfoPool[unitInfo->unitNo] = NULL;
++
++    (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo);
++
++    OsModuleIntUnlock(intSave);
+ }
+ 
+ static U32 OsDynModuleFileCheck(const char *moduleFile, struct stat *moduleFileSata, struct DynModuleUnitInfo **unitInfo)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U16 i;
+    uintptr_t intSave = OsModuleIntLock();
+
+    if (unitInfo == NULL) {
+        OsModuleIntUnlock(intSave);
+        return;
+    }
+
+    if (unitInfo->symTab != NULL) {
+        for (i = 0; i < unitInfo->symNum; i++) {
+            if (unitInfo->symTab[i].name != NULL) {
+                (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->symTab[i].name);
+                unitInfo->symTab[i].name = NULL;
+            }
+        }
+        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->symTab);
+        unitInfo->symTab = NULL;
+    }
+
+    if (unitInfo->loadSegMem != NULL) {
+        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->loadSegMem);
+        unitInfo->loadSegMem = NULL;
+    }
+
+    if (unitInfo->moduleStr != NULL) {
+        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->moduleStr);
+        unitInfo->moduleStr = NULL;
+    }
+
+    if (unitInfo->error != NULL) {
+        (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo->error);
+        unitInfo->error = NULL;
+    }
+
+    g_dynModuleInfoPool[unitInfo->unitNo] = NULL;
+
+    (void)PRT_MemFree(OS_MID_DYNAMIC, unitInfo);
+
+    OsModuleIntUnlock(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleFileCheck.c
+[CASE] file check test
+  Expected: no crash
+  Actual  : no crash
+  Result  : PASS
+
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+In file included from test_OsDynModuleFileCheck.c:5:
+test_shims.h: In function ‘PRT_MemAllocAlign’:
+test_shims.h:178:13: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  178 |         if (posix_memalign(&p, align, size) != 0)
+      |             ^~~~~~~~~~~~~~
+test_shims.h: In function ‘strcpy_s’:
+test_shims.h:224:9: warning: implicit declaration of function ‘strncpy’ [-Wimplicit-function-declaration]
+  224 |         strncpy(dest, src, destsz);
+      |         ^~~~~~~
+test_shims.h:111:1: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+  110 | #include <elf.h>
+  +++ |+#include <string.h>
+  111 |     typedef Elf64_Ehdr Elf_Ehdr;
+test_shims.h:224:9: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+  224 |         strncpy(dest, src, destsz);
+      |         ^~~~~~~
+test_shims.h:224:9: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+test_shims.h: In function ‘memcpy_s’:
+test_shims.h:233:9: warning: implicit declaration of function ‘memcpy’ [-Wimplicit-function-declaration]
+  233 |         memcpy(dest, src, count);
+      |         ^~~~~~
+test_shims.h:233:9: note: include ‘<string.h>’ or provide a declaration of ‘memcpy’
+test_shims.h:233:9: warning: incompatible implicit declaration of built-in function ‘memcpy’ [-Wbuiltin-declaration-mismatch]
+test_shims.h:233:9: note: include ‘<string.h>’ or provide a declaration of ‘memcpy’
+In file included from test_OsDynModuleFileCheck.c:6:
+test_common.h: At top level:
+test_common.h:23:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   23 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:12:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   12 | static void print_result(const char *case_name, uint32_t expected, uint32_t actual)
+      |             ^~~~~~~~~~~~
+
+
+

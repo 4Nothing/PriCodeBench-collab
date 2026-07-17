@@ -1,0 +1,135 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `uri_parser_split_query` does (lines 347–406):
+
+- **Returns 0** if `uri->query` is NULL (no query string present)
+- **Splits on `&`** to extract individual parameters, using the existing `_strchrb` helper for non-null-terminated buffer handling
+- **Splits each parameter on `=`** to separate name and value:
+  - No `=` → name-only parameter (value and value_len remain zero)
+  - `=` present → name before it, value after it (value may be empty, e.g. `key=`)
+- **Returns -1** on parsing errors: empty segment (leading/trailing `&` or consecutive `&&`) or empty parameter name (`=value`)
+- **Returns -2** when parameters exceed `params_len`; the array is filled with the first `params_len` entries
+- **Returns count** of filled entries on success
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/uri_parser/uri_parser.c
++++ sys/uri_parser/uri_parser.c
+@@ -348,5 +348,59 @@
+                            uri_parser_query_param_t *params,
+                            size_t params_len)
+ {
+-    /* MASKED - implement this function */
+-}
++    assert(uri);
++    assert(params);
++
++    if (uri->query == NULL) {
++        return 0;
++    }
++
++    const char *query = uri->query;
++    const char *query_end = query + uri->query_len;
++    const char *p = query;
++    size_t count = 0;
++
++    while (p < query_end) {
++        const char *seg_end = _strchrb(p, query_end, '&');
++        if (!seg_end) {
++            seg_end = query_end;
++        }
++
++        /* empty segment (e.g. leading/trailing '&' or consecutive '&') */
++        if (p == seg_end) {
++            return -1;
++        }
++
++        if (count >= params_len) {
++            return -2;
++        }
++
++        const char *eq = _strchrb(p, seg_end, '=');
++
++        if (eq == NULL) {
++            params[count].name = p;
++            params[count].name_len = seg_end - p;
++        }
++        else {
++            /* name must not be empty */
++            if (eq == p) {
++                return -1;
++            }
++
++            params[count].name = p;
++            params[count].name_len = eq - p;
++            params[count].value = eq + 1;
++            params[count].value_len = seg_end - (eq + 1);
++        }
++
++        count++;
++
++        /* advance past '&' separator if present */
++        p = seg_end;
++        if (p < query_end && *p == '&') {
++            p++;
++        }
++    }
++
++    return count;
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-uri_parser
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/uri_parser
+   text	   data	    bss	    dec	    hex	filename
+ 107686	  40848	  78400	 226934	  37676	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+query_split_tests.test_split_query__broken_input (tests/unittests/tests-uri_parser/tests-uri_parser.c 607) exp -1 was 2
+..
+query_split_tests.test_split_query__success (tests/unittests/tests-uri_parser/tests-uri_parser.c 634) exp 3 was -1
+
+run 10 failures 2
+
+native: exiting
+
+--- stderr ---
+==330==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe0fe0f000; bottom 0x000000436000; size: 0x7ffe0f9d9000 (140729160404992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now follows the same pattern as `tsrb_empty`, `tsrb_full`, and `tsrb_free` — disable interrupts, compute the value atomically, restore interrupts, and return. The logic mirrors `turb_avail`: available bytes = `writes - reads` (total bytes written minus total bytes read).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/tsrb.h
++++ sys/include/tsrb.h
+@@ -105,7 +105,10 @@
+  */
+ static inline unsigned int tsrb_avail(const tsrb_t *rb)
+ {
+-    /* MASKED - implement this function */
++    unsigned irq_state = irq_disable();
++    unsigned int retval = (rb->writes - rb->reads);
++    irq_restore(irq_state);
++    return retval;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-tsrb
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/tsrb
+   text	   data	    bss	    dec	    hex	filename
+  82319	  32176	  78272	 192767	  2f0ff	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe68a48000; bottom 0x00000042e000; size: 0x7ffe6861a000 (140730649649152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

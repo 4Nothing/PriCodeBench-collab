@@ -1,0 +1,79 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the exact same structure as `bf_set_all` (lines 86-95):
+
+1. **`memset(field, 0, bytes)`** — zeros out all complete bytes
+2. **`field[bytes] &= (1U << (8 - bits)) - 1`** — for the partial trailing byte, clears only the `bits` relevant high bits (leaving unused low bits untouched, which are already zero from the memset)
+
+This is the precise inverse of `bf_set_all`, which uses `memset(field, 0xff, bytes)` and then `field[bytes] |= ~((1U << (8 - bits)) - 1)`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bitfield/bitfield.c
++++ sys/bitfield/bitfield.c
+@@ -96,7 +96,13 @@
+ 
+ void bf_clear_all(uint8_t field[], size_t size)
+ {
+-    /* MASKED - implement this function */
++    unsigned bytes = size >> 3;
++    unsigned bits = size & 0x7;
++
++    memset(field, 0, bytes);
++    if (bits) {
++        field[bytes] &= (1U << (8 - bits)) - 1;
++    }
+ }
+ 
+ unsigned bf_popcnt(const uint8_t field[], size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bitfield
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  85986	  32024	  78120	 196130	  2fe22	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+OK (14 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffffc3ab000; bottom 0x00000042f000; size: 0x7ffffbf7c000 (140737420705792)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

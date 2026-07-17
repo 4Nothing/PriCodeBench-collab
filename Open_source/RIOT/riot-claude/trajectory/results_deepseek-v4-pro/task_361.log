@@ -1,0 +1,104 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `vfs_mount` does:
+
+1. **`check_mount(mountp)`** — validates the mount point (non-NULL fields, absolute path), computes `mount_point_len`, locks `_mount_mutex`, and verifies it's not already in the mount list. Returns 0 on success (mutex held), negative errno on failure (mutex released).
+
+2. **`open_files = 0`** — initializes the open file counter.
+
+3. **`clist_rpush`** — appends the mount's list entry to the circular linked list `_vfs_mounts_list`, making it discoverable by `_find_mount`.
+
+4. **`fs_op->mount`** — calls the file system's optional mount callback. If it fails, the mount is removed from the list and the mutex released before returning the error.
+
+5. On success, the mutex is released and 0 is returned.
+
+The implementation follows the exact same patterns used by `vfs_format` (validates then calls fs op) and `vfs_umount` (validates, manipulates list, calls fs op, cleans up on failure).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -581,7 +581,28 @@
+ 
+ int vfs_mount(vfs_mount_t *mountp)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_mount: %p\n", (void *)mountp);
++    int ret = check_mount(mountp);
++    if (ret < 0) {
++        return ret;
++    }
++    /* check_mount returned 0: mountp is valid, not already mounted,
++     * mount_point_len is set, _mount_mutex is locked */
++    mountp->open_files = 0;
++    clist_rpush(&_vfs_mounts_list, &mountp->list_entry);
++
++    if ((mountp->fs->fs_op != NULL) && (mountp->fs->fs_op->mount != NULL)) {
++        int res = mountp->fs->fs_op->mount(mountp);
++        if (res < 0) {
++            DEBUG("vfs_mount: mount: ERR %d!\n", res);
++            clist_remove(&_vfs_mounts_list, &mountp->list_entry);
++            mutex_unlock(&_mount_mutex);
++            return res;
++        }
++    }
++
++    mutex_unlock(&_mount_mutex);
++    return 0;
+ }
+ 
+ int vfs_umount(vfs_mount_t *mountp, bool force)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123367	  45128	  79328	 247823	  3c80f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffb2828000; bottom 0x00000043b000; size: 0x7fffb23ed000 (140736183848960)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

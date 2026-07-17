@@ -1,0 +1,83 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- Uses the same strict-aliasing cast pattern as the other functions in this file (`priority_queue_t *` → `priority_queue_node_t *`), which works because `priority_queue_t.first` and `priority_queue_node_t.next` are at the same struct offset.
+- Reads `head->next` (equivalent to `root->first`) to get the current head node.
+- If non-NULL, unlinks it by pointing the root past it to `res->next`, and clears the removed node's `next` pointer.
+- Returns the removed node (or NULL if the queue was empty).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/priority_queue.c
++++ core/lib/priority_queue.c
+@@ -40,7 +40,16 @@
+ 
+ priority_queue_node_t *priority_queue_remove_head(priority_queue_t *root)
+ {
+-    /* MASKED - implement this function */
++    /* The strict aliasing rules allow this assignment. */
++    priority_queue_node_t *head = (priority_queue_node_t *)root;
++
++    priority_queue_node_t *res = head->next;
++    if (res != NULL) {
++        head->next = res->next;
++        res->next = NULL;
++    }
++
++    return res;
+ }
+ 
+ void priority_queue_add(priority_queue_t *root, priority_queue_node_t *new_obj)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 134954	  51816	  96776	 283546	  4539a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd217cd000; bottom 0x000000440000; size: 0x7ffd2138d000 (140725160824832)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

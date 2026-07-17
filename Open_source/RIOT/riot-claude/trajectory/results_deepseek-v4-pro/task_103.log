@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `fib_print_fib_table` now does:
+
+- **Acquires the mutex** (consistent with every other public function in the file)
+- **Prints table metadata**: type (SH/SR), size, and for SR tables also the entry pool size
+- **Counts used entries directly** rather than calling `fib_get_num_used_entries()` — that function also acquires the mutex, which would deadlock
+- **Prints the used entry count and registered RP count**
+- **Releases the mutex**
+
+The logic follows the same patterns and debug-print conventions used throughout the rest of the file (e.g., `fib_print_notify_rp` and `fib_print_routes`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -1472,7 +1472,33 @@
+ 
+ void fib_print_fib_table(fib_table_t *table)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++
++    printf("[fib_print_fib_table] table type: %s\n",
++           table->table_type == FIB_TABLE_TYPE_SH ? "SH" : "SR");
++    printf("[fib_print_fib_table] table size: %" PRIuSIZE "\n", table->size);
++
++    if (table->table_type == FIB_TABLE_TYPE_SR) {
++        printf("[fib_print_fib_table] entry pool size: %" PRIuSIZE "\n",
++               table->data.source_routes->entry_pool_size);
++    }
++
++    size_t used = 0;
++    if (table->table_type == FIB_TABLE_TYPE_SH) {
++        for (size_t i = 0; i < table->size; ++i) {
++            used += (size_t)(table->data.entries[i].global != NULL);
++        }
++    }
++    else {
++        for (size_t i = 0; i < table->size; ++i) {
++            used += (size_t)(table->data.source_routes->headers[i].sr_lifetime != 0);
++        }
++    }
++
++    printf("[fib_print_fib_table] used entries: %" PRIuSIZE "\n", used);
++    printf("[fib_print_fib_table] registered RPs: %" PRIuSIZE "\n", table->notify_rp_pos);
++
++    mutex_unlock(&(table->mtx_access));
+ }
+ 
+ void fib_print_sr(fib_table_t *table, fib_sr_t *sr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 128516	  38184	  80456	 247156	  3c574	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................
+OK (20 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd2847c000; bottom 0x00000043b000; size: 0x7ffd28041000 (140725274808320)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2020 Savoir-faire Linux
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# CPU lines
+config CPU_LINE_STM32MP157CXX
+    bool
+    select CPU_FAM_MP1

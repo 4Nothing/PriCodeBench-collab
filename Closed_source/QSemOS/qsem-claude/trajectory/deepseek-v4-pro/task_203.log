@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsLogGetTailAndHead` at `src/utility/log/prt_log.c:152-156`. The function reads the head and tail pointers from shared memory at offsets `HEAD_PTR_OFFSET` and `TAIL_PTR_OFFSET` respectively, using the existing `OsAtomicReadU32` helper (volatile read). This matches the caller `OsLogUpdateTail`'s usage pattern — it does a lock-free read of both pointers, then takes the lock before atomically advancing the tail if it hasn't changed.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -151,7 +151,8 @@
+ 
+ static OS_SEC_L2_TEXT void OsLogGetTailAndHead(U32 *head, U32 *tail)
+ {
+-    /* MASKED - implement this function */
++    *head = OsAtomicReadU32((volatile U32 *)(g_logMemBase + HEAD_PTR_OFFSET));
++    *tail = OsAtomicReadU32((volatile U32 *)(g_logMemBase + TAIL_PTR_OFFSET));
+ }
+ 
+ static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    *head = OsAtomicReadU32((volatile U32 *)(g_logMemBase + HEAD_PTR_OFFSET));
+    *tail = OsAtomicReadU32((volatile U32 *)(g_logMemBase + TAIL_PTR_OFFSET));
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsLogGetTailAndHead.c
+[CASE] initial equal
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] read custom values
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] near wrap snapshot
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] repeat consistent
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] zero values
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

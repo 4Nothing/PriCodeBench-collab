@@ -1,0 +1,206 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of the validation checks `OsTaskCreateParaCheck` now performs, in order:
+
+1. **`taskPid == NULL || initParam == NULL`** → `OS_ERRNO_TSK_PTR_NULL` — null pointer parameters
+2. **`initParam->taskEntry == NULL`** → `OS_ERRNO_TSK_ENTRY_NULL` — missing task entry function
+3. **`initParam->name == NULL || name[0] == '\0'`** → `OS_ERRNO_TSK_NAME_EMPTY` — missing or empty task name
+4. **`initParam->taskPrio > OS_TSK_PRIORITY_LOWEST`** → `OS_ERRNO_TSK_PRIOR_ERROR` — priority out of range (matches the pattern used by `OsTaskPrioritySetCheck` in `prt_task_priority.c`)
+5. **`initParam->stackSize < OS_TSK_MIN_STACK_SIZE`** → `OS_ERRNO_TSK_STKSZ_TOO_SMALL` — stack too small
+6. **`initParam->stackSize & 0xFU`** → `OS_ERRNO_TSK_STKSZ_NOT_ALIGN` — stack size not 16-byte aligned
+7. **`initParam->stackAddr != 0 && (stackAddr & 0xFU)`** → `OS_ERRNO_TSK_STACKADDR_NOT_ALIGN` — user-provided stack address not 16-byte aligned
+8. **Returns `OS_OK`** if all checks pass
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -203,7 +203,35 @@
+  */
+ OS_SEC_L4_TEXT U32 OsTaskCreateParaCheck(const TskHandle *taskPid, struct TskInitParam *initParam)
+ {
+-    /* MASKED - implement this function */
++    if (taskPid == NULL || initParam == NULL) {
++        return OS_ERRNO_TSK_PTR_NULL;
++    }
++
++    if (initParam->taskEntry == NULL) {
++        return OS_ERRNO_TSK_ENTRY_NULL;
++    }
++
++    if (initParam->name == NULL || initParam->name[0] == '\0') {
++        return OS_ERRNO_TSK_NAME_EMPTY;
++    }
++
++    if (initParam->taskPrio > OS_TSK_PRIORITY_LOWEST) {
++        return OS_ERRNO_TSK_PRIOR_ERROR;
++    }
++
++    if (initParam->stackSize < OS_TSK_MIN_STACK_SIZE) {
++        return OS_ERRNO_TSK_STKSZ_TOO_SMALL;
++    }
++
++    if ((initParam->stackSize & 0xFU) != 0) {
++        return OS_ERRNO_TSK_STKSZ_NOT_ALIGN;
++    }
++
++    if (initParam->stackAddr != 0 && ((initParam->stackAddr & 0xFU) != 0)) {
++        return OS_ERRNO_TSK_STACKADDR_NOT_ALIGN;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT void OsTskRecycle(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (taskPid == NULL || initParam == NULL) {
+        return OS_ERRNO_TSK_PTR_NULL;
+    }
+
+    if (initParam->taskEntry == NULL) {
+        return OS_ERRNO_TSK_ENTRY_NULL;
+    }
+
+    if (initParam->name == NULL || initParam->name[0] == '\0') {
+        return OS_ERRNO_TSK_NAME_EMPTY;
+    }
+
+    if (initParam->taskPrio > OS_TSK_PRIORITY_LOWEST) {
+        return OS_ERRNO_TSK_PRIOR_ERROR;
+    }
+
+    if (initParam->stackSize < OS_TSK_MIN_STACK_SIZE) {
+        return OS_ERRNO_TSK_STKSZ_TOO_SMALL;
+    }
+
+    if ((initParam->stackSize & 0xFU) != 0) {
+        return OS_ERRNO_TSK_STKSZ_NOT_ALIGN;
+    }
+
+    if (initParam->stackAddr != 0 && ((initParam->stackAddr & 0xFU) != 0)) {
+        return OS_ERRNO_TSK_STACKADDR_NOT_ALIGN;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskCreateParaCheck.c
+[CASE] NULL taskPid => PTR_NULL
+  Expected: 4098
+  Actual  : 4098
+  Result  : PASS
+
+[CASE] NULL initParam => PTR_NULL
+  Expected: 4098
+  Actual  : 4098
+  Result  : PASS
+
+[CASE] taskEntry NULL
+  Expected: 4099
+  Actual  : 4099
+  Result  : PASS
+
+[CASE] success after default size
+  Expected: 0
+  Actual  : 4102
+  Result  : FAIL
+
+[CASE] stackSize set to default
+  Expected: 256
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] stack size not align
+  Expected: 4100
+  Actual  : 4100
+  Result  : PASS
+
+[CASE] stack addr not align
+  Expected: 4101
+  Actual  : 4101
+  Result  : PASS
+
+[CASE] stack size too small
+  Expected: 4102
+  Actual  : 4102
+  Result  : PASS
+
+[CASE] stack addr overflow
+  Expected: 4103
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] prio error
+  Expected: 4104
+  Actual  : 4104
+  Result  : PASS
+
+[CASE] name empty
+  Expected: 4105
+  Actual  : 4105
+  Result  : PASS
+
+[CASE] OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 75.00%
+
+--- stderr ---
+In file included from test_OsTaskCreateParaCheck.c:4:
+auto_stub.h:1280:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1276:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1275:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1274:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1274 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

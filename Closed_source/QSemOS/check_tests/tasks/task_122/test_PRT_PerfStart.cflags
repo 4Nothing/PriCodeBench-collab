@@ -1,0 +1,4 @@
+-DSKIP_PRT_PerfStart
+-DSKIP_PRT_PerfStop
+-DSKIP_OsPerfPmuGet
+-DSKIP_OsPerfOutPutInit -DSKIP_OsPerfOutPutWrite -DSKIP_OsPerfOutPutRead -DSKIP_OsPerfOutPutFlush

@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is a one-line delegation to `OsNotifierChainRegister(&g_dieNotifier, nb)`, mirroring the pattern of `OsUnregisterDieNotifier`. It registers the notifier block into the static `g_dieNotifier` chain with proper locking and priority ordering inherited from the underlying helper.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -129,7 +129,7 @@
+ 
+ int OsRegisterDieNotifier(struct NotifierBlock *nb)
+ {
+-    /* MASKED - implement this function */
++    return OsNotifierChainRegister(&g_dieNotifier, nb);
+ }
+ 
+ int OsUnregisterDieNotifier(struct NotifierBlock *nb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return OsNotifierChainRegister(&g_dieNotifier, nb);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRegisterDieNotifier.c notifier_test_stubs.c
+[CASE 1] register a returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 2] lock restored
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 3] register b returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 4] register c returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 5] duplicate register -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+[CASE 6] notify ret OK (no STOP)
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented. The function at `sys/include/net/nanocoap.h:2407` now calls `coap_parse_udp(pkt, buf, len)` as its documentation states — it's a deprecated alias for `coap_parse_udp`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -2406,7 +2406,7 @@
+  */
+ static inline ssize_t coap_parse(coap_pkt_t *pkt, uint8_t *buf, size_t len)
+ {
+-    /* MASKED - implement this function */
++    return coap_parse_udp(pkt, buf, len);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147774	  36040	  78120	 261934	  3ff2e	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe1c30c000; bottom 0x00000043f000; size: 0x7ffe1becd000 (140729366925312)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

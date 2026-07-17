@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l552ze-q" if BOARD_NUCLEO_L552ZE_Q
+
+config BOARD_NUCLEO_L552ZE_Q
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32L552ZE
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

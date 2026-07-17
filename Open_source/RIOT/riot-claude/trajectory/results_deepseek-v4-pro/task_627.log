@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation at `options.h:1220` now calls `unicoap_options_set_uint` with `UNICOAP_OPTION_ACCEPT`, following the same pattern as `unicoap_options_set_content_format` (line 1116) — both store `unicoap_content_format_t` values and use the same uint encoding.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/unicoap/options.h
++++ sys/include/net/unicoap/options.h
+@@ -1220,7 +1220,7 @@
+ static inline ssize_t unicoap_options_set_accept(unicoap_options_t* options,
+                                                  unicoap_content_format_t format)
+ {
+-    /* MASKED - implement this function */
++    return unicoap_options_set_uint(options, UNICOAP_OPTION_ACCEPT, (uint32_t)format);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 125161	  43144	  82464	 250769	  3d391	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd3c98e000; bottom 0x00000043c000; size: 0x7ffd3c552000 (140725615665152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

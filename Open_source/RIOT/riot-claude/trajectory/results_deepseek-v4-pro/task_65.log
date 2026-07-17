@@ -1,0 +1,83 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+1. **`crb_start_chunk`** — attempts to start a new chunk. If the buffer is full (`cur == protect`), it returns `false` and we bail out.
+
+2. **`crb_add_bytes`** — copies the data into the ringbuffer byte-by-byte via `crb_add_byte`. If the buffer fills up mid-write, we discard the partial chunk via `crb_end_chunk(rb, false)` (which resets `cur` back to `cur_start`), then return `false`.
+
+3. **`crb_end_chunk(rb, true)`** — tries to store the completed chunk in a free slot of the `chunk_start[]`/`chunk_len[]` arrays. If no slot is available (`_get_free_chunk` returns -1), the chunk is discarded and 0 is returned, causing our function to return `false`. If a slot was found and the chunk was stored, it returns the chunk length (>0), so we return `true`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/chunked_ringbuffer/chunked_ringbuffer.c
++++ sys/chunked_ringbuffer/chunked_ringbuffer.c
+@@ -67,7 +67,16 @@
+ 
+ bool crb_add_chunk(chunk_ringbuf_t *rb, const void *data, size_t len)
+ {
+-    /* MASKED - implement this function */
++    if (!crb_start_chunk(rb)) {
++        return false;
++    }
++
++    if (!crb_add_bytes(rb, data, len)) {
++        crb_end_chunk(rb, false);
++        return false;
++    }
++
++    return crb_end_chunk(rb, true) > 0;
+ }
+ 
+ static unsigned _get_cur_len(chunk_ringbuf_t *rb)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/chunked_ringbuffer
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  83863	  32600	  78120	 194583	  2f817	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+OK (2 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffff85cf000; bottom 0x00000042e000; size: 0x7ffff81a1000 (140737355845632)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

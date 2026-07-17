@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function at line 316 is now implemented. It converts `ar_seq_fs.u16` from network to host byte order via `byteorder_ntohs()` and masks with `SIXLOWPAN_SFR_FRAG_SIZE_MASK` (0x03ff, 10 bits). This mirrors the setter's approach (`byteorder_htons` + mask) and follows the same conversion pattern used by `sixlowpan_sfr_rfrag_get_offset` and the `set_frag_size` counterpart.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/sixlowpan/sfr.h
++++ sys/include/net/sixlowpan/sfr.h
+@@ -315,7 +315,7 @@
+  */
+ static inline uint16_t sixlowpan_sfr_rfrag_get_frag_size(const sixlowpan_sfr_rfrag_t *hdr)
+ {
+-    /* MASKED - implement this function */
++    return (byteorder_ntohs(hdr->ar_seq_fs.u16) & SIXLOWPAN_SFR_FRAG_SIZE_MASK);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_sfr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+
+--- stderr ---
+In file included from [01m[K/workspace/tests/unittests/tests-sixlowpan_sfr/tests-sixlowpan_sfr.c:15[m[K:
+[01m[K/workspace/sys/include/net/sixlowpan/sfr.h:[m[K In function '[01m[Ksixlowpan_sfr_rfrag_get_frag_size[m[K':
+[01m[K/workspace/sys/include/net/sixlowpan/sfr.h:318:43:[m[K [01;31m[Kerror: [m[Kincompatible type for argument 1 of '[01m[Kbyteorder_ntohs[m[K'
+  318 |     return (byteorder_ntohs([01;31m[Khdr->ar_seq_fs.u16[m[K) & SIXLOWPAN_SFR_FRAG_SIZE_MASK);
+      |                             [01;31m[K~~~~~~~~~~~~~~^~~~[m[K
+      |                                           [01;31m[K|[m[K
+      |                                           [01;31m[Kuint16_t {aka short unsigned int}[m[K
+In file included from [01m[K/workspace/sys/include/net/sixlowpan/sfr.h:30[m[K:
+[01m[K/workspace/sys/include/byteorder.h:505:57:[m[K [01;36m[Knote: [m[Kexpected '[01m[Knetwork_uint16_t[m[K' {aka '[01m[Kbe_uint16_t[m[K'} but argument is of type '[01m[Kuint16_t[m[K' {aka '[01m[Kshort unsigned int[m[K'}
+  505 | static inline uint16_t byteorder_ntohs([01;36m[Knetwork_uint16_t v[m[K)
+      |                                        [01;36m[K~~~~~~~~~~~~~~~~~^[m[K
+[01m[K/workspace/sys/include/net/sixlowpan/sfr.h:319:1:[m[K [01;31m[Kerror: [m[Kcontrol reaches end of non-void function [[01;31m[K-Werror=return-type[m[K]
+  319 | [01;31m[K}[m[K
+      | [01;31m[K^[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-sixlowpan_sfr/tests-sixlowpan_sfr.o] Error 1
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/tests/unittests/tests-sixlowpan_sfr] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

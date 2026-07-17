@@ -1,0 +1,67 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented. The function now masks `disp_ecn` with `SIXLOWPAN_SFR_DISP_MASK` (0xfe) and compares against `SIXLOWPAN_SFR_RFRAG_DISP` (0xe8), following the same pattern as `sixlowpan_sfr_ack_is()` on line 368-371. This correctly distinguishes RFRAG headers (0xe8/0xe9) from ACK headers (0xea/0xeb), whereas the broader `sixlowpan_sfr_is()` matches both types using a different mask (0xfc).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/sixlowpan/sfr.h
++++ sys/include/net/sixlowpan/sfr.h
+@@ -220,7 +220,7 @@
+  */
+ static inline bool sixlowpan_sfr_rfrag_is(const sixlowpan_sfr_t *hdr)
+ {
+-    /* MASKED - implement this function */
++    return ((hdr->disp_ecn & SIXLOWPAN_SFR_DISP_MASK) == SIXLOWPAN_SFR_RFRAG_DISP);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_sfr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  75896	  31464	  78120	 185480	  2d488	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc1b992000; bottom 0x00000042d000; size: 0x7ffc1b565000 (140720767127552)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

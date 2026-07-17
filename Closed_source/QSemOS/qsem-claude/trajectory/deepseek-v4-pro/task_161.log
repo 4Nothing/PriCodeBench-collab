@@ -1,0 +1,116 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSemPendNotNeedSche` does:
+
+- **Counting semaphore** (`SEM_TYPE_COUNT`): If `semCount > 0`, decrement and return `TRUE` — the semaphore is acquired immediately without scheduling.
+- **Binary/mutex semaphore** (`SEM_TYPE_BIN`, under `OS_OPTION_BIN_SEM`):
+  - **Recursive mutex** (`OS_OPTION_SEM_RECUR_PV`): If the current task already owns it, increment `recurCount` and return `TRUE`.
+  - **Available mutex**: If `semCount == OS_SEM_FULL` (unowned), acquire it: decrement count, set owner to the running task's PID, add to the task's `semBList`, and return `TRUE`.
+- Returns `FALSE` otherwise, indicating the task must block on the semaphore's wait list.
+
+The logic mirrors the reverse operations in `PRT_SemPost` / `OsSemPostIsInvalid`: post increments count and clears ownership, pend decrements count and sets ownership; recursive post decrements `recurCount`, recursive pend increments it.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -376,7 +376,38 @@
+ 
+ OS_SEC_L0_TEXT bool OsSemPendNotNeedSche(struct TagSemCb *semPended, struct TagTskCb *runTsk)
+ {
+-    /* MASKED - implement this function */
++    /* 计数型信号量：有可用资源直接获取 */
++    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_COUNT)
++    {
++        if (semPended->semCount > 0)
++        {
++            semPended->semCount--;
++            return TRUE;
++        }
++        return FALSE;
++    }
++
++#if defined(OS_OPTION_BIN_SEM)
++    /* 二进制互斥信号量 */
++#if defined(OS_OPTION_SEM_RECUR_PV)
++    /* 可重入互斥信号量：当前任务已持有时递增递归计数 */
++    if (GET_MUTEX_TYPE(semPended->semType) == SEM_MUTEX_TYPE_RECUR &&
++        semPended->semOwner == runTsk->taskPid)
++    {
++        semPended->recurCount++;
++        return TRUE;
++    }
++#endif
++    /* 互斥信号量空闲，直接获取 */
++    if (semPended->semCount == OS_SEM_FULL)
++    {
++        semPended->semCount--;
++        semPended->semOwner = runTsk->taskPid;
++        ListTailAdd(&semPended->semBList, &runTsk->semBList);
++        return TRUE;
++    }
++#endif
++    return FALSE;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    /* 计数型信号量：有可用资源直接获取 */
+    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_COUNT)
+    {
+        if (semPended->semCount > 0)
+        {
+            semPended->semCount--;
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+#if defined(OS_OPTION_BIN_SEM)
+    /* 二进制互斥信号量 */
+#if defined(OS_OPTION_SEM_RECUR_PV)
+    /* 可重入互斥信号量：当前任务已持有时递增递归计数 */
+    if (GET_MUTEX_TYPE(semPended->semType) == SEM_MUTEX_TYPE_RECUR &&
+        semPended->semOwner == runTsk->taskPid)
+    {
+        semPended->recurCount++;
+        return TRUE;
+    }
+#endif
+    /* 互斥信号量空闲，直接获取 */
+    if (semPended->semCount == OS_SEM_FULL)
+    {
+        semPended->semCount--;
+        semPended->semOwner = runTsk->taskPid;
+        ListTailAdd(&semPended->semBList, &runTsk->semBList);
+        return TRUE;
+    }
+#endif
+    return FALSE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendNotNeedSche.c test_stubs.c notifier_test_stubs.c
+recursive bin same owner => expected ret=1 cnt=1 | actual ret=1 cnt=1
+count decremented => expected ret=1 cnt=1 | actual ret=1 cnt=1
+count zero => expected ret=0 cnt=0 | actual ret=0 cnt=0
+bin link bList => expected=1 actual=1
+bin count zero returns false => expected=1 actual=1
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

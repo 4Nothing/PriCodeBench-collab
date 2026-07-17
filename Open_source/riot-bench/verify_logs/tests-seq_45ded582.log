@@ -1,0 +1,46 @@
+=== COMMAND ===
+cd tests/unittests && make BOARD=native64 tests-seq -j && ./bin/native64/tests_unittests.elf
+
+=== STDOUT ===
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /home/carl/RIOT/boards
+"make" -C /home/carl/RIOT/boards/native64
+"make" -C /home/carl/RIOT/core
+"make" -C /home/carl/RIOT/core/lib
+"make" -C /home/carl/RIOT/cpu/native
+"make" -C /home/carl/RIOT/drivers
+"make" -C /home/carl/RIOT/sys
+"make" -C /home/carl/RIOT/tests/unittests/tests-seq
+"make" -C /home/carl/RIOT/boards/common/native
+"make" -C /home/carl/RIOT/boards/common/init
+"make" -C /home/carl/RIOT/drivers/periph_common
+"make" -C /home/carl/RIOT/sys/embunit
+"make" -C /home/carl/RIOT/boards/common/native/drivers
+"make" -C /home/carl/RIOT/sys/libc
+"make" -C /home/carl/RIOT/sys/seq
+"make" -C /home/carl/RIOT/sys/stdio
+"make" -C /home/carl/RIOT/sys/test_utils/print_stack_usage
+"make" -C /home/carl/RIOT/cpu/native/periph
+"make" -C /home/carl/RIOT/cpu/native/stdio_native
+   text	   data	    bss	    dec	    hex	filename
+  87140	  34736	  78664	 200540	  30f5c	/home/carl/RIOT/tests/unittests/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+=== STDERR ===
+==128779==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffddc32f000; bottom 0x000000430000; size: 0x7ffddbeff000 (140728293388288)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==128779==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+=== RC ===
+0

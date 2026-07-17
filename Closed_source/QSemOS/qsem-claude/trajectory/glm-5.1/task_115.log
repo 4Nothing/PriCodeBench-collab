@@ -1,0 +1,59 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function now:
+
+1. Gets the current core ID via `PRT_GetCoreID()`
+2. Increments that core's event count by `value`
+
+This matches the usage at all three call sites:
+- **HW PMU** (`armv8_pmu.c:309`): `OsPerfUpdateEventCount(event, event->period)` — adds the sampling period to the count when a hardware counter overflows
+- **SW PMU** (`prt_perf_sw_pmu.c:52`): `OsPerfUpdateEventCount(event, 1)` — increments by 1 on each software event
+- **Timed PMU** (`prt_perf_timed_pmu.c:62`): `OsPerfUpdateEventCount(event, 1)` — increments by 1 on each timer tick
+
+No locking is needed because each CPU core writes only to its own index in the `count[]` array.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -310,7 +310,9 @@
+ 
+ void OsPerfUpdateEventCount(Event *event, U32 value)
+ {
+-    /* MASKED - implement this function */
++    U32 cpuid = PRT_GetCoreID();
++
++    event->count[cpuid] += value;
+ }
+ 
+ void OsPerfHandleOverFlow(Event *event, PerfRegs *regs)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 cpuid = PRT_GetCoreID();
+
+    event->count[cpuid] += value;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfUpdateEventCount.c test_stubs.c
+
+--- stderr ---
+In file included from test_OsPerfUpdateEventCount.c:2:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+Segmentation fault (core dumped)
+
+
+

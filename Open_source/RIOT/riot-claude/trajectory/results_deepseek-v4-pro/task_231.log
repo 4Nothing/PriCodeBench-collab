@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pattern as `nanocoap_cache_request_lookup` at line 184: generate a `SHA256_DIGEST_LENGTH`-byte cache key from the request via `nanocoap_cache_key_generate`, then delegate to `nanocoap_cache_add_by_key` with the cache key, the request's CoAP method code (`req->hdr->code`), and the response packet/length.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/cache.c
++++ sys/net/application_layer/nanocoap/cache.c
+@@ -331,7 +331,11 @@
+                                                   const coap_pkt_t *resp,
+                                                   size_t resp_len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t cache_key[SHA256_DIGEST_LENGTH];
++
++    nanocoap_cache_key_generate(req, cache_key);
++
++    return nanocoap_cache_add_by_key(cache_key, req->hdr->code, resp, resp_len);
+ }
+ 
+ int nanocoap_cache_del(const nanocoap_cache_entry_t *ce)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap_cache
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+ 141121	  36080	  81288	 258489	  3f1b9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==449==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff18020000; bottom 0x00000043e000; size: 0x7fff17be2000 (140733591724032)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

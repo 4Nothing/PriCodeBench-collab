@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_COMMON_NRF5X
+depends on !CPU_FAM_NRF53
+    bool
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

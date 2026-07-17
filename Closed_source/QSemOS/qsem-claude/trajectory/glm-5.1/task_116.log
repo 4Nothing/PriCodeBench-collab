@@ -1,0 +1,104 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsPmuInit` does:
+
+1. **HW PMU** (`OS_OPTION_PERF_HW_PMU`): Calls `OsHwPmuInit()` which sets up the PMU hardware interrupt and registers the HW PMU via `OsPerfPmuRegister`. Returns `OS_ERRNO_PERF_HW_INIT_ERROR` on failure.
+
+2. **SW PMU** (`OS_OPTION_PERF_SW_PMU`): Calls `OsSwPmuInit()` which initializes the software event PMU (trace hooks for task switch, IRQ, memory alloc, semaphore). Returns `OS_ERRNO_PERF_SW_INIT_ERROR` on failure.
+
+3. **Timed PMU** (`OS_OPTION_PERF_TIMED_PMU`): Calls `OsTimedPmuInit()` which initializes the hrtimer-based sampling PMU. Returns `OS_ERRNO_PERF_TIMED_INIT_ERROR` on failure.
+
+Each PMU type is independently gated by its own compile-time flag, consistent with the pattern used in `prt_perf_demo.c` and the error codes declared in `prt_perf.h`. The caller `PRT_PerfInit` checks the return value and bails out via `goto PERF_INIT_ERROR` on any failure.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -31,7 +31,30 @@
+ 
+ static U32 OsPmuInit(void)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++#ifdef OS_OPTION_PERF_HW_PMU
++    ret = OsHwPmuInit();
++    if (ret != OS_OK) {
++        return OS_ERRNO_PERF_HW_INIT_ERROR;
++    }
++#endif
++
++#ifdef OS_OPTION_PERF_SW_PMU
++    ret = OsSwPmuInit();
++    if (ret != OS_OK) {
++        return OS_ERRNO_PERF_SW_INIT_ERROR;
++    }
++#endif
++
++#ifdef OS_OPTION_PERF_TIMED_PMU
++    ret = OsTimedPmuInit();
++    if (ret != OS_OK) {
++        return OS_ERRNO_PERF_TIMED_INIT_ERROR;
++    }
++#endif
++
++    return OS_OK;
+ }
+ 
+ static U32 OsPerfConfig(PerfEventConfig *eventsCfg)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+#ifdef OS_OPTION_PERF_HW_PMU
+    ret = OsHwPmuInit();
+    if (ret != OS_OK) {
+        return OS_ERRNO_PERF_HW_INIT_ERROR;
+    }
+#endif
+
+#ifdef OS_OPTION_PERF_SW_PMU
+    ret = OsSwPmuInit();
+    if (ret != OS_OK) {
+        return OS_ERRNO_PERF_SW_INIT_ERROR;
+    }
+#endif
+
+#ifdef OS_OPTION_PERF_TIMED_PMU
+    ret = OsTimedPmuInit();
+    if (ret != OS_OK) {
+        return OS_ERRNO_PERF_TIMED_INIT_ERROR;
+    }
+#endif
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPmuInit.c test_stubs.c
+[All init OK] expect=0 actual=0 -> PASS
+[HW init fails] expect=4097 actual=4097 -> PASS
+[TIMED init fails] expect=4098 actual=4098 -> PASS
+[SW init fails] expect=4099 actual=4099 -> PASS
+[Init succeeds again] expect=0 actual=0 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsPmuInit.c:8:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

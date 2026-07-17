@@ -1,0 +1,159 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `gcoap_get_resource_list` does:
+
+1. **Iterates over all registered listeners** in the `_coap_state.listeners` linked list
+2. **Filters by transport layer type** — uses the same logic as `_find_resource` (only applies when `MODULE_GCOAP_DTLS` is compiled in; listeners with `GCOAP_SOCKET_TYPE_UNDEF` match all transports; otherwise the listener's `tl_type` must share bits with the requested `tl_type`)
+3. **Skips `/.well-known/core`** to avoid listing the well-known core handler itself (which would cause recursion since it calls this function)
+4. **Calls each listener's `link_encoder`** (defaults to `gcoap_encode_link` as set in `gcoap_register_listener`) for each resource, setting `COAP_LINK_FLAG_INIT_RESLIST` for the first resource so the encoder knows to skip the leading comma
+5. **Supports `buf == NULL`** for size calculation without writing, consistent with the encoder contract
+6. **Returns** the total number of bytes written to the buffer, or `-1` on error
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/gcoap/gcoap.c
++++ sys/net/application_layer/gcoap/gcoap.c
+@@ -2000,7 +2000,54 @@
+ int gcoap_get_resource_list(void *buf, size_t maxlen, uint8_t cf,
+                                gcoap_socket_type_t tl_type)
+ {
+-    /* MASKED - implement this function */
++    unsigned init = 1;
++    int pos = 0;
++
++    (void)cf;
++
++    gcoap_listener_t *listener = _coap_state.listeners;
++    while (listener) {
++        if (IS_USED(MODULE_GCOAP_DTLS) &&
++            (listener->tl_type != GCOAP_SOCKET_TYPE_UNDEF) &&
++            !(listener->tl_type & tl_type)) {
++            listener = listener->next;
++            continue;
++        }
++
++        for (size_t i = 0; i < listener->resources_len; i++) {
++            const coap_resource_t *resource = &listener->resources[i];
++
++            if (strcmp(resource->path, "/.well-known/core") == 0) {
++                continue;
++            }
++
++            coap_link_encoder_ctx_t ctx = {
++                .content_format = cf,
++                .link_pos = i,
++                .flags = init ? COAP_LINK_FLAG_INIT_RESLIST : 0,
++            };
++
++            ssize_t res;
++            if (buf) {
++                res = listener->link_encoder(resource,
++                                             &((char *)buf)[pos],
++                                             maxlen - pos, &ctx);
++            }
++            else {
++                res = listener->link_encoder(resource, NULL, 0, &ctx);
++            }
++            if (res < 0) {
++                return -1;
++            }
++
++            pos += res;
++            init = 0;
++        }
++
++        listener = listener->next;
++    }
++
++    return pos;
+ }
+ 
+ ssize_t gcoap_encode_link(const coap_resource_t *resource, char *buf,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gcoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/application_layer/gcoap
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/sock
+"make" -C /workspace/sys/net/sock/async/event
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/transport_layer/udp
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/posix/inet
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/sock
+"make" -C /workspace/sys/net/gnrc/sock/udp
+"make" -C /workspace/sys/net/gnrc/transport_layer/udp
+   text	   data	    bss	    dec	    hex	filename
+ 167274	  44808	 129416	 341498	  535fa	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...........
+gcoap_tests.test_gcoap__server_get_resource_list (tests/unittests/tests-gcoap/tests-gcoap.c 383) exp 0 was -1
+
+run 11 failures 1
+
+native: exiting
+
+--- stderr ---
+==664==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffdbd30000; bottom 0x000000447000; size: 0x7fffdb8e9000 (140736876941312)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

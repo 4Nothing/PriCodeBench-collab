@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "e104-bt5010a-tb" if BOARD_E104_BT5010A_TB
+
+config BOARD_E104_BT5010A_TB
+    bool
+    default y
+    select BOARD_COMMON_E104_BT50XXA_TB
+    select CPU_MODEL_NRF52810XXAA
+
+source "$(RIOTBOARD)/common/e104-bt50xxa-tb/Kconfig"

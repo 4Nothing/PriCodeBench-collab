@@ -1,0 +1,67 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The `bit_clear8` function at line 280 now has the same implementation as its `bit_clear32` and `bit_clear16` counterparts in the non-bitband fallback path: `*ptr &= ~(1 << (bit));`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/bit.h
++++ sys/include/bit.h
+@@ -279,7 +279,7 @@
+ 
+ static inline void bit_clear8(volatile uint8_t *ptr, uint8_t bit)
+ {
+-    /* MASKED - implement this function */
++    *ptr &= ~(1 << (bit));
+ }
+ 
+ static inline bool bit_check32(volatile uint32_t *ptr, uint8_t bit)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-bit
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  75130	  31144	  78120	 184394	  2d04a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd77a96000; bottom 0x00000042d000; size: 0x7ffd77669000 (140726606663680)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

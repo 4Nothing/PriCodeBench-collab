@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Guards against invalid ID** (`>= GNRC_SIXLOWPAN_CTX_SIZE`), returning NULL — same pattern as `gnrc_sixlowpan_ctx_lookup_id`.
+- **Holds `_ctx_mutex`** across the mutation, matching the lock discipline of the other public functions.
+- **Removal path**: when `ltime == 0`, sets `prefix_len = 0` (making `_valid()` return false so the context disappears from lookups) and returns NULL.
+- **Update/create path**: copies the prefix, sets `prefix_len`, `ltime`, stores the CID in `flags_id`, optionally sets the `COMP` flag, and records the absolute expiration minute in `_ctx_inval_times[id]` (read by `_update_lifetime` to decay the lifetime and auto-clear the COMP flag on expiry). Returns a pointer to the context.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
++++ sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
+@@ -100,7 +100,32 @@
+                                                 uint8_t prefix_len, uint16_t ltime,
+                                                 bool comp)
+ {
+-    /* MASKED - implement this function */
++    if (id >= GNRC_SIXLOWPAN_CTX_SIZE) {
++        return NULL;
++    }
++
++    mutex_lock(&_ctx_mutex);
++
++    if (ltime == 0) {
++        _ctxs[id].prefix_len = 0;
++        mutex_unlock(&_ctx_mutex);
++        return NULL;
++    }
++
++    _ctxs[id].prefix = *prefix;
++    _ctxs[id].prefix_len = prefix_len;
++    _ctxs[id].ltime = ltime;
++    _ctxs[id].flags_id = (id & GNRC_SIXLOWPAN_CTX_FLAGS_CID_MASK);
++
++    if (comp) {
++        _ctxs[id].flags_id |= GNRC_SIXLOWPAN_CTX_FLAGS_COMP;
++    }
++
++    _ctx_inval_times[id] = _current_minute() + ltime;
++
++    mutex_unlock(&_ctx_mutex);
++
++    return &_ctxs[id];
+ }
+ 
+ static uint32_t _current_minute(void)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_ctx
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/ctx
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 124427	  38576	  85832	 248835	  3cc03	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+sixlowpan_ctx_tests.test_sixlowpan_ctx_update__wrong_prefix_len (tests/unittests/tests-sixlowpan_ctx/tests-sixlowpan_ctx.c 107) gnrc_sixlowpan_ctx_update(DEFAULT_TEST_ID, &addr, 0, TEST_UINT16, true) was not null.
+..
+sixlowpan_ctx_tests.test_sixlowpan_ctx_update__ltime0 (tests/unittests/tests-sixlowpan_ctx/tests-sixlowpan_ctx.c 62) gnrc_sixlowpan_ctx_update(DEFAULT_TEST_ID, &addr, DEFAULT_TEST_PREFIX_LEN, 0, true) was null.
+........
+run 13 failures 2
+
+native: exiting
+
+--- stderr ---
+==480==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffdce98000; bottom 0x00000043a000; size: 0x7fffdca5e000 (140736895246336)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

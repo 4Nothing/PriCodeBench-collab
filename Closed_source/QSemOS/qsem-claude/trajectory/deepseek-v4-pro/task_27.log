@@ -1,0 +1,91 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is correct. Here's a summary of what was done:
+
+**Function**: `OsSwtmrNearestTickGet` (non-SMP variant, line 293)
+
+**What it does**: Returns the nearest timeout tick value from `g_tmrSortLink.nearestTicks` with interrupt protection.
+
+**How it works**:
+- Discards the unused `coreId` parameter — same pattern as `OsSwtmrTargetCheck` directly below
+- Uses `OsIntLock()`/`OsIntRestore()` to protect the read — analogous to the SMP version's `OsSplLock`/`OsSplUnlock` on the per-core spinlock, and consistent with how the non-SMP `OsSwtmrTargetCheck` protects its critical section
+- Reads from `g_tmrSortLink.nearestTicks` — the single global sort link in non-SMP mode, versus the per-core `CPU_SWTMR_SORT_LINK(coreId)->nearestTicks` in the SMP version
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -292,7 +292,15 @@
+  */
+ OS_SEC_TEXT U64 OsSwtmrNearestTickGet(U32 coreId)
+ {
+-    /* MASKED - implement this function */
++    (void)coreId;
++    U64 ticks;
++    uintptr_t intSave;
++
++    intSave = OsIntLock();
++    ticks = g_tmrSortLink.nearestTicks;
++    OsIntRestore(intSave);
++
++    return ticks;
+ }
+ 
+ OS_SEC_TEXT bool OsSwtmrTargetCheck(U32 coreId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)coreId;
+    U64 ticks;
+    uintptr_t intSave;
+
+    intSave = OsIntLock();
+    ticks = g_tmrSortLink.nearestTicks;
+    OsIntRestore(intSave);
+
+    return ticks;
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsSwtmrNearestTickGet test
+[CASE] none active -> forever
+  expected=18446744073709551615
+  actual  =18446744073709551615
+  result  =PASS
+
+[CASE] nearest 1500
+  expected=1500
+  actual  =1500
+  result  =PASS
+
+[CASE] nearest 1200
+  expected=1200
+  actual  =1200
+  result  =PASS
+
+[CASE] still 1200
+  expected=1200
+  actual  =1200
+  result  =PASS
+
+[CASE] none again
+  expected=18446744073709551615
+  actual  =18446744073709551615
+  result  =PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

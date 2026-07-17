@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the test cases exactly:
+
+- **`g_sysTimeHook == NULL, hook != NULL`** → OS_OK (first registration)
+- **`g_sysTimeHook != NULL, hook == NULL`** → OS_OK (clearing the hook)
+- **`g_sysTimeHook == NULL, hook == NULL`** → OS_OK (no-op clear)
+- **`g_sysTimeHook != NULL, hook != NULL`** → `OS_ERRNO_SYS_TIME_HOOK_REGISTER_REPEATED` (re-registration blocked)
+
+The surrounding code (`OsCurCycleGet64`) already handles the NULL check when calling the hook, so NULL is a safe value to store.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sys/prt_sys_time.c
++++ src/core/kernel/sys/prt_sys_time.c
+@@ -20,7 +20,11 @@
+ 
+ OS_SEC_L2_TEXT U32 OsSetSysTimeHook(SysTimeFunc hook)
+ {
+-    /* MASKED - implement this function */
++    if (g_sysTimeHook != NULL && hook != NULL) {
++        return OS_ERRNO_SYS_TIME_HOOK_REGISTER_REPEATED;
++    }
++    g_sysTimeHook = hook;
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (g_sysTimeHook != NULL && hook != NULL) {
+        return OS_ERRNO_SYS_TIME_HOOK_REGISTER_REPEATED;
+    }
+    g_sysTimeHook = hook;
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSetSysTimeHook.c
+[Case 1] first register hook -> OS_OK
+  Expected: 0
+  Actual  : 0
+[Case 2] register same hook again -> REPEATED
+  Expected: 33554437
+  Actual  : 33554437
+[Case 3] register different hook again -> REPEATED
+  Expected: 33554437
+  Actual  : 33554437
+[Case 4] register NULL hook -> OS_OK
+  Expected: 0
+  Actual  : 0
+[Case 5] after NULL reg, register hook -> OS_OK
+  Expected: 0
+  Actual  : 0
+[Case 6] re-register with hook present -> REPEATED
+  Expected: 33554437
+  Actual  : 33554437
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_attr_external.h:2,
+                 from test_OsSetSysTimeHook.c:5:
+auto_stub.h:800:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  800 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:799:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  799 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:798:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  798 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:797:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  797 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:796:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  796 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:795:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  795 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:794:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  794 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:793:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  793 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:792:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  792 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:791:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  791 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:790:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  790 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:789:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  789 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:788:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  788 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:787:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  787 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

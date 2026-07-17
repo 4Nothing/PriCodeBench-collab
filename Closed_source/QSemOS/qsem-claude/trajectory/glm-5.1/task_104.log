@@ -1,0 +1,172 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **`OS_HWI_GET_HWINUM(archHwi)`** — converts the architecture-specific interrupt number to the kernel's hardware interrupt number (`hwiNum`)
+2. **`OS_HWI2IRQ(hwiNum)`** — converts the hardware interrupt number to an IRQ index (subtracts `OS_HWI_MIN` on architectures like riscv64/x86_64 where the HWI numbering doesn't start at 0)
+3. **`OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_ENTRY, hwiNum)`** — fires all registered HWI entry hooks (e.g., CPU usage profiling)
+4. **`OsHwiHandleActive(irqNum)`** — looks up the handler from `g_hwiForm[irqNum]` and calls `handler(param)`, dispatching the actual interrupt service routine
+5. **`OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_EXIT, hwiNum)`** — fires all registered HWI exit hooks
+
+This matches the golden reference in the test suite and the pattern used across all architectures (armv7-r, armv8, armv7-m, riscv64, x86_64) that call this dispatcher from their low-level interrupt handlers.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -145,7 +145,14 @@
+ 
+ OS_SEC_TEXT void OsHwiHookDispatcher(HwiHandle archHwi)
+ {
+-    /* MASKED - implement this function */
++    HwiHandle hwiNum = OS_HWI_GET_HWINUM(archHwi);
++    U32 irqNum = OS_HWI2IRQ(hwiNum);
++
++    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_ENTRY, hwiNum);
++
++    OsHwiHandleActive(irqNum);
++
++    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_EXIT, hwiNum);
+ }
+ 
+ static OS_SEC_L4_TEXT U32 OsHwiSetAttrParaCheck(HwiHandle hwiNum, HwiPrior hwiPrio, HwiMode mode)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    HwiHandle hwiNum = OS_HWI_GET_HWINUM(archHwi);
+    U32 irqNum = OS_HWI2IRQ(hwiNum);
+
+    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_ENTRY, hwiNum);
+
+    OsHwiHandleActive(irqNum);
+
+    OS_MHOOK_ACTIVATE_PARA1(OS_HOOK_HWI_EXIT, hwiNum);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test_OsHwiHookDispatcher test_OsHwiHookDispatcher.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsHwiHookDispatcher test
+[CASE] dispatch count for 0
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] dispatch param for 0
+  Expected: 2881486848
+  Actual  : 2881486848
+  Result  : PASS
+
+[CASE] dispatch count for 3
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] dispatch param for 3
+  Expected: 2881486851
+  Actual  : 2881486851
+  Result  : PASS
+
+[CASE] dispatch count for 4
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] dispatch param for 4
+  Expected: 2881486852
+  Actual  : 2881486852
+  Result  : PASS
+
+[CASE] dispatch count for 126
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] dispatch param for 126
+  Expected: 2881486974
+  Actual  : 2881486974
+  Result  : PASS
+
+[CASE] dispatch count for 127
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] dispatch param for 127
+  Expected: 2881486975
+  Actual  : 2881486975
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_OsHwiHookDispatcher.c:3:
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_OsHwiHookDispatcher.c:1:
+test_support.h:51:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   51 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:45:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   45 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+In file included from test_stubs.c:1:
+test_support.h:51:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   51 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:45:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   45 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

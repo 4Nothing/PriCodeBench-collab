@@ -1,0 +1,73 @@
+============================================================
+=== Claude Session ===
+============================================================
+Replaced the TODO with `return thread->priority;` at `core/include/thread.h:550`. Consistent with all the other simple getters in the file (e.g., `thread_get_status` returns `thread->status`, `thread_getpid_of` returns `thread->pid`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/include/thread.h
++++ core/include/thread.h
+@@ -547,7 +547,7 @@
+  */
+ static inline uint8_t thread_get_priority(const thread_t *thread)
+ {
+-    /* MASKED - implement this function */
++    return thread->priority;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-isrpipe
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/isrpipe
+"make" -C /workspace/sys/isrpipe/read_timeout
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  95196	  34296	  82728	 212220	  33cfc	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==381==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffca5701000; bottom 0x000000431000; size: 0x7ffca52d0000 (140723079675904)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==381==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

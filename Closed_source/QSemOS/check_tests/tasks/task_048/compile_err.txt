@@ -1,0 +1,41 @@
+In file included from tasks/task_048/test_OsRwLockPost.c:1:
+tasks/task_048/test_common.h:61:12: warning: 'print_summary' defined but not used [-Wunused-function]
+   61 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+tasks/task_048/test_common.h:50:13: warning: 'print_result' defined but not used [-Wunused-function]
+   50 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from tasks/task_048/test_common.h:7:
+tasks/task_048/auto_stub.h:1422:32: warning: 'g_osRtSingleSchedClass' defined but not used [-Wunused-variable]
+ 1422 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1421:14: warning: 'g_tskSem' defined but not used [-Wunused-variable]
+ 1421 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+tasks/task_048/auto_stub.h:1420:14: warning: 'g_semTsk' defined but not used [-Wunused-variable]
+ 1420 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+tasks/task_048/auto_stub.h:1418:39: warning: 'g_tskSortedDelay' defined but not used [-Wunused-variable]
+ 1418 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1416:25: warning: 'g_tskCbArray' defined but not used [-Wunused-variable]
+ 1416 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1415:12: warning: 'g_createTskLock' defined but not used [-Wunused-variable]
+ 1415 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1414:12: warning: 'g_tickNoRespondCnt' defined but not used [-Wunused-variable]
+ 1414 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1412:12: warning: 'g_maxNumOfCores' defined but not used [-Wunused-variable]
+ 1412 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1411:12: warning: 'g_idleTaskId' defined but not used [-Wunused-variable]
+ 1411 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+tasks/task_048/auto_stub.h:1410:12: warning: 'g_tskMaxNum' defined but not used [-Wunused-variable]
+ 1410 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+tasks/task_048/auto_stub.h:1409:12: warning: 'g_tskBaseId' defined but not used [-Wunused-variable]
+ 1409 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~

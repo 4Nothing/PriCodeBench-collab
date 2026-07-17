@@ -1,0 +1,159 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `credman_load_private_ecc_key` now does:
+
+1. **Decodes** the DER-encoded `ECPrivateKey` per RFC 5915 using `der_decode`
+2. **Validates** the outer SEQUENCE container
+3. **Checks** the version field (INTEGER)
+4. **Extracts** the private key from the OCTET STRING and sets `cred->type = CREDMAN_TYPE_ECDSA`
+5. **Skips** the optional `parameters [0]` (context tag `0xA0`) if present
+6. **Parses** the optional `publicKey [1]` (context tag `0xA1`) via `_parse_ecc_point` — passing `node->child` since the context-specific explicit tag wraps the BIT STRING as a child node
+
+If the optional public key is absent, `public_key.x` and `public_key.y` are set to `NULL`, which is consistent with the existing `credman_add` validation requiring the caller to load the public key separately for `CREDMAN_TYPE_ECDSA` credentials.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -272,7 +272,83 @@
+ 
+ int credman_load_private_ecc_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+ {
+-    /* MASKED - implement this function */
++    asn1_tree objects[CONFIG_CREDMAN_MAX_ASN1_OBJ];
++    asn1_tree ecc_key;
++
++    assert(buf);
++    assert(cred);
++
++    int obj_count = der_object_count((uint8_t *)buf, buf_len);
++    if (obj_count <= 0) {
++        DEBUG("credman: could not calculate the number of elements within the key\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (obj_count > CONFIG_CREDMAN_MAX_ASN1_OBJ) {
++        DEBUG("credman: not enough ASN.1 objects to decode key.\n");
++        DEBUG("credman: current max is %d, and we need %d\n",
++              CONFIG_CREDMAN_MAX_ASN1_OBJ, obj_count);
++        return CREDMAN_INVALID;
++    }
++
++    if (der_decode((uint8_t *)buf, buf_len, &ecc_key, objects, obj_count) < 0) {
++        DEBUG("credman: could not parse the ECC private key\n");
++        return CREDMAN_INVALID;
++    }
++
++    /*
++     * From https://tools.ietf.org/html/rfc5915#section-3
++     *
++     * ECPrivateKey ::= SEQUENCE {
++     *      version        INTEGER { ecPrivkeyVer1(1) },
++     *      privateKey     OCTET STRING,
++     *      parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
++     *      publicKey  [1] BIT STRING OPTIONAL
++     * }
++     */
++
++    /* the outer container is an 'ECPrivateKey', which should be a SEQUENCE */
++    if (ecc_key.type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: the ECC private key should be contained in an ASN.1 SEQUENCE\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to version */
++    asn1_tree *node = ecc_key.child;
++    if (!node || node->type != ASN1_TYPE_INTEGER) {
++        DEBUG("credman: invalid ECC private key version\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to privateKey */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_OCTET_STRING || !node->data || !node->length) {
++        DEBUG("credman: no ECC private key found\n");
++        return CREDMAN_INVALID;
++    }
++
++    cred->type = CREDMAN_TYPE_ECDSA;
++    cred->params.ecdsa.private_key = node->data;
++
++    /* clear public key in case there's no optional publicKey */
++    cred->params.ecdsa.public_key.x = NULL;
++    cred->params.ecdsa.public_key.y = NULL;
++
++    /* point to optional parameters or publicKey */
++    node = node->next;
++
++    /* skip optional parameters [0] if present */
++    if (node && node->type == ASN1_CONTEXT_TAG(0)) {
++        node = node->next;
++    }
++
++    /* check for optional publicKey [1] */
++    if (node && node->type == ASN1_CONTEXT_TAG(1) && node->child) {
++        return _parse_ecc_point(node->child, &cred->params.ecdsa.public_key.x,
++                                &cred->params.ecdsa.public_key.y);
++    }
++
++    return CREDMAN_OK;
+ }
+ 
+ static int _parse_ecc_point(const asn1_tree *key, const void **x, const void **y)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+rm -Rf /tmp/build/pkg/tiny-asn1
+mkdir -p $(dirname /tmp/build/pkg/tiny-asn1)
+cp -a /workspace/build/pkg/tiny-asn1/ /tmp/build/pkg/tiny-asn1
+touch /tmp/build/pkg/tiny-asn1/.prepared
+"make" -C /workspace/pkg/tiny-asn1/ 
+"make" -C /tmp/build/pkg/tiny-asn1/src -f /workspace/Makefile.base MODULE=tiny-asn1
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-credman
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/credman
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  94775	  32840	  78440	 206055	  324e7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==380==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd47396000; bottom 0x000000431000; size: 0x7ffd46f65000 (140725794000896)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

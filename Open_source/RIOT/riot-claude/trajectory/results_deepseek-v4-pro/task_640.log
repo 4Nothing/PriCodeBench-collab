@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation converts the relative `offset` to an absolute target time via `ztimer64_offset2absolute`, then delegates to `ztimer64_set_at` — the same pattern used by every other relative-to-absolute wrapper in the file. The `adjust_set` subtraction is handled internally by `ztimer64_set_at` (`ztimer64.c:83-88`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/ztimer64.h
++++ sys/include/ztimer64.h
+@@ -178,7 +178,7 @@
+ static inline void ztimer64_set(ztimer64_clock_t *clock, ztimer64_t *timer,
+                                 uint64_t offset)
+ {
+-    /* MASKED - implement this function */
++    ztimer64_set_at(clock, timer, ztimer64_offset2absolute(clock, offset));
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer64
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+  90396	  32504	  78368	 201268	  31234	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==367==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe7dc24000; bottom 0x000000430000; size: 0x7ffe7d7f4000 (140731003912192)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==367==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

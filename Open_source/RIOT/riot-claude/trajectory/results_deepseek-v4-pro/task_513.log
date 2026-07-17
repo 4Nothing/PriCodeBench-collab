@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's a summary of the logic:
+
+- `IEEE802154_RADIO_RSSI_OFFSET` is -174, so the conversion is `rssi = dbm + 174`
+- This is the exact inverse of the existing `ieee802154_rssi_to_dbm()`
+- Values outside the valid RSSI range [0, 254] are saturated (255 is reserved per the IEEE 802.15.4 standard)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ieee802154.h
++++ sys/include/net/ieee802154.h
+@@ -782,7 +782,15 @@
+  */
+ static inline uint8_t ieee802154_dbm_to_rssi(int16_t dbm)
+ {
+-    /* MASKED - implement this function */
++    int16_t rssi = dbm - IEEE802154_RADIO_RSSI_OFFSET;
++
++    if (rssi < 0) {
++        return 0;
++    }
++    if (rssi > 254) {
++        return 254;
++    }
++    return (uint8_t)rssi;
+ }
+ 
+ #ifdef __cplusplus
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 154117	  36616	  78152	 268885	  41a55	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................................................
+OK (69 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd00d48000; bottom 0x000000441000; size: 0x7ffd00907000 (140724612919296)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

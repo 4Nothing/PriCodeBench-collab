@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **Parameter validation** — delegates to `OsQueueCreatParaCheck` to reject NULL `queueId`, zero `nodeNum`/`nodeSize`, and oversized nodes
+- **Interrupt lock** — uses `QUEUE_INIT_IRQ_LOCK` to protect the global `g_allQueue` array during the free-slot search and initialization (matching the pattern of `PRT_QueueRead`/`PRT_QueueWrite`, but with the init-specific lock macros since no queue CB exists yet)
+- **Delegation** — calls `OsQueueCreate` to handle the actual allocation, node initialization, and queue ID assignment
+- **Interrupt unlock** — `QUEUE_INIT_IRQ_UNLOCK` to restore interrupts before returning
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -117,5 +117,17 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_QueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 ret;
++
++    ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    QUEUE_INIT_IRQ_LOCK(intSave);
++    ret = OsQueueCreate(nodeNum, maxNodeSize, queueId);
++    QUEUE_INIT_IRQ_UNLOCK(intSave);
++
++    return ret;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 ret;
+
+    ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    QUEUE_INIT_IRQ_LOCK(intSave);
+    ret = OsQueueCreate(nodeNum, maxNodeSize, queueId);
+    QUEUE_INIT_IRQ_UNLOCK(intSave);
+
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_QueueCreate.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 8 / total 8)
+
+--- stderr ---
+In file included from test_support.h:5,
+                 from test_PRT_QueueCreate.c:6:
+prt_queue_external.h:21: warning: "INLINE" redefined
+   21 | #define INLINE static inline
+      | 
+In file included from test_support.h:4:
+common.h:35: note: this is the location of the previous definition
+   35 | #define INLINE inline
+      | 
+prt_queue_external.h:49: warning: "OS_QUEUE_PID_INVALID" redefined
+   49 | #define OS_QUEUE_PID_INVALID 0xFFFFFFFFU
+      | 
+common.h:206: note: this is the location of the previous definition
+  206 | #define OS_QUEUE_PID_INVALID 0xFFFFU
+      | 
+In file included from test_PRT_QueueCreate.c:7:
+func_under_test.c: In function ‘PRT_QueueCreate’:
+func_under_test.c:6:11: warning: implicit declaration of function ‘OsQueueCreatParaCheck’ [-Wimplicit-function-declaration]
+    6 |     ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
+      |           ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:12:11: warning: implicit declaration of function ‘OsQueueCreate’; did you mean ‘PRT_QueueCreate’? [-Wimplicit-function-declaration]
+   12 |     ret = OsQueueCreate(nodeNum, maxNodeSize, queueId);
+      |           ^~~~~~~~~~~~~
+      |           PRT_QueueCreate
+In file included from test_support.h:5,
+                 from notifier_test_stubs.c:5:
+prt_queue_external.h:21: warning: "INLINE" redefined
+   21 | #define INLINE static inline
+      | 
+In file included from test_support.h:4:
+common.h:35: note: this is the location of the previous definition
+   35 | #define INLINE inline
+      | 
+prt_queue_external.h:49: warning: "OS_QUEUE_PID_INVALID" redefined
+   49 | #define OS_QUEUE_PID_INVALID 0xFFFFFFFFU
+      | 
+common.h:206: note: this is the location of the previous definition
+  206 | #define OS_QUEUE_PID_INVALID 0xFFFFU
+      | 
+
+
+

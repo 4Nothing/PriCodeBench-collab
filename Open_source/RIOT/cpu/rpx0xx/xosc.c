@@ -1,0 +1,45 @@
+/*
+ * SPDX-FileCopyrightText: 2021 Otto-von-Guericke Universität Magdeburg
+ * SPDX-License-Identifier: LGPL-2.1-only
+ */
+
+/**
+ * @ingroup     cpu_rpx0xx
+ * @{
+ *
+ * @file
+ * @brief       Implementation of the crystal oscillator (XOSC)
+ *
+ * @author      Marian Buschsieweke <marian.buschsieweke@ovgu.de>
+ * @author      Fabian Hüßler <fabian.huessler@ovgu.de>
+ *
+ * @}
+ */
+
+#include <assert.h>
+
+#include "macros/units.h"
+#include "vendor/RP2040.h"
+#include "io_reg.h"
+
+static inline uint32_t _xosc_conf_sartup_delay(uint32_t f_crystal_mhz, uint32_t t_stable_ms)
+{
+    return (((f_crystal_mhz / 1000) * t_stable_ms) + 128) / 256;
+}
+
+void xosc_start(uint32_t f_ref)
+{
+    assert(f_ref == MHZ(12));
+    uint32_t delay = _xosc_conf_sartup_delay(f_ref, 1);
+    io_reg_write_dont_corrupt(&XOSC->STARTUP, delay << XOSC_STARTUP_DELAY_Pos,
+                              XOSC_STARTUP_DELAY_Msk);
+    io_reg_write_dont_corrupt(&XOSC->CTRL, XOSC_CTRL_ENABLE_ENABLE << XOSC_CTRL_ENABLE_Pos,
+                              XOSC_CTRL_ENABLE_Msk);
+    while (!(XOSC->STATUS & XOSC_STATUS_STABLE_Msk)) { }
+}
+
+void xosc_stop(void)
+{
+    io_reg_write_dont_corrupt(&XOSC->CTRL, XOSC_CTRL_ENABLE_DISABLE << XOSC_CTRL_ENABLE_Pos,
+                              XOSC_CTRL_ENABLE_Msk);
+}

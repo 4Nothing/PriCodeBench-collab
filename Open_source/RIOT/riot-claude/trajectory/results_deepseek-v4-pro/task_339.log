@@ -1,0 +1,82 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It follows the same `switch`-on-`payload_representation` pattern used by every other payload function in this file (`unicoap_message_payload_copy` at line 71, `unicoap_message_payload_make_contiguous` at line 91, `_append_payload_to_iolist` at line 127):
+
+- **`UNICOAP_PAYLOAD_NONCONTIGUOUS`**: delegates to the existing `iolist_is_empty()` helper (line 36) which walks the iolist chain and returns `true` only if every chunk has zero length.
+- **`UNICOAP_PAYLOAD_CONTIGUOUS`**: checks `message->payload_size == 0`.
+- **`default`**: `UNREACHABLE()` followed by `return true` (matching the defensive pattern in the contiguous-payload path of `unicoap_message_payload_copy`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/unicoap/utils.c
++++ sys/net/application_layer/unicoap/utils.c
+@@ -62,7 +62,15 @@
+ 
+ bool unicoap_message_payload_is_empty(const unicoap_message_t* message)
+ {
+-    /* MASKED - implement this function */
++    switch (message->payload_representation) {
++    case UNICOAP_PAYLOAD_NONCONTIGUOUS:
++        return iolist_is_empty(message->payload_chunks);
++    case UNICOAP_PAYLOAD_CONTIGUOUS:
++        return message->payload_size == 0;
++    default:
++        UNREACHABLE();
++        return true;
++    }
+ }
+ 
+ ssize_t unicoap_message_payload_copy(const unicoap_message_t* message, uint8_t* buffer,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+   text	   data	    bss	    dec	    hex	filename
+ 125161	  43144	  82464	 250769	  3d391	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdfbf78000; bottom 0x00000043c000; size: 0x7ffdfbb3c000 (140728826314752)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

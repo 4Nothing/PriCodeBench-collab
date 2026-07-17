@@ -1,0 +1,182 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsRwLockRdPend`, mirroring the structure of `OsRwLockWrPend` (prt_rwlock.c:236) and its callers:
+
+1. **Lock interrupts and validate** the rwlock via `OsRwLockCheck` (magic, ISR context, task-lock state).
+2. **Try-lock path**: for `RWLOCK_TRYRD` (used by `pthread_rwlock_tryrdlock`), run `OsRwLockTryRdCheck` and bail with `EINVAL`/`EBUSY` without blocking.
+3. **Fast acquire**: if the lock is free or read-held (`rw_count >= 0`) and the caller's priority beats the first pending writer (`OsRwlockPriCompare` on `rw_write`), increment `rw_count` — guarding against `S32_MAX` overflow, consistent with the check in `OsRwLockPost`.
+4. **Block**: otherwise pend on the `rw_read` list via `OsRwLockPendSchedule`, which handles `timeout == 0` (`EINVAL`), timed waits (`ETIMEDOUT`), and forever waits.
+
+Only the masked function body was changed.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -230,7 +230,46 @@
+ 
+ U32 OsRwLockRdPend(pthread_rwlock_t *rwl, U32 timeout, U32 rwType)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 intSave;
++    struct TagTskCb *runTask;
++
++    intSave = PRT_HwiLock();
++
++    ret = OsRwLockCheck(rwl);
++    if (ret != OS_OK)
++    {
++        PRT_HwiRestore(intSave);
++        return ret;
++    }
++
++    runTask = (struct TagTskCb *)RUNNING_TASK;
++    if (rwType == RWLOCK_TRYRD)
++    {
++        ret = OsRwLockTryRdCheck(runTask, rwl);
++        if (ret != OS_OK)
++        {
++            PRT_HwiRestore(intSave);
++            return ret;
++        }
++    }
++
++    /* 读写锁为读模式或者初始化模式，并且当前读锁任务的优先级比第一个写锁pend任务的优先级高，
++     * 当前读锁任务可以获取锁
++     */
++    if ((rwl->rw_count >= 0) && OsRwlockPriCompare(runTask, &(rwl->rw_write)))
++    {
++        if (rwl->rw_count == S32_MAX)
++        {
++            PRT_HwiRestore(intSave);
++            return EINVAL;
++        }
++        rwl->rw_count++;
++        PRT_HwiRestore(intSave);
++        return OS_OK;
++    }
++
++    return OsRwLockPendSchedule(runTask, &(rwl->rw_read), timeout, intSave, rwl);
+ }
+ 
+ U32 OsRwLockWrPend(pthread_rwlock_t *rwl, U32 timeout, U32 rwType)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 intSave;
+    struct TagTskCb *runTask;
+
+    intSave = PRT_HwiLock();
+
+    ret = OsRwLockCheck(rwl);
+    if (ret != OS_OK)
+    {
+        PRT_HwiRestore(intSave);
+        return ret;
+    }
+
+    runTask = (struct TagTskCb *)RUNNING_TASK;
+    if (rwType == RWLOCK_TRYRD)
+    {
+        ret = OsRwLockTryRdCheck(runTask, rwl);
+        if (ret != OS_OK)
+        {
+            PRT_HwiRestore(intSave);
+            return ret;
+        }
+    }
+
+    /* 读写锁为读模式或者初始化模式，并且当前读锁任务的优先级比第一个写锁pend任务的优先级高，
+     * 当前读锁任务可以获取锁
+     */
+    if ((rwl->rw_count >= 0) && OsRwlockPriCompare(runTask, &(rwl->rw_write)))
+    {
+        if (rwl->rw_count == S32_MAX)
+        {
+            PRT_HwiRestore(intSave);
+            return EINVAL;
+        }
+        rwl->rw_count++;
+        PRT_HwiRestore(intSave);
+        return OS_OK;
+    }
+
+    return OsRwLockPendSchedule(runTask, &(rwl->rw_read), timeout, intSave, rwl);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockRdPend.c
+[Case 1] Expected: 22, Actual: 22
+  Result  : PASS
+
+[Case 2] Expected: 16, Actual: 16
+  Result  : PASS
+
+[Case 3] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 4] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 5] Expected: 22, Actual: 0
+  Result  : FAIL
+
+Pass-Rate: 80.00% (4/5)
+
+--- stderr ---
+In file included from test_OsRwLockRdPend.c:1:
+test_common.h:55:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   55 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:44:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   44 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1424:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1424 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1423:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1423 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1422:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1422 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1420 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1418:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1417:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1417 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1416:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1416 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1413:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1413 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

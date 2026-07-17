@@ -1,0 +1,148 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `vfs_normalize_path` does:
+
+- **Validates** inputs: NULL pointers, zero buflen, and non-absolute paths return `-EINVAL`
+- **Removes double slashes**: `//a//b` becomes `/a/b`
+- **Removes `.`** components (current directory)
+- **Resolves `..`** components (parent directory) by removing the preceding path component; returns `-EINVAL` if attempting to go above root
+- **Handles root**: `"/"` normalizes to `"/"` with 0 components
+- **Uses `memmove`** (not `memcpy`) to safely support in-place normalization where `buf` and `path` overlap
+- **Checks bounds**: returns `-ENAMETOOLONG` if the normalized path doesn't fit in `buflen`
+- **Returns** the count of path components on success (0 for root, 1 for `/a`, 2 for `/a/b`, etc.)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -914,7 +914,69 @@
+ 
+ int vfs_normalize_path(char *buf, const char *path, size_t buflen)
+ {
+-    /* MASKED - implement this function */
++    if (path == NULL || buf == NULL || buflen == 0) {
++        return -EINVAL;
++    }
++    if (path[0] != '/') {
++        return -EINVAL;
++    }
++
++    size_t w = 0;
++    int components = 0;
++    const char *r = path;
++
++    while (*r) {
++        while (*r == '/') {
++            r++;
++        }
++        if (*r == '\0') {
++            break;
++        }
++
++        const char *start = r;
++        while (*r != '/' && *r != '\0') {
++            r++;
++        }
++        size_t len = r - start;
++
++        if (len == 1 && start[0] == '.') {
++            continue;
++        }
++        if (len == 2 && start[0] == '.' && start[1] == '.') {
++            if (components == 0) {
++                return -EINVAL;
++            }
++            components--;
++            w--;
++            while (w > 0 && buf[w - 1] != '/') {
++                w--;
++            }
++            if (w > 0) {
++                w--;
++            }
++            continue;
++        }
++
++        if (w + len + 2 > buflen) {
++            return -ENAMETOOLONG;
++        }
++        buf[w++] = '/';
++        memmove(buf + w, start, len);
++        w += len;
++        components++;
++    }
++
++    if (components == 0) {
++        if (buflen < 2) {
++            return -ENAMETOOLONG;
++        }
++        buf[0] = '/';
++        buf[1] = '\0';
++    } else {
++        buf[w] = '\0';
++    }
++
++    return components;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123435	  45136	  79328	 247899	  3c85b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+vfs_normalize_path_tests.test_vfs_normalize_path__slashes (tests/unittests/tests-vfs/tests-vfs-normalize_path.c 41) exp 1 was 0
+...
+vfs_normalize_path_tests.test_vfs_normalize_path__trailing (tests/unittests/tests-vfs/tests-vfs-normalize_path.c 72) exp "/mydir/" was "/mydir"
+.....
+vfs_normalize_path_tests.test_vfs_normalize_path__empty (tests/unittests/tests-vfs/tests-vfs-normalize_path.c 127) exp 0 was -22
+...................
+run 40 failures 3
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdc54b4000; bottom 0x00000043b000; size: 0x7ffdc5079000 (140727909060608)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

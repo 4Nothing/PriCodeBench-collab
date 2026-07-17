@@ -1,0 +1,2 @@
+#ifndef PRT_HOOK_EXTERNAL_H
+#define PRT_HOOK_EX

@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what it does:
+
+1. If `taskFilterEnable` is `false` (no task filter configured by the user), it returns `TRUE` — all tasks are instrumented.
+2. Otherwise, it iterates through `g_perfCb.taskIds[]` (up to `taskIdsNr`) and returns `TRUE` if the given `taskId` matches any entry in the whitelist.
+3. If filtering is enabled and the `taskId` is not found, it returns `FALSE` — the task is filtered out.
+
+This matches the comment specification at lines 252-256 and integrates correctly with its only call site at line 324 (`OsPerfHandleOverFlow`), which uses the return value as a boolean guard before collecting and writing sample data.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -256,7 +256,19 @@
+  */
+ static int OsPerfTaskFilter(U32 taskId)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++
++    if (!g_perfCb.taskFilterEnable) {
++        return TRUE;
++    }
++
++    for (i = 0; i < g_perfCb.taskIdsNr; i++) {
++        if (g_perfCb.taskIds[i] == taskId) {
++            return TRUE;
++        }
++    }
++
++    return FALSE;
+ }
+ 
+ static inline bool OsPerfParamValid(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+
+    if (!g_perfCb.taskFilterEnable) {
+        return TRUE;
+    }
+
+    for (i = 0; i < g_perfCb.taskIdsNr; i++) {
+        if (g_perfCb.taskIds[i] == taskId) {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfTaskFilter.c test_stubs.c
+[No filter allows all] -> PASS
+[Single match] -> PASS
+[Single mismatch] -> FAIL
+[Multiple match] -> PASS
+[Multiple not contain] -> FAIL
+Pass-Rate: 60.00% (3/5)
+
+--- stderr ---
+In file included from test_OsPerfTaskFilter.c:2:
+test_util.h:27:13: warning: ‘TU_EXPECT_EQ_U32’ defined but not used [-Wunused-function]
+   27 | static void TU_EXPECT_EQ_U32(U32 expected, U32 actual, const char *name)
+      |             ^~~~~~~~~~~~~~~~
+
+
+

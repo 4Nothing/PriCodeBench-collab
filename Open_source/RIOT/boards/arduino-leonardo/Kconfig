@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "arduino-leonardo" if BOARD_ARDUINO_LEONARDO
+
+config BOARD_ARDUINO_LEONARDO
+    bool
+    default y
+    select BOARD_COMMON_ARDUINO_ATMEGA
+    select CPU_MODEL_ATMEGA32U4
+
+source "$(RIOTBOARD)/common/arduino-atmega/Kconfig"

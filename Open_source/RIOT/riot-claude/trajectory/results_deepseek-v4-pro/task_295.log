@@ -1,0 +1,179 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `thread_create` does:
+
+1. **Validates priority** — returns `-EINVAL` if `priority >= SCHED_PRIO_LEVELS`
+2. **Aligns the stack** to `sizeof(uintptr_t)` boundary, adjusting `stacksize` accordingly
+3. **Checks minimum stack size** — returns `-EINVAL` if the stack can't even hold the `thread_t` control block
+4. **Finds a free PID** by scanning `sched_threads[]` from `KERNEL_PID_FIRST`; returns `-EOVERFLOW` if the table is full
+5. **Places the `thread_t`** at the bottom of the pre-allocated stack memory, with the actual call stack starting after it
+6. **Fills stack canaries** (when `DEVELHELP`/`SCHED_TEST_STACK` is enabled and `THREAD_CREATE_NO_STACKTEST` is not set) — each word stores its own address, enabling `measure_stack_free_internal` to detect unused stack space
+7. **Initializes all `thread_t` fields**: `sp` (via `thread_stack_init`), `status`, `priority`, `pid`, `rq_entry`, and conditionally `msg_waiters`/`msg_array`, `stack_start`, `stack_size`, `name`, and `tls`
+8. **Registers the thread** in `sched_threads[]` and increments `sched_num_threads`
+9. **Sets initial status** — `STATUS_SLEEPING` if `THREAD_CREATE_SLEEPING` is set, otherwise `STATUS_PENDING` (which puts it on the runqueue)
+10. **Yields to the scheduler** if `THREAD_CREATE_WOUT_YIELD` is not set, so a higher-priority new thread runs immediately
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/thread.c
++++ core/thread.c
+@@ -233,7 +233,106 @@
+                            int flags, thread_task_func_t function, void *arg,
+                            const char *name)
+ {
+-    /* MASKED - implement this function */
++    if (priority >= SCHED_PRIO_LEVELS) {
++        return -EINVAL;
++    }
++
++    /* align stack to word boundary */
++    uintptr_t addr = (uintptr_t)stack;
++    unsigned word_align = sizeof(uintptr_t);
++    if (addr & (word_align - 1)) {
++        unsigned offset = word_align - (addr & (word_align - 1));
++        addr += offset;
++        stacksize -= (int)offset;
++    }
++
++    if (stacksize < (int)sizeof(thread_t)) {
++        return -EINVAL;
++    }
++
++    unsigned state = irq_disable();
++
++    if (sched_num_threads >= MAXTHREADS) {
++        irq_restore(state);
++        return -EOVERFLOW;
++    }
++
++    /* find a free PID */
++    kernel_pid_t pid = KERNEL_PID_FIRST;
++    while (pid <= KERNEL_PID_LAST && sched_threads[pid]) {
++        pid++;
++    }
++
++    if (pid > KERNEL_PID_LAST) {
++        irq_restore(state);
++        return -EOVERFLOW;
++    }
++
++    thread_t *thread = (thread_t *)addr;
++
++    /* the actual (usable) stack begins after the thread control block */
++    char *real_stack = (char *)(addr + sizeof(thread_t));
++    int real_stacksize = stacksize - (int)sizeof(thread_t);
++
++#if defined(DEVELHELP) || IS_ACTIVE(SCHED_TEST_STACK)
++    if (!(flags & THREAD_CREATE_NO_STACKTEST)) {
++        /* fill stack with canary pattern: each word holds its own address */
++        uintptr_t *p = (uintptr_t *)(uintptr_t)real_stack;
++        uintptr_t *end = (uintptr_t *)((uintptr_t)real_stack + (uintptr_t)real_stacksize);
++        while (p < end) {
++            *p = (uintptr_t)p;
++            p++;
++        }
++    }
++#endif
++
++    thread->sp = thread_stack_init(function, arg, real_stack, real_stacksize);
++    thread->status = STATUS_STOPPED;
++    thread->priority = priority;
++    thread->pid = pid;
++    thread->rq_entry.next = NULL;
++
++#if defined(MODULE_CORE_MSG)
++    thread->msg_waiters.next = NULL;
++    thread->msg_array = NULL;
++#endif
++
++#if defined(DEVELHELP) || IS_ACTIVE(SCHED_TEST_STACK) \
++    || defined(MODULE_MPU_STACK_GUARD)
++    thread->stack_start = real_stack;
++#endif
++
++#if defined(DEVELHELP)
++    thread->stack_size = real_stacksize;
++#endif
++
++#if defined(CONFIG_THREAD_NAMES)
++    thread->name = name;
++#else
++    (void)name;
++#endif
++
++#ifdef PICOLIBC_TLS
++    thread->tls = _tls_new();
++#endif
++
++    sched_threads[pid] = thread;
++    sched_num_threads++;
++
++    if (flags & THREAD_CREATE_SLEEPING) {
++        sched_set_status(thread, STATUS_SLEEPING);
++    }
++    else {
++        sched_set_status(thread, STATUS_PENDING);
++    }
++
++    irq_restore(state);
++
++    if (!(flags & THREAD_CREATE_WOUT_YIELD)) {
++        thread_yield_higher();
++    }
++
++    return pid;
+ }
+ 
+ static const char *state_names[STATUS_NUMOF] = {
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-bhp_msg
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bhp
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  78629	  31808	  94720	 205157	  32165	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff10e84000; bottom 0x00000042d000; size: 0x7fff10a57000 (140733472665600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==323==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

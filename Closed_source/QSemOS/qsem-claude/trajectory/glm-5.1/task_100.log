@@ -1,0 +1,198 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**`OsHwiDefaultHandler`** — when an interrupt fires but no user ISR has been registered, this default handler is invoked. It records the offending interrupt number in the global `g_defHandlerHwiNum` by converting the argument (an `irqNum`) back to a hardware interrupt number via `OS_IRQ2HWI`. The comment describes this as a fatal-error condition — an unexpected/spurious interrupt has occurred.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -47,7 +47,7 @@
+  */
+ OS_SEC_L4_TEXT void OsHwiDefaultHandler(HwiArg arg)
+ {
+-    /* MASKED - implement this function */
++    g_defHandlerHwiNum = (U32)OS_IRQ2HWI(arg);
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsHwiDescFieldInit(U32 irqNum)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    g_defHandlerHwiNum = (U32)OS_IRQ2HWI(arg);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test test_OsHwiDefaultHandler.c test_stubs.c notifier_test_stubs.c
+[CASE] OsHwiDefaultHandler error
+  Expected: 50333701
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] def hwi num for 0
+  Expected: 16
+  Actual  : 16
+  Result  : PASS
+
+[CASE] OsHwiDefaultHandler error
+  Expected: 50333701
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] def hwi num for 1
+  Expected: 17
+  Actual  : 17
+  Result  : PASS
+
+[CASE] OsHwiDefaultHandler error
+  Expected: 50333701
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] def hwi num for 7
+  Expected: 23
+  Actual  : 23
+  Result  : PASS
+
+[CASE] OsHwiDefaultHandler error
+  Expected: 50333701
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] def hwi num for 127
+  Expected: 143
+  Actual  : 143
+  Result  : PASS
+
+[CASE] OsHwiDefaultHandler error
+  Expected: 50333701
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] def hwi num for 82
+  Expected: 98
+  Actual  : 98
+  Result  : PASS
+
+Pass-Rate: 50.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_OsHwiDefaultHandler.c:4:
+auto_stub.h:870: warning: "OS_ERRNO_HWI_UNCREATED" redefined
+  870 | #define OS_ERRNO_HWI_UNCREATED OS_ERRNO_BUILD_FATAL(OS_MID_HWI, 0x05)
+      | 
+In file included from test_OsHwiDefaultHandler.c:2:
+test_support.h:17: note: this is the location of the previous definition
+   17 | #define OS_ERRNO_HWI_UNCREATED 0x20000006
+      | 
+auto_stub.h:1552:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1552 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1551:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1551 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1550:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1550 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1549:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1549 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1548:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1548 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1547:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1547 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1546:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1546 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1545:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1545 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1544:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1544 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1543:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1543 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1542:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1542 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1541:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1541 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1540:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1540 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1539:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1539 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_irq_internal.h:2,
+                 from test_stubs.c:1:
+auto_stub.h:82:1: warning: parameter names (without types) in function declaration
+   82 | typedef void (*HwiProcFunc)(HwiArg);
+      | ^~~~~~~
+In file included from test_stubs.c:2:
+test_support.h:17: warning: "OS_ERRNO_HWI_UNCREATED" redefined
+   17 | #define OS_ERRNO_HWI_UNCREATED 0x20000006
+      | 
+auto_stub.h:870: note: this is the location of the previous definition
+  870 | #define OS_ERRNO_HWI_UNCREATED OS_ERRNO_BUILD_FATAL(OS_MID_HWI, 0x05)
+      | 
+auto_stub.h:1552:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1552 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1551:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1551 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1550:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1550 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1549:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1549 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1548:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1548 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1547:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1547 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1546:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1546 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1545:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1545 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1544:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1544 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1543:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1543 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1542:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1542 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1541:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1541 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1540:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1540 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1539:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1539 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

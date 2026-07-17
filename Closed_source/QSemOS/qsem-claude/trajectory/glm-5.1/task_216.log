@@ -1,0 +1,233 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsTaskYield` does:
+
+1. **Gets the running task** via `RUNNING_TASK` and locks its run queue with `OsSpinLockTaskRq`
+2. **Retrieves the ready list** for the specified priority using `OS_TASK_GET_PRI_LIST(taskPrio)` and gets the first task on it
+3. **Counts ready tasks** at that priority level by walking the circular list
+4. **Returns `OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK`** if there's only one task (can't yield to nothing)
+5. **Delegates to `OsTaskYieldProc`** which handles the actual list manipulation — moving the current task to the tail or moving a specified task to the head
+6. **Reschedules if the current task is running** — calls `OsRescheduleCurr(THIS_RUNQ())` to set the reschedule flag, then `OsTskScheduleFast()` to trigger the context switch
+7. **Properly unlocks** the run queue in all return paths (success, not-enough-tasks, invalid task, and fallthrough)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -57,7 +57,50 @@
+  */
+ static OS_SEC_L2_TEXT U32 OsTaskYield(TskPrior taskPrio, TskHandle nextTaskId, TskHandle *yieldTo, uintptr_t intSave)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 tskCount = 0;
++    struct TagTskCb *currTask = NULL;
++    struct TagTskCb *runTask = NULL;
++    struct TagListObject *tskPriorRdyList = NULL;
++    struct TagListObject *currNode = NULL;
++
++    (void)intSave;
++    runTask = RUNNING_TASK;
++
++    OsSpinLockTaskRq(runTask);
++    tskPriorRdyList = OS_TASK_GET_PRI_LIST(taskPrio);
++    currTask = GET_TCB_PEND(OS_LIST_FIRST(tskPriorRdyList));
++
++    for (currNode = tskPriorRdyList->next; currNode != tskPriorRdyList; currNode = currNode->next)
++    {
++        tskCount++;
++    }
++
++    if (tskCount > 1)
++    {
++        ret = OsTaskYieldProc(nextTaskId, taskPrio, yieldTo, currTask, tskPriorRdyList);
++        if (ret != OS_OK)
++        {
++            OsSpinUnlockTaskRq(runTask);
++            return ret;
++        }
++
++        if (TSK_STATUS_TST(currTask, OS_TSK_RUNNING))
++        {
++            OsRescheduleCurr(THIS_RUNQ());
++            OsSpinUnlockTaskRq(runTask);
++            OsTskScheduleFast();
++            return OS_OK;
++        }
++    }
++    else
++    {
++        OsSpinUnlockTaskRq(runTask);
++        return OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK;
++    }
++
++    OsSpinUnlockTaskRq(runTask);
++    return OS_OK;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 tskCount = 0;
+    struct TagTskCb *currTask = NULL;
+    struct TagTskCb *runTask = NULL;
+    struct TagListObject *tskPriorRdyList = NULL;
+    struct TagListObject *currNode = NULL;
+
+    (void)intSave;
+    runTask = RUNNING_TASK;
+
+    OsSpinLockTaskRq(runTask);
+    tskPriorRdyList = OS_TASK_GET_PRI_LIST(taskPrio);
+    currTask = GET_TCB_PEND(OS_LIST_FIRST(tskPriorRdyList));
+
+    for (currNode = tskPriorRdyList->next; currNode != tskPriorRdyList; currNode = currNode->next)
+    {
+        tskCount++;
+    }
+
+    if (tskCount > 1)
+    {
+        ret = OsTaskYieldProc(nextTaskId, taskPrio, yieldTo, currTask, tskPriorRdyList);
+        if (ret != OS_OK)
+        {
+            OsSpinUnlockTaskRq(runTask);
+            return ret;
+        }
+
+        if (TSK_STATUS_TST(currTask, OS_TSK_RUNNING))
+        {
+            OsRescheduleCurr(THIS_RUNQ());
+            OsSpinUnlockTaskRq(runTask);
+            OsTskScheduleFast();
+            return OS_OK;
+        }
+    }
+    else
+    {
+        OsSpinUnlockTaskRq(runTask);
+        return OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK;
+    }
+
+    OsSpinUnlockTaskRq(runTask);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskYield.c common_test.c
+===== OsTaskYield =====
+[not enough] expect=33555216 actual=33555216 -> PASS
+[rotate OK] expect=0 actual=0 -> PASS
+[invalid next] expect=33555215 actual=33555215 -> PASS
+[schedule fast called] expect=1 actual=1 -> PASS
+[yieldTo set] expect=1 actual=1 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsTaskYield.c:3:
+func_under_test.c: In function ‘OsTaskYield’:
+func_under_test.c:24:15: warning: implicit declaration of function ‘OsTaskYieldProc’; did you mean ‘OsTaskYield’? [-Wimplicit-function-declaration]
+   24 |         ret = OsTaskYieldProc(nextTaskId, taskPrio, yieldTo, currTask, tskPriorRdyList);
+      |               ^~~~~~~~~~~~~~~
+      |               OsTaskYield
+In file included from common_test.h:31,
+                 from test_OsTaskYield.c:1:
+auto_stub.h: At top level:
+auto_stub.h:1329:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1329 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1328:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1328 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1327:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1327 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1325:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1325 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1324:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1324 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1323:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1323 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1322:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1322 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1321:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1321 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1320:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1320 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1319:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1319 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1318:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1318 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1317:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1317 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1316:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1316 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from common_test.h:31,
+                 from common_test.c:1:
+auto_stub.h:1329:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1329 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1328:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1328 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1327:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1327 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1326:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1326 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1325:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1325 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1324:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1324 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1323:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1323 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1322:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1322 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1321:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1321 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1320:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1320 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1319:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1319 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1318:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1318 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1317:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1317 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1316:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1316 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

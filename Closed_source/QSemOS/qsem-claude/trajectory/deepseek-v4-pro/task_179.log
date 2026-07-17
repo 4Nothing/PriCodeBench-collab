@@ -1,0 +1,120 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsQueueCreate` does:
+
+1. **Computes the full node size** using the existing `OsQueueGetNodeSize` helper (aligns user data to 4 bytes + 4-byte header)
+
+2. **Finds a free queue control block** by scanning `g_allQueue` for a slot with `queueState == OS_QUEUE_UNUSED`. Returns `OS_ERRNO_QUEUE_CB_UNAVAILABLE` if all slots are in use.
+
+3. **Allocates the queue buffer** via `OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, ...)`, matching the same allocation pattern used in `OsQueueConfigInit`. Returns `OS_ERRNO_QUEUE_CREATE_NO_MEMORY` on failure.
+
+4. **Initializes the control block**: sets `nodeNum`, `nodeSize`, marks state as `OS_QUEUE_USED`, initializes `writableCnt` to `nodeNum` (all slots free for writing), `readableCnt` to 0 (nothing to read), resets head/tail/peak to 0, and initializes both pend lists (`writeList`/`readList`) as empty circular lists.
+
+5. **Returns the queue ID** via `OS_QUEUE_ID(i)` — the encoded external ID that `PRT_QueueRead`/`PRT_QueueWrite` will later decode with `OS_QUEUE_INNER_ID`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -64,7 +64,40 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    U16 nodeSize;
++    U8 *buf = NULL;
++
++    nodeSize = (U16)OsQueueGetNodeSize(maxNodeSize);
++
++    for (i = 0; i < g_maxQueue; i++) {
++        if (g_allQueue[i].queueState == OS_QUEUE_UNUSED) {
++            break;
++        }
++    }
++    if (i == g_maxQueue) {
++        return OS_ERRNO_QUEUE_CB_UNAVAILABLE;
++    }
++
++    buf = (U8 *)OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, (U32)nodeNum * (U32)nodeSize);
++    if (buf == NULL) {
++        return OS_ERRNO_QUEUE_CREATE_NO_MEMORY;
++    }
++
++    g_allQueue[i].queue = buf;
++    g_allQueue[i].nodeNum = nodeNum;
++    g_allQueue[i].nodeSize = nodeSize;
++    g_allQueue[i].queueState = OS_QUEUE_USED;
++    g_allQueue[i].writableCnt = nodeNum;
++    g_allQueue[i].readableCnt = 0;
++    g_allQueue[i].queueHead = 0;
++    g_allQueue[i].queueTail = 0;
++    g_allQueue[i].nodePeak = 0;
++    INIT_LIST_OBJECT(&g_allQueue[i].writeList);
++    INIT_LIST_OBJECT(&g_allQueue[i].readList);
++
++    *queueId = OS_QUEUE_ID(i);
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 PRT_QueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    U16 nodeSize;
+    U8 *buf = NULL;
+
+    nodeSize = (U16)OsQueueGetNodeSize(maxNodeSize);
+
+    for (i = 0; i < g_maxQueue; i++) {
+        if (g_allQueue[i].queueState == OS_QUEUE_UNUSED) {
+            break;
+        }
+    }
+    if (i == g_maxQueue) {
+        return OS_ERRNO_QUEUE_CB_UNAVAILABLE;
+    }
+
+    buf = (U8 *)OsMemAlloc(OS_MID_QUEUE, OS_MEM_DEFAULT_FSC_PT, (U32)nodeNum * (U32)nodeSize);
+    if (buf == NULL) {
+        return OS_ERRNO_QUEUE_CREATE_NO_MEMORY;
+    }
+
+    g_allQueue[i].queue = buf;
+    g_allQueue[i].nodeNum = nodeNum;
+    g_allQueue[i].nodeSize = nodeSize;
+    g_allQueue[i].queueState = OS_QUEUE_USED;
+    g_allQueue[i].writableCnt = nodeNum;
+    g_allQueue[i].readableCnt = 0;
+    g_allQueue[i].queueHead = 0;
+    g_allQueue[i].queueTail = 0;
+    g_allQueue[i].nodePeak = 0;
+    INIT_LIST_OBJECT(&g_allQueue[i].writeList);
+    INIT_LIST_OBJECT(&g_allQueue[i].readList);
+
+    *queueId = OS_QUEUE_ID(i);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueCreate.c notifier_test_stubs.c
+[FAIL] node 0 srcPid not invalid
+[FAIL] node 1 srcPid not invalid
+[FAIL] node 2 srcPid not invalid
+Pass-Rate: 100.00% (passed 16 / total 16)
+
+--- stderr ---
+
+
+

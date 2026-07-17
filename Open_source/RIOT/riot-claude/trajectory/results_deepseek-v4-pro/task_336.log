@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the key differences between `ucrc16_calc_be` and `ucrc16_calc_le`:
+
+- **Byte positioning**: BE shifts the byte left by 8 bits (`*buf << 8`) to process MSB-first. LE doesn't shift (`*buf`), keeping it at the LSB position for LSB-first processing.
+- **Bit check**: BE uses `LEFTMOST_BIT_SET` (bit 15). LE uses `RIGHTMOST_BIT_SET` (bit 0).
+- **Shift direction**: BE shifts left (`<< 1`). LE shifts right (`>> 1`).
+- **Polynomial**: The caller passes the appropriate polynomial — typically the reflected form (e.g., `UCRC16_CCITT_POLY_LE` = `0x8408`, which is the bit-reverse of `UCRC16_CCITT_POLY_BE` = `0x1021`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/ucrc16.c
++++ sys/checksum/ucrc16.c
+@@ -40,7 +40,15 @@
+ uint16_t ucrc16_calc_le(const uint8_t *buf, size_t len, uint16_t poly,
+                         uint16_t seed)
+ {
+-    /* MASKED - implement this function */
++    assert(buf != NULL);
++    for (unsigned c = 0; c < len; c++, buf++) {
++        uint32_t tmp = seed ^ (*buf);
++        for (unsigned i = 0; i < UINT8_BIT_SIZE; i++) {
++            tmp = RIGHTMOST_BIT_SET(tmp) ? ((tmp >> 1) ^ poly) : (tmp >> 1);
++        }
++        seed = tmp & UINT16_MAX;
++    }
++    return seed;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123105	  42464	  78120	 243689	  3b7e9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd3c395000; bottom 0x00000043a000; size: 0x7ffd3bf5b000 (140725609410560)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

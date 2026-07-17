@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "stm32f429i-disc1" if BOARD_STM32F429I_DISC1
+
+config BOARD_STM32F429I_DISC1
+    bool
+    default y
+    select CPU_MODEL_STM32F429ZI
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

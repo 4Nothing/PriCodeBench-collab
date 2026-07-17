@@ -1,0 +1,150 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function now does:
+
+**`OsHwiDescInitAll`** iterates over all interrupt slots (`0` to `OS_HWI_MAX_NUM - 1`) and calls `OsHwiDescFieldInit` for each one, which sets the default handler (`OsHwiDefaultHandler`) and stores the irqNum as its argument. This mirrors the pattern used by `OsHwiDisableAll` (same loop bound) and ensures every HWI descriptor is initialized to a safe default before the GIC hardware init runs.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -62,7 +62,10 @@
+  */
+ OS_SEC_ALW_INLINE INLINE void OsHwiDescInitAll(void)
+ {
+-    /* MASKED - implement this function */
++    U32 irqNum;
++    for (irqNum = 0; irqNum < OS_HWI_MAX_NUM; irqNum++) {
++        OsHwiDescFieldInit(irqNum);
++    }
+ }
+ 
+ #if defined(OS_OPTION_HWI_COMBINE)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 irqNum;
+    for (irqNum = 0; irqNum < OS_HWI_MAX_NUM; irqNum++) {
+        OsHwiDescFieldInit(irqNum);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsHwiDescInitAll.c test_stubs.c notifier_test_stubs.c
+[CASE] default handler 0
+  Expected: 107041904985765
+  Actual: 107041904985765
+  Result: PASS
+[CASE] param equals 0
+  Expected: 0
+  Actual: 0
+  Result: PASS
+[CASE] default handler 1
+  Expected: 107041904985765
+  Actual: 107041904985765
+  Result: PASS
+[CASE] param equals 1
+  Expected: 1
+  Actual: 1
+  Result: PASS
+[CASE] default handler 128
+  Expected: 107041904985765
+  Actual: 107041904985765
+  Result: PASS
+[CASE] param equals 128
+  Expected: 128
+  Actual: 128
+  Result: PASS
+[CASE] default handler 254
+  Expected: 107041904985765
+  Actual: 107041904985765
+  Result: PASS
+[CASE] param equals 254
+  Expected: 254
+  Actual: 254
+  Result: PASS
+[CASE] default handler 255
+  Expected: 107041904985765
+  Actual: 107041904985765
+  Result: PASS
+[CASE] param equals 255
+  Expected: 255
+  Actual: 255
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_OsHwiDescInitAll.c:3:
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_OsHwiDescInitAll.c:1:
+test_support.h:57:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   57 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:51:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   51 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+In file included from test_stubs.c:1:
+test_support.h:57:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   57 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:51:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   51 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+test_support.h:46:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   46 | static void print_case_result(const char *name, long long expected, long long actual, int passed)
+      |             ^~~~~~~~~~~~~~~~~
+
+
+

@@ -1,0 +1,2 @@
+-DSKIP_OsPerfParamValid
+-DSKIP_OsPerfPmuGet

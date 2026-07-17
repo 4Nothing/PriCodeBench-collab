@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. The function now:
+
+1. **Locks** the table mutex
+2. **Validates** that `fib_sr`, `addr`, and `sr_path_entry` are non-NULL and that `fib_sr` belongs to the table (returns `-EFAULT`)
+3. **Checks** the lifetime has not expired (returns `-ENOENT`)
+4. **Iterates** through the source route's linked list via `LL_FOREACH`, comparing each entry's address against the search address using `universal_address_compare`
+5. On match: sets `*sr_path_entry` to the found entry and returns `0`
+6. On no match: returns `-EHOSTUNREACH`
+
+The implementation follows the exact same patterns used by the neighboring functions (`fib_sr_entry_get_address`, `fib_sr_entry_add`, etc.) and matches the documented return values in `fib.h`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -916,7 +916,31 @@
+ int fib_sr_search(fib_table_t *table, fib_sr_t *fib_sr, uint8_t *addr, size_t addr_size,
+                   fib_sr_entry_t **sr_path_entry)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (addr == NULL) || (sr_path_entry == NULL)
++        || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr_check_lifetime(fib_sr) == -ENOENT) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOENT;
++    }
++
++    fib_sr_entry_t *elt = NULL;
++    LL_FOREACH(fib_sr->sr_path, elt) {
++        size_t addr_size_match = addr_size << 3;
++        if (UNIVERSAL_ADDRESS_EQUAL == universal_address_compare(elt->address, addr,
++                                                                 &addr_size_match)) {
++            *sr_path_entry = elt;
++            mutex_unlock(&(table->mtx_access));
++            return 0;
++        }
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return -EHOSTUNREACH;
+ }
+ 
+ int fib_sr_entry_append(fib_table_t *table, fib_sr_t *fib_sr,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127000	  36808	  86856	 250664	  3d328	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe9cb77000; bottom 0x000000439000; size: 0x7ffe9c73e000 (140731523260416)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

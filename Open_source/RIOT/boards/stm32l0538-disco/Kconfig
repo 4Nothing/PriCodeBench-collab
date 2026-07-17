@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "stm32l0538-disco" if BOARD_STM32L0538_DISCO
+
+config BOARD_STM32L0538_DISCO
+    bool
+    default y
+    select CPU_MODEL_STM32L053C8
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

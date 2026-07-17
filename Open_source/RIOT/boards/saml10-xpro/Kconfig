@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "saml10-xpro" if BOARD_SAML10_XPRO
+
+config BOARD_SAML10_XPRO
+    bool
+    default y
+    select BOARD_COMMON_SAML1X
+    select CPU_MODEL_SAML10E16A
+
+source "$(RIOTBOARD)/common/saml1x/Kconfig"

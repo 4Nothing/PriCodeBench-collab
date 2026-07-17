@@ -1,0 +1,115 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `PRT_TickGetCount` now reads the kernel's global tick counter `g_uniTicks` under interrupt lock, matching the pattern used by `PRT_ClkGetCycleCount64` in `src/arch/cpu/armv7-m/common/tick/prt_hw_tick_minor.c:47-56`. The lock ensures an atomic 64-bit read on 32-bit platforms where a tick ISR could otherwise tear the value.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sys/prt_sys_time.c
++++ src/core/kernel/sys/prt_sys_time.c
+@@ -49,7 +49,13 @@
+  */
+ OS_SEC_L2_TEXT U64 PRT_TickGetCount(void)
+ {
+-    /* MASKED - implement this function */
++    U64 tick;
++    uintptr_t intSave;
++
++    intSave = PRT_HwiLock();
++    tick = g_uniTicks;
++    PRT_HwiRestore(intSave);
++    return tick;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U64 tick;
+    uintptr_t intSave;
+
+    intSave = PRT_HwiLock();
+    tick = g_uniTicks;
+    PRT_HwiRestore(intSave);
+    return tick;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TickGetCount.c
+[Case 1] 0 + 0 = 0
+  Expected: 0
+  Actual  : 0
+[Case 2] 100 + 23 = 123
+  Expected: 123
+  Actual  : 100
+[Case 3] 0xFFFFFFFF + 1 = 0x100000000
+  Expected: 4294967296
+  Actual  : 4294967295
+[Case 4] near wrap add
+  Expected: 18446744073709551615
+  Actual  : 18446744073709551600
+[Case 5] wrap to 0
+  Expected: 0
+  Actual  : 18446744073709551615
+[Case 6] random add
+  Expected: 1111111110
+  Actual  : 123456789
+Pass-Rate: 16.67%
+
+--- stderr ---
+In file included from prt_attr_external.h:2,
+                 from test_PRT_TickGetCount.c:4:
+auto_stub.h:800:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  800 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:799:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  799 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:798:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  798 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:797:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  797 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:796:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  796 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:795:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  795 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:794:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  794 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:793:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  793 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:792:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  792 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:791:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  791 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:790:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  790 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:789:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  789 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:788:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  788 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:787:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  787 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

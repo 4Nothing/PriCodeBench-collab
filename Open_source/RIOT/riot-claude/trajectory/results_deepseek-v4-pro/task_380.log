@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward: `ztimer_acquire` now delegates to `_ztimer_acquire`, which already contains the full logic — atomically incrementing `clock->users`, calling `clock->ops->start()` on the first user, and returning whether this call made the clock active. This mirrors the pattern used internally at `ztimer_set:157`, where `_ztimer_acquire` is called directly.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer/core.c
++++ sys/ztimer/core.c
+@@ -74,7 +74,7 @@
+ 
+ bool ztimer_acquire(ztimer_clock_t *clock)
+ {
+-    /* MASKED - implement this function */
++    return _ztimer_acquire(clock);
+ }
+ 
+ bool ztimer_release(ztimer_clock_t *clock)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-ztimer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+ 110616	  34200	  78120	 222936	  366d8	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffddc818000; bottom 0x000000436000; size: 0x7ffddc3e2000 (140728298512384)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

@@ -1,0 +1,2 @@
+-DSKIP_PRT_PerfConfig
+-DSKIP_OsPerfPmuGet

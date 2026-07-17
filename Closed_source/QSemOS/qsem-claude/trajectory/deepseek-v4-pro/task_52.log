@@ -1,0 +1,163 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsRwLockUnlock` does:
+
+1. **Validation** — Returns `EINVAL` if the rwlock pointer is NULL or the magic number doesn't match
+2. **Not locked** — Returns `EPERM` if `rw_count == 0` (the lock isn't held)
+3. **Ownership check** — If write-locked (`rw_count < 0`), returns `EPERM` if the calling task isn't the owner
+4. **Recursive read unlock** — If `rw_count > 1`, decrements the count and returns `OS_OK` (other readers still hold the lock)
+5. **Recursive write unlock** — If `rw_count < -1`, increments toward 0 and returns `OS_OK`
+6. **Final release** — When count reaches `1` or `-1` (last unlock), delegates to `OsRwLockPost` to release the lock and wake any waiting tasks
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -421,5 +421,33 @@
+ 
+ U32 OsRwLockUnlock(pthread_rwlock_t *rwl, bool *needSched)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *runTask;
++
++    if (rwl == NULL) {
++        return EINVAL;
++    }
++    if ((rwl->rw_magic & RWLOCK_COUNT_MASK) != RWLOCK_MAGIC_NUM) {
++        return EINVAL;
++    }
++
++    if (rwl->rw_count == 0) {
++        return EPERM;
++    }
++
++    runTask = (struct TagTskCb *)RUNNING_TASK;
++    if ((rwl->rw_count < 0) && ((struct TagTskCb *)(rwl->rw_owner) != runTask)) {
++        return EPERM;
++    }
++
++    if (rwl->rw_count > 1) {
++        rwl->rw_count--;
++        return OS_OK;
++    }
++
++    if (rwl->rw_count < -1) {
++        rwl->rw_count++;
++        return OS_OK;
++    }
++
++    return OsRwLockPost(rwl, needSched);
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *runTask;
+
+    if (rwl == NULL) {
+        return EINVAL;
+    }
+    if ((rwl->rw_magic & RWLOCK_COUNT_MASK) != RWLOCK_MAGIC_NUM) {
+        return EINVAL;
+    }
+
+    if (rwl->rw_count == 0) {
+        return EPERM;
+    }
+
+    runTask = (struct TagTskCb *)RUNNING_TASK;
+    if ((rwl->rw_count < 0) && ((struct TagTskCb *)(rwl->rw_owner) != runTask)) {
+        return EPERM;
+    }
+
+    if (rwl->rw_count > 1) {
+        rwl->rw_count--;
+        return OS_OK;
+    }
+
+    if (rwl->rw_count < -1) {
+        rwl->rw_count++;
+        return OS_OK;
+    }
+
+    return OsRwLockPost(rwl, needSched);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockUnlock.c
+[Case 1] Expected: 22, Actual: 22
+  Result  : PASS
+
+[Case 2] Expected: 22, Actual: 22
+  Result  : PASS
+
+[Case 3] Expected: 1, Actual: 1
+  Result  : PASS
+
+[Case 4] Expected: 1, Actual: 1
+  Result  : PASS
+
+[Case 5] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 6] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 7] Expected: 0, Actual: 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+In file included from test_OsRwLockUnlock.c:1:
+test_common.h:24:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   24 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:13:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   13 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1424:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1424 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1423:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1423 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1422:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1422 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1420 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1418:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1417:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1417 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1416:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1416 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1413:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1413 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,255 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_SigSuspend` does:
+
+**Flow:**
+
+1. **Locks interrupts and the task run queue**, saves the current signal mask, and replaces it with the provided `mask`. Computes `waitMask` as the complement of the new mask (signals NOT blocked by it).
+
+2. **Immediate path**: If there are already pending signals that are not blocked by the new mask, `OsHandleUnBlockSignal` processes their handlers inline. The old mask is restored and the function returns `OS_OK`.
+
+3. **Idle task guard**: The idle task cannot suspend — returns `OS_ERRNO_SIGNAL_TASKID_INVALID`.
+
+4. **Wait path**: Restores interrupts, then calls `OsSignalWaitSche` with `waitMask` and `OS_SIGNAL_WAIT_FOREVER`. The task is removed from the ready queue and sleeps until a signal matching `waitMask` arrives. On wake-up, `OsHandleUnBlockSignal` runs the signal's handler. The old mask is restored and `OS_OK` is returned.
+
+**Alignment with POSIX `sigsuspend`**: Atomically replaces the signal mask and suspends the task. The original mask is restored when the function returns (either immediately or after a signal is caught).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -463,5 +463,45 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_SigSuspend(const signalSet *mask)
+ {
+-    /* MASKED - implement this function */
++    U32 ret = OS_OK;
++    uintptr_t intSave = OsIntLock();
++
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    OsSpinLockTaskRq(runTsk);
++
++    signalSet savedMask = runTsk->sigMask;
++    runTsk->sigMask = *mask;
++    runTsk->sigWaitMask = 0;
++
++    signalSet waitMask = ~(*mask);
++
++    /* 等待信号集中已有未屏蔽信号, 则处理未屏蔽信号，返回 */
++    if ((runTsk->sigPending & waitMask) != 0) {
++        OsHandleUnBlockSignal(runTsk);
++        runTsk->sigMask = savedMask;
++        OsSpinUnlockTaskRq(runTsk);
++        OsIntRestore(intSave);
++    } else {
++        if (runTsk->taskPid == IDLE_TASK_ID) {
++            runTsk->sigMask = savedMask;
++            OsSpinUnlockTaskRq(runTsk);
++            OsIntRestore(intSave);
++            return OS_ERRNO_SIGNAL_TASKID_INVALID;
++        }
++
++        OsIntRestore(intSave);
++        /* 等待信号集中没有未屏蔽信号则需要将当前任务挂起等待 */
++        ret = OsSignalWaitSche(runTsk, &waitMask, OS_SIGNAL_WAIT_FOREVER);
++        if (ret != OS_OK) {
++            runTsk->sigMask = savedMask;
++            OsSpinUnlockTaskRq(runTsk);
++            return ret;
++        }
++
++        OsHandleUnBlockSignal(runTsk);
++        runTsk->sigMask = savedMask;
++        OsSpinUnlockTaskRq(runTsk);
++    }
++
++    return ret;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret = OS_OK;
+    uintptr_t intSave = OsIntLock();
+
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    OsSpinLockTaskRq(runTsk);
+
+    signalSet savedMask = runTsk->sigMask;
+    runTsk->sigMask = *mask;
+    runTsk->sigWaitMask = 0;
+
+    signalSet waitMask = ~(*mask);
+
+    /* 等待信号集中已有未屏蔽信号, 则处理未屏蔽信号，返回 */
+    if ((runTsk->sigPending & waitMask) != 0) {
+        OsHandleUnBlockSignal(runTsk);
+        runTsk->sigMask = savedMask;
+        OsSpinUnlockTaskRq(runTsk);
+        OsIntRestore(intSave);
+    } else {
+        if (runTsk->taskPid == IDLE_TASK_ID) {
+            runTsk->sigMask = savedMask;
+            OsSpinUnlockTaskRq(runTsk);
+            OsIntRestore(intSave);
+            return OS_ERRNO_SIGNAL_TASKID_INVALID;
+        }
+
+        OsIntRestore(intSave);
+        /* 等待信号集中没有未屏蔽信号则需要将当前任务挂起等待 */
+        ret = OsSignalWaitSche(runTsk, &waitMask, OS_SIGNAL_WAIT_FOREVER);
+        if (ret != OS_OK) {
+            runTsk->sigMask = savedMask;
+            OsSpinUnlockTaskRq(runTsk);
+            return ret;
+        }
+
+        OsHandleUnBlockSignal(runTsk);
+        runTsk->sigMask = savedMask;
+        OsSpinUnlockTaskRq(runTsk);
+    }
+
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SigSuspend.c notifier_test_stubs.c
+[CASE] immediate deliver ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] handler ran
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] all masked wait ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] unblock in suspend ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] 4 delivered
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] idle task invalid
+  Expected: 33558533
+  Actual  : 33558533
+  Result  : PASS
+
+[CASE] no pending ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+In file included from test_PRT_SigSuspend.c:2:
+stubs/prt_signal.h:6: warning: "OS_SEC_ALW_INLINE" redefined
+    6 | #define OS_SEC_ALW_INLINE static
+      | 
+In file included from test_common.h:8,
+                 from test_PRT_SigSuspend.c:1:
+stub_prt_signal_env.h:11: note: this is the location of the previous definition
+   11 | #define OS_SEC_ALW_INLINE
+      | 
+test_common.h:32:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   32 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:21:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   21 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1299:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1299 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1298:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1298 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1297:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1297 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1295:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1294:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1294 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1293:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1293 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1292:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1292 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from stub_prt_signal_env.h:2,
+                 from notifier_test_stubs.c:1:
+auto_stub.h:1299:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1299 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1298:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1298 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1297:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1297 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1295:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1294:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1294 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1293:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1293 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1292:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1292 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,87 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsPerfPrintCount` now does:
+
+- When `OsPerfStop` is called and `needStoreToBuffer` is `false`, `OsPerfPrintCount` iterates over all configured PMU events (`g_pmu->events.nr` items)
+- For each event, it retrieves the human-readable name via `g_pmu->getName(event)` and prints the event name, event ID, and per-core count value
+- The output format (`"perf stop [%s] : event[0x%x] = %llu\n"`) matches the existing format used in the HW PMU stop function
+- The `#ifdef LOSCFG_SHELL_PERF` / `PRT_Printf` pattern mirrors the adjacent `OsPerfPrintTs` function for consistency
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -86,7 +86,21 @@
+ 
+ static void OsPerfPrintCount(void)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    U32 cpuid = PRT_GetCoreID();
++    U32 eventNum;
++    Event *event = NULL;
++    PerfEvent *events = &g_pmu->events;
++
++    eventNum = events->nr;
++    for (i = 0; i < eventNum; i++) {
++        event = &(events->per[i]);
++#ifdef LOSCFG_SHELL_PERF
++        printf("perf stop [%s] : event[0x%x] = %llu\n", g_pmu->getName(event), event->eventId, event->count[cpuid]);
++#else
++        PRT_Printf("perf stop [%s] : event[0x%x] = %llu\n", g_pmu->getName(event), event->eventId, event->count[cpuid]);
++#endif
++    }
+ }
+ 
+ static inline void OsPerfPrintTs(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    U32 cpuid = PRT_GetCoreID();
+    U32 eventNum;
+    Event *event = NULL;
+    PerfEvent *events = &g_pmu->events;
+
+    eventNum = events->nr;
+    for (i = 0; i < eventNum; i++) {
+        event = &(events->per[i]);
+#ifdef LOSCFG_SHELL_PERF
+        printf("perf stop [%s] : event[0x%x] = %llu\n", g_pmu->getName(event), event->eventId, event->count[cpuid]);
+#else
+        PRT_Printf("perf stop [%s] : event[0x%x] = %llu\n", g_pmu->getName(event), event->eventId, event->count[cpuid]);
+#endif
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfPrintCount.c test_stubs.c
+[Primary core setup] -> PASS
+[Secondary core] -> PASS
+[Zero period skipped] expect=0 actual=0 -> PASS
+[Counts not modified] expect=0 actual=0 -> PASS
+[CPU1 path] -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_OsPerfPrintCount.c:14:21: warning: missing braces around initializer [-Wmissing-braces]
+   14 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_OsPerfPrintCount.c:14:21: warning: missing braces around initializer [-Wmissing-braces]
+   14 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+
+
+

@@ -1,0 +1,111 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is correct. Here's a summary of the logic:
+
+- **Empty list** → `true` (no waiters, runTask has priority advantage)
+- **Non-empty list** → `true` only if `runTask->priority < firstWaiter->priority` (lower numerical value = higher RTOS priority)
+
+This matches both call sites:
+- `OsRwLockTryRdCheck` (line 128): `!OsRwlockPriCompare(...)` returns `EBUSY` when a higher/equal-priority writer is already pending — prevents writer starvation
+- `OsRwLockRdPend` (line 253): `OsRwlockPriCompare(...)` allows a high-priority reader to acquire the lock ahead of lower-priority waiting writers
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -17,7 +17,14 @@
+ 
+ OS_SEC_ALW_INLINE INLINE bool OsRwlockPriCompare(struct TagTskCb *runTask, struct TagListObject *rwList)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *firstTask;
++
++    if (ListEmpty(rwList)) {
++        return true;
++    }
++
++    firstTask = GET_TCB_PEND(OS_LIST_FIRST(rwList));
++    return (runTask->priority < firstTask->priority);
+ }
+ 
+ struct TagListObject *OsRwLockPendFindPosSub(const struct TagTskCb *runTask, const struct TagListObject *lockList)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *firstTask;
+
+    if (ListEmpty(rwList)) {
+        return true;
+    }
+
+    firstTask = GET_TCB_PEND(OS_LIST_FIRST(rwList));
+    return (runTask->priority < firstTask->priority);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwlockPriCompare.c
+Case 1: expect=1, actual=1
+Case 2: expect=0, actual=0
+Case 3: expect=0, actual=0
+Case 4: expect=1, actual=1
+Case 5: expect=1, actual=1
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwlockPriCompare.c:1:
+test_common.h:57:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   57 | static void print_case_result(int case_no, unsigned expected, unsigned actual)
+      |             ^~~~~~~~~~~~~~~~~
+test_common.h:24:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   24 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:13:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   13 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1424:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1424 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1423:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1423 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1422:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1422 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1420 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1418:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1417:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1417 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1416:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1416 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1413:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1413 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

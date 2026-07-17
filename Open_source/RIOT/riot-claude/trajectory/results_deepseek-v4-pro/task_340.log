@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation looks correct and follows the established patterns in the file (same switch structure as `unicoap_message_payload_copy` and `unicoap_message_payload_is_empty`, same debug style as `unicoap_message_payload_copy`).
+
+Here's what the function does:
+
+- **`UNICOAP_PAYLOAD_NONCONTIGUOUS`**: Copies the iolist chunks into `buffer` via `iolist_to_buffer`. On failure (buffer too small), logs a debug message and returns the negative errno. On success, calls `unicoap_message_payload_set` to mutate the message into contiguous representation (setting `payload_representation`, `payload`, and `payload_size`), then returns the size.
+- **`UNICOAP_PAYLOAD_CONTIGUOUS`**: Already contiguous — returns `payload_size` directly (no copy needed, per the docstring: "*if payload is already contiguous, this method does not copy*").
+- **`default`**: `UNREACHABLE()` guard for invalid state.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/unicoap/utils.c
++++ sys/net/application_layer/unicoap/utils.c
+@@ -96,7 +96,23 @@
+ ssize_t unicoap_message_payload_make_contiguous(unicoap_message_t* message, uint8_t* buffer,
+                                                 size_t capacity)
+ {
+-    /* MASKED - implement this function */
++    switch (message->payload_representation) {
++    case UNICOAP_PAYLOAD_NONCONTIGUOUS: {
++        ssize_t size = iolist_to_buffer(message->payload_chunks, buffer, capacity);
++        if (size < 0) {
++            UNICOAP_DEBUG("buf too small " _UNICOAP_NEED_HAVE "\n",
++                          iolist_size(message->payload_chunks), capacity);
++            return size;
++        }
++        unicoap_message_payload_set(message, buffer, (size_t)size);
++        return size;
++    }
++    case UNICOAP_PAYLOAD_CONTIGUOUS:
++        return (ssize_t)message->payload_size;
++    default:
++        UNREACHABLE();
++        return -1;
++    }
+ }
+ 
+ void unicoap_message_payload_append_chunk(unicoap_message_t* message, iolist_t* chunk)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+   text	   data	    bss	    dec	    hex	filename
+ 125165	  43144	  82464	 250773	  3d395	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff9e1c7000; bottom 0x00000043c000; size: 0x7fff9dd8b000 (140735841611776)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

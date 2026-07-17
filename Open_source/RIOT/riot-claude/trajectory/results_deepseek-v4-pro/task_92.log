@@ -1,0 +1,99 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `dns_cache_query` does:
+
+1. **Hashes** the domain name using the same `_hash` (fletcher32) as `dns_cache_add`
+2. **Gets the current time** in seconds using `ztimer_now(ZTIMER_MSEC) / MS_PER_SEC`
+3. **Locks the mutex** and iterates the cache entries. For each entry, it skips if:
+   - The entry is empty (all-zero address — never populated)
+   - The hash doesn't match
+   - The entry has expired (`expires < now`)
+   - The address family doesn't match the requested one (unless `AF_UNSPEC`, which accepts any)
+4. **On match**: copies the address to `addr_out`, unlocks, and returns the address length (4 for IPv4, 16 for IPv6)
+5. **On no match**: returns `0` (matching the API contract "<= 0 otherwise")
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/dns/cache.c
++++ sys/net/application_layer/dns/cache.c
+@@ -120,7 +120,30 @@
+ 
+ int dns_cache_query(const char *domain_name, void *addr_out, int family)
+ {
+-    /* MASKED - implement this function */
++    uint32_t hash = _hash(domain_name, strlen(domain_name));
++    uint32_t now = ztimer_now(ZTIMER_MSEC) / MS_PER_SEC;
++
++    mutex_lock(&cache_mutex);
++    for (unsigned i = 0; i < CONFIG_DNS_CACHE_SIZE; ++i) {
++        if (_is_empty(i)) {
++            continue;
++        }
++        if (cache[i].hash != hash) {
++            continue;
++        }
++        if (cache[i].expires < now) {
++            continue;
++        }
++        uint8_t len = _get_len(i);
++        if (family != AF_UNSPEC && len != _addr_len(family)) {
++            continue;
++        }
++        memcpy(addr_out, &cache[i].addr, len);
++        mutex_unlock(&cache_mutex);
++        return len;
++    }
++    mutex_unlock(&cache_mutex);
++    return 0;
+ }
+ 
+ static void _add_entry(uint8_t i, uint32_t hash, const void *addr_out,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-dns_cache
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/dns
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+
+--- stderr ---
+[01m[K/workspace/sys/net/application_layer/dns/cache.c:93:13:[m[K [01;31m[Kerror: [m[K'[01m[K_set_empty[m[K' defined but not used [[01;31m[K-Werror=unused-function[m[K]
+   93 | static void [01;31m[K_set_empty[m[K(unsigned idx)
+      |             [01;31m[K^~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/dns/cache.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/net/application_layer/dns] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

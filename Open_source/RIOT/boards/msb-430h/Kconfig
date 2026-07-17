@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "msb-430h" if BOARD_MSB_430H
+
+config BOARD_MSB_430H
+    bool
+    default y
+    select BOARD_COMMON_MSB_430
+
+source "$(RIOTBOARD)/common/msb-430/Kconfig"

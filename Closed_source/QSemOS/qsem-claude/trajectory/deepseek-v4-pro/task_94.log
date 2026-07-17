@@ -1,0 +1,136 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_RingbufInit` does:
+
+1. **Validates parameters** — returns `OS_ERROR` if `ringbuf` or `fifo` is `NULL`, or if `size` is 0.
+2. **Guards against double-init** — returns `OS_ERROR` if `ringbuf->status` is not `RBUF_UNINIT`.
+3. **Initializes the spin lock** via `PRT_SplLockInit(&ringbuf->lock)`.
+4. **Sets all ringbuf fields** — `startIdx` and `endIdx` to 0, `size` and `remain` to the given size, `fifo` to the given buffer pointer.
+5. **Zeros the buffer** with `memset_s`.
+6. **Marks the ringbuf as initialized** (`status = RBUF_INITED`) and returns `OS_OK`.
+
+The implementation is consistent with the patterns in `PRT_RingbufReset` (same field initialization order, same `memset_s` usage) and follows the documented contract from the header.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_ringbuf.c
++++ src/extended/perf/prt_perf_ringbuf.c
+@@ -188,7 +188,24 @@
+ 
+ U32 PRT_RingbufInit(Ringbuf *ringbuf, char *fifo, U32 size)
+ {
+-    /* MASKED - implement this function */
++    if ((ringbuf == NULL) || (fifo == NULL) || (size == 0)) {
++        return OS_ERROR;
++    }
++
++    if (ringbuf->status != RBUF_UNINIT) {
++        return OS_ERROR;
++    }
++
++    PRT_SplLockInit(&ringbuf->lock);
++    ringbuf->startIdx = 0;
++    ringbuf->endIdx = 0;
++    ringbuf->size = size;
++    ringbuf->remain = size;
++    ringbuf->fifo = fifo;
++    (void)memset_s(fifo, size, 0, size);
++    ringbuf->status = RBUF_INITED;
++
++    return OS_OK;
+ }
+ 
+ void PRT_RingbufReset(Ringbuf *ringbuf)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if ((ringbuf == NULL) || (fifo == NULL) || (size == 0)) {
+        return OS_ERROR;
+    }
+
+    if (ringbuf->status != RBUF_UNINIT) {
+        return OS_ERROR;
+    }
+
+    PRT_SplLockInit(&ringbuf->lock);
+    ringbuf->startIdx = 0;
+    ringbuf->endIdx = 0;
+    ringbuf->size = size;
+    ringbuf->remain = size;
+    ringbuf->fifo = fifo;
+    (void)memset_s(fifo, size, 0, size);
+    ringbuf->status = RBUF_INITED;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_RingbufInit.c notifier_test_stubs.c
+
+--- stderr ---
+In file included from test_PRT_RingbufInit.c:7:
+func_under_test.c: In function ‘PRT_RingbufInit’:
+func_under_test.c:11:5: warning: implicit declaration of function ‘PRT_SplLockInit’ [-Wimplicit-function-declaration]
+   11 |     PRT_SplLockInit(&ringbuf->lock);
+      |     ^~~~~~~~~~~~~~~
+In file included from test_PRT_RingbufInit.c:4:
+auto_stub.h: At top level:
+auto_stub.h:595:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  595 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:594:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  594 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:593:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  593 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:592:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  592 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:591:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  591 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:590:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  590 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:589:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  589 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:588:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  588 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:587:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  587 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:586:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  586 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:585:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  585 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:584:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  584 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:583:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  583 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:582:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  582 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/cc2xuyJp.o: in function `PRT_RingbufInit':
+test_PRT_RingbufInit.c:(.text+0xaa): undefined reference to `PRT_SplLockInit'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

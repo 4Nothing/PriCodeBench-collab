@@ -1,0 +1,87 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `clist_foreach` does:
+
+1. **Empty list check**: If `list->next` is NULL, returns NULL immediately.
+2. **Traversal**: Uses the same do-while pattern as `clist_count` and the documented traversal example — starts at the tail, advances to the head on the first iteration, and loops until back at the tail.
+3. **Callback**: Calls `func(node, arg)` on each node. If it returns non-zero, traversal aborts and returns that node (analogous to `break` in a for loop).
+4. **Completion**: Returns NULL if all nodes were visited without early exit.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -362,7 +362,20 @@
+                                               clist_node_t *,
+                                               void *), void *arg)
+ {
+-    /* MASKED - implement this function */
++    clist_node_t *node = list->next;
++
++    if (!node) {
++        return NULL;
++    }
++
++    do {
++        node = node->next;
++        if (func(node, arg)) {
++            return node;
++        }
++    } while (node != list->next);
++
++    return NULL;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 134947	  51816	  96776	 283539	  45393	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc1537f000; bottom 0x000000440000; size: 0x7ffc14f3f000 (140720660017152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

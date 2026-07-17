@@ -1,0 +1,74 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation reverses the buffer in-place: it uses two `uint8_t` pointers walking from both ends toward the middle, swapping bytes as they go. The loop terminates when `start >= end` (handles both even and odd lengths correctly — for odd lengths, the middle byte is never swapped with itself).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/libc/string.c
++++ sys/libc/string.c
+@@ -82,7 +82,14 @@
+ 
+ void reverse_buf(void *buf, size_t len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *start = buf;
++    uint8_t *end = start + len;
++
++    while (start < end) {
++        uint8_t tmp = *start;
++        *start++ = *--end;
++        *end = tmp;
++    }
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-libc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79404	  32272	  78120	 189796	  2e564	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......
+OK (6 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffb4770000; bottom 0x00000042d000; size: 0x7fffb4343000 (140736216707072)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

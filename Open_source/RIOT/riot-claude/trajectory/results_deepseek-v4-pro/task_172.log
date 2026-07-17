@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the two-path approach:
+
+**In-place reversal** (lines 72–82): When all snips have `users == 1` (no other thread holds a reference), the linked list is reversed by simply swapping `next` pointers — a classic iterative reversal. No allocation needed, so this path can't fail.
+
+**Copy-based reversal** (lines 52–70): When any snip has `users > 1` (shared state), modifying `next` pointers in-place would corrupt the view for other threads. Instead, each snip in the chain is deep-copied via `gnrc_pktbuf_add()` and prepended to build the reversed order. If any allocation fails, both the partially-built result and the original packet are released, and `NULL` is returned — matching the documented contract ("`pkt` is released on failure").
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf/gnrc_pktbuf.c
++++ sys/net/gnrc/pktbuf/gnrc_pktbuf.c
+@@ -36,7 +36,50 @@
+ 
+ gnrc_pktsnip_t *gnrc_pktbuf_reverse_snips(gnrc_pktsnip_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    if (pkt == NULL) {
++        return NULL;
++    }
++
++    /* Check if any snip is shared (users > 1), requiring write-protection */
++    bool need_copy = false;
++    for (gnrc_pktsnip_t *snip = pkt; snip != NULL; snip = snip->next) {
++        if (snip->users > 1) {
++            need_copy = true;
++            break;
++        }
++    }
++
++    if (need_copy) {
++        gnrc_pktsnip_t *reversed = NULL;
++        gnrc_pktsnip_t *snip = pkt;
++
++        while (snip != NULL) {
++            gnrc_pktsnip_t *new_snip = gnrc_pktbuf_add(NULL, snip->data,
++                                                       snip->size, snip->type);
++            if (new_snip == NULL) {
++                gnrc_pktbuf_release(reversed);
++                gnrc_pktbuf_release(pkt);
++                return NULL;
++            }
++            reversed = gnrc_pkt_prepend(reversed, new_snip);
++            snip = snip->next;
++        }
++
++        gnrc_pktbuf_release(pkt);
++        return reversed;
++    }
++
++    /* All snips have users == 1, safe to reverse in-place */
++    gnrc_pktsnip_t *prev = NULL;
++
++    while (pkt != NULL) {
++        gnrc_pktsnip_t *next = pkt->next;
++        pkt->next = prev;
++        prev = pkt;
++        pkt = next;
++    }
++
++    return prev;
+ }
+ 
+ int gnrc_pktbuf_merge(gnrc_pktsnip_t *pkt)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 120225	  38864	  84456	 243545	  3b759	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............................................
+OK (45 tests)
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcc14dd000; bottom 0x000000439000; size: 0x7ffcc10a4000 (140723547160576)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

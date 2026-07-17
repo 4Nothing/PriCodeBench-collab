@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "frdm-kw41z" if BOARD_FRDM_KW41Z
+
+config BOARD_FRDM_KW41Z
+    bool
+    default y
+    select BOARD_COMMON_KW41Z
+
+source "$(RIOTBOARD)/common/kw41z/Kconfig"

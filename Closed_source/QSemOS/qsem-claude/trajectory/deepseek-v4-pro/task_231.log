@@ -1,0 +1,223 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsDynModuleRelocatePrepare` now does:
+
+1. **Handles both RELA and REL relocation types**: Checks `shdr->sh_type` to cast the relocation entry to either `Elf_Rela*` or `Elf_Rel*`, extracting the offset, symbol index, and relocation type.
+
+2. **Computes the runtime relocation address**: Adjusts the ELF virtual offset (`r_offset`) to the actual loaded memory address using `loadSegMem + offset - loadSegStartAddr`.
+
+3. **Resolves symbol addresses**: For symbols defined within the module (`st_shndx != SHT_NULL`) or local symbols, computes the runtime address from the loaded segment. For undefined global symbols, looks them up from the OS kernel via `OsDynModuleFindSymFromOs`.
+
+4. **Delegates the actual relocation write**: Populates an `OsDynModuleRelocInfo` struct with the relocation metadata and calls `OsDynModuleRelocate` to apply the patch at the computed address.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -283,7 +283,39 @@
+ static U32 OsDynModuleRelocatePrepare(struct DynModuleUnitInfo *unitInfo, uintptr_t reloc,
+                                       Elf_Sym *symTab, uint8_t *strTab, Elf_Shdr *shdr)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    uintptr_t offset;
++    Elf_Sym *sym;
++    uintptr_t relocAddr;
++    uintptr_t symAddr;
++    U32 type;
++    struct OsDynModuleRelocInfo relocInfo = {0};
++    if (shdr->sh_type == SHT_RELA) {
++        Elf_Rela *rela = (Elf_Rela *)(reloc);
++        offset = rela->r_offset;
++        sym = symTab + (uintptr_t)ELF_R_SYM(rela->r_info);
++        type = (U32)ELF_R_TYPE(rela->r_info);
++    } else {
++        Elf_Rel *rel = (Elf_Rel *)(reloc);
++        offset = rel->r_offset;
++        sym = symTab + (uintptr_t)ELF_R_SYM(rel->r_info);
++        type = (U32)ELF_R_TYPE(rel->r_info);
++    }
++    relocAddr = (uintptr_t)(unitInfo->loadSegMem + offset - unitInfo->loadSegStartAddr);
++    if ((sym->st_shndx != SHT_NULL) || (ELF_ST_BIND(sym->st_info) == STB_LOCAL)) {
++        symAddr = (uintptr_t)(unitInfo->loadSegMem + sym->st_value - unitInfo->loadSegStartAddr);
++    } else {
++        symAddr = OsDynModuleFindSymFromOs((const char *)(strTab + sym->st_name));
++    }
++    relocInfo.reloc = reloc;
++    relocInfo.relocType = type;
++    relocInfo.shType = shdr->sh_type;
++    relocInfo.symAddr = symAddr;
++    ret = OsDynModuleRelocate(relocAddr, relocInfo);
++    if (ret != 0) {
++        return ret;
++    }
++    return OS_MODULE_OK;
+ }
+ 
+ static U32 OsDynModuleProcessRelocationSection(struct DynModuleUnitInfo *unitInfo)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    uintptr_t offset;
+    Elf_Sym *sym;
+    uintptr_t relocAddr;
+    uintptr_t symAddr;
+    U32 type;
+    struct OsDynModuleRelocInfo relocInfo = {0};
+    if (shdr->sh_type == SHT_RELA) {
+        Elf_Rela *rela = (Elf_Rela *)(reloc);
+        offset = rela->r_offset;
+        sym = symTab + (uintptr_t)ELF_R_SYM(rela->r_info);
+        type = (U32)ELF_R_TYPE(rela->r_info);
+    } else {
+        Elf_Rel *rel = (Elf_Rel *)(reloc);
+        offset = rel->r_offset;
+        sym = symTab + (uintptr_t)ELF_R_SYM(rel->r_info);
+        type = (U32)ELF_R_TYPE(rel->r_info);
+    }
+    relocAddr = (uintptr_t)(unitInfo->loadSegMem + offset - unitInfo->loadSegStartAddr);
+    if ((sym->st_shndx != SHT_NULL) || (ELF_ST_BIND(sym->st_info) == STB_LOCAL)) {
+        symAddr = (uintptr_t)(unitInfo->loadSegMem + sym->st_value - unitInfo->loadSegStartAddr);
+    } else {
+        symAddr = OsDynModuleFindSymFromOs((const char *)(strTab + sym->st_name));
+    }
+    relocInfo.reloc = reloc;
+    relocInfo.relocType = type;
+    relocInfo.shType = shdr->sh_type;
+    relocInfo.symAddr = symAddr;
+    ret = OsDynModuleRelocate(relocAddr, relocInfo);
+    if (ret != 0) {
+        return ret;
+    }
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleRelocatePrepare.c
+[CASE] REL local
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] REL global
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] RELA local
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] RELA global
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] REL edge offset
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleRelocatePrepare.c:4:
+auto_stub.h:48:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   48 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:630:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  630 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+auto_stub.h: At top level:
+auto_stub.h:642: warning: "ELF_R_SYM" redefined
+  642 | #define ELF_R_SYM(info) ((info) >> 8)
+      | 
+In file included from auto_stub.h:19:
+elf.h:123: note: this is the location of the previous definition
+  123 | #define ELF_R_SYM(info) ELF64_R_SYM(info)
+      | 
+auto_stub.h:643: warning: "ELF_R_TYPE" redefined
+  643 | #define ELF_R_TYPE(info) ((info) & 0xff)
+      | 
+elf.h:124: note: this is the location of the previous definition
+  124 | #define ELF_R_TYPE(info) ELF64_R_TYPE(info)
+      | 
+test_OsDynModuleRelocatePrepare.c: In function ‘run_cases’:
+auto_stub.h:647:53: warning: left shift count >= width of type [-Wshift-count-overflow]
+  647 | #define ELF_R_INFO(sym, type) ((((Elf64_Word)(sym)) << 32) | (type))
+      |                                                     ^~
+test_OsDynModuleRelocatePrepare.c:46:19: note: in expansion of macro ‘ELF_R_INFO’
+   46 |     rel2.r_info = ELF_R_INFO(1, 1);
+      |                   ^~~~~~~~~~
+auto_stub.h:647:53: warning: left shift count >= width of type [-Wshift-count-overflow]
+  647 | #define ELF_R_INFO(sym, type) ((((Elf64_Word)(sym)) << 32) | (type))
+      |                                                     ^~
+test_OsDynModuleRelocatePrepare.c:73:20: note: in expansion of macro ‘ELF_R_INFO’
+   73 |     rela2.r_info = ELF_R_INFO(1, 1);
+      |                    ^~~~~~~~~~
+test_common.h: At top level:
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:686:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  686 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:685:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  685 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  684 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:683:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  683 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  682 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:681:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  681 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:680:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  680 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  679 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  678 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  677 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  676 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  675 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:673:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  673 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

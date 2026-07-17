@@ -1,0 +1,388 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pattern as `cib_put`: check availability, then delegate to the unsafe variant (`cib_get_unsafe`) if the buffer isn't empty, otherwise return `-1`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/cib.h
++++ core/lib/include/cib.h
+@@ -128,7 +128,11 @@
+  */
+ static inline int cib_get(cib_t *__restrict cib)
+ {
+-    /* MASKED - implement this function */
++    if (cib_avail(cib) > 0) {
++        return cib_get_unsafe(cib);
++    }
++
++    return -1;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+
+--- stderr ---
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/core/include/cond.h:141[m[K,
+                 from [01m[K/workspace/core/cond.c:19[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/mbox.h:22[m[K,
+                 from [01m[K/workspace/core/mbox.c:20[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/cond.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/msg.c:29[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+cc1: all warnings being treated as errors
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/mbox.o] Error 1
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:25[m[K,
+                 from [01m[K/workspace/core/lib/assert.c:18[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+In file included from [01m[K/workspace/tests/unittests/tests-core/tests-core-cib.c:10[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/core/mutex.c:25[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/msg.o] Error 1
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/thread.c:26[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-cib.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/assert.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/cpu/native/periph/uart.c:21[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/mutex.o] Error 1
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/mbox.h:22[m[K,
+                 from [01m[K/workspace/tests/unittests/tests-core/tests-core-mbox.c:12[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/tests/unittests/tests-core/tests-core-ringbuffer.c:6[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/sys/test_utils/print_stack_usage/print_stack_usage.c:20[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/sched.c:29[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/thread.o] Error 1
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/sys/include/isrpipe.h:26[m[K,
+                 from [01m[K/workspace/sys/stdio/stdio.c:22[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/lib/init.c:28[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/core/lib/include/rmutex.h:24[m[K,
+                 from [01m[K/workspace/core/lib/rmutex.c:26[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:25[m[K,
+                 from [01m[K/workspace/drivers/periph_common/pm.c:25[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-mbox.o] Error 1
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/rmutex.o] Error 1
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph_common/pm.o] Error 1
+make[3]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/sched.o] Error 1
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:25[m[K,
+                 from [01m[K/workspace/core/lib/priority_queue.c:23[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/core] Error 2
+make[1]: *** Waiting for unfinished jobs....
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/stdio/stdio.o] Error 1
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/test_utils_print_stack_usage/print_stack_usage.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/stdio] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/test_utils/print_stack_usage] Error 2
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-ringbuffer.o] Error 1
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/periph/gpio_linux.c:22[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/init.o] Error 1
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/uart.o] Error 1
+make[3]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/periph/pm.c:19[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/priority_queue.o] Error 1
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/pm.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/drivers/periph_common] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/drivers] Error 2
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:120[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/stdio_native/stdio_native.c:14[m[K:
+[01m[K/workspace/core/lib/include/cib.h:[m[K In function '[01m[Kcib_get[m[K':
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kcib_get_unsafe[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  132 |         return [01;31m[Kcib_get_unsafe[m[K(cib);
+      |                [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/cib.h:235:19:[m[K [01;31m[Kerror: [m[Kstatic declaration of '[01m[Kcib_get_unsafe[m[K' follows non-static declaration
+  235 | static inline int [01;31m[Kcib_get_unsafe[m[K(cib_t *cib)
+      |                   [01;31m[K^~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/cib.h:132:16:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kcib_get_unsafe[m[K' with type '[01m[Kint()[m[K'
+  132 |         return [01;36m[Kcib_get_unsafe[m[K(cib);
+      |                [01;36m[K^~~~~~~~~~~~~~[m[K
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/gpio_linux.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native/periph] Error 2
+make[2]: *** Waiting for unfinished jobs....
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/stdio_native/stdio_native.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native/stdio_native] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/core/lib] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/tests/unittests/tests-core] Error 2
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

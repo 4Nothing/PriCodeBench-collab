@@ -1,0 +1,113 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's the logic:
+
+1. **Zero the struct** with `memset` so unset fields don't contain garbage.
+2. **Extract time-of-day**: repeatedly divide by 60, 60, 24 to peel off seconds, minutes, hours.
+3. **Find the year**: starting from `RIOT_EPOCH` (2020), subtract 365 or 366 days per year (using the existing `_is_leap_year()` helper) until the remaining days fit within the current year.
+4. **Find month and day**: iterate through months, subtracting `_month_length()` days each time, until the remaining days fit within the current month. The day-of-month is `time + 1` (since the day counter is 0-indexed within the month, but `tm_mday` is 1-indexed).
+
+This is the exact inverse of `rtc_mktime`, using the same helper functions (`_is_leap_year`, `_month_length`) already defined in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/rtc_utils/rtc_utils.c
++++ sys/rtc_utils/rtc_utils.c
+@@ -195,7 +195,39 @@
+ 
+ void rtc_localtime(uint32_t time, struct tm *t)
+ {
+-    /* MASKED - implement this function */
++    memset(t, 0, sizeof(*t));
++
++    t->tm_sec = time % 60;
++    time /= 60;
++    t->tm_min = time % 60;
++    time /= 60;
++    t->tm_hour = time % 24;
++    time /= 24;
++
++    unsigned year = RIOT_EPOCH;
++    while (1) {
++        unsigned days_in_year = 365 + _is_leap_year(year);
++        if (time < days_in_year) {
++            break;
++        }
++        time -= days_in_year;
++        year++;
++    }
++
++    t->tm_year = year - 1900;
++
++    int month = 0;
++    while (1) {
++        unsigned month_days = _month_length(month, year);
++        if (time < month_days) {
++            break;
++        }
++        time -= month_days;
++        month++;
++    }
++
++    t->tm_mon = month;
++    t->tm_mday = time + 1;
+ }
+ 
+ #define RETURN_IF_DIFFERENT(a, b, member)   \
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-rtc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/rtc_utils
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  91526	  32088	  78120	 201734	  31406	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 3 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 1 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 5 was 0
+
+run 10 failures 3
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd8e827000; bottom 0x000000430000; size: 0x7ffd8e3f7000 (140726989975552)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

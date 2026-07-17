@@ -1,0 +1,130 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsSwTmrStopTimer` does:
+
+- **Handle validation**: Returns `OS_ERRNO_TIMER_HANDLE_INVALID` for bad handles
+- **State dispatch** (under lock):
+  - `OS_TIMER_FREE` → `OS_ERRNO_SWTMR_NOT_CREATED` (never created)
+  - `OS_TIMER_CREATED` → `OS_ERRNO_SWTMR_UNSTART` (already stopped)
+  - `OS_TIMER_EXPIRED` → directly transitions to `OS_TIMER_CREATED` (timer already out of sort link)
+  - `OS_TIMER_RUNNING` → calls `OsSwTmrStop(swtmr, FALSE)` to remove from sort link while preserving remaining ticks
+
+The `FALSE` parameter to `OsSwTmrStop` means `reckonOff=false`, which saves the remaining tick count into `idxRollNum` so the timer can be resumed from where it was stopped — matching the documented behavior: "定时器停止后，下一次启动将重新从停止点的计数值开始计数."
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -236,7 +236,40 @@
+  */
+ OS_SEC_L2_TEXT U32 OsSwTmrStopTimer(TimerHandle tmrHandle)
+ {
+-    /* MASKED - implement this function */
++    struct TagSwTmrCtrl *swtmr = NULL;
++    uintptr_t intSave;
++
++    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
++    {
++        return OS_ERRNO_TIMER_HANDLE_INVALID;
++    }
++
++    // 转化为软件定时器内部ID号
++    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
++    intSave = OsSwtmrIqrSplLock(swtmr);
++
++    switch (swtmr->state & OS_SWTMR_STATUS_MASK)
++    {
++    case OS_TIMER_FREE:
++        OsSwtmrIqrSplUnlock(swtmr, intSave);
++        return OS_ERRNO_SWTMR_NOT_CREATED;
++    case OS_TIMER_CREATED:
++        OsSwtmrIqrSplUnlock(swtmr, intSave);
++        return OS_ERRNO_SWTMR_UNSTART;
++    case OS_TIMER_EXPIRED:
++        swtmr->state = (U8)OS_TIMER_CREATED;
++        OsSwtmrIqrSplUnlock(swtmr, intSave);
++        return OS_OK;
++    case OS_TIMER_RUNNING:
++        OsSwTmrStop(swtmr, FALSE);
++        break;
++    default:
++        break;
++    }
++
++    OsSwtmrIqrSplUnlock(swtmr, intSave);
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L2_TEXT U32 OsSwTmrRestartTimer(TimerHandle tmrHandle)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSwTmrCtrl *swtmr = NULL;
+    uintptr_t intSave;
+
+    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
+    {
+        return OS_ERRNO_TIMER_HANDLE_INVALID;
+    }
+
+    // 转化为软件定时器内部ID号
+    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
+    intSave = OsSwtmrIqrSplLock(swtmr);
+
+    switch (swtmr->state & OS_SWTMR_STATUS_MASK)
+    {
+    case OS_TIMER_FREE:
+        OsSwtmrIqrSplUnlock(swtmr, intSave);
+        return OS_ERRNO_SWTMR_NOT_CREATED;
+    case OS_TIMER_CREATED:
+        OsSwtmrIqrSplUnlock(swtmr, intSave);
+        return OS_ERRNO_SWTMR_UNSTART;
+    case OS_TIMER_EXPIRED:
+        swtmr->state = (U8)OS_TIMER_CREATED;
+        OsSwtmrIqrSplUnlock(swtmr, intSave);
+        return OS_OK;
+    case OS_TIMER_RUNNING:
+        OsSwTmrStop(swtmr, FALSE);
+        break;
+    default:
+        break;
+    }
+
+    OsSwtmrIqrSplUnlock(swtmr, intSave);
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrStopTimer.c test_support.c notifier_test_stubs.c
+[invalid handle          ] expect=33557763, actual=33557763 => PASS
+[free -> not created     ] expect=33557771, actual=33557771 => PASS
+[expired -> OK           ] expect=0, actual=0 => PASS
+[state pre created|expired] expect=136, actual=2 => FAIL
+[created -> unstart      ] expect=33557772, actual=33557772 => PASS
+[running stop OK         ] expect=0, actual=0 => PASS
+[state created           ] expect=2, actual=2 => PASS
+
+OsSwTmrStopTimer Pass-Rate: 85.71% (6/7)
+
+
+--- stderr ---
+test_OsSwTmrStopTimer.c: In function ‘main’:
+test_OsSwTmrStopTimer.c:44:5: warning: implicit declaration of function ‘OsSwTmrStart’; did you mean ‘OsSwTmrStop’? [-Wimplicit-function-declaration]
+   44 |     OsSwTmrStart(&arr[1], 30);
+      |     ^~~~~~~~~~~~
+      |     OsSwTmrStop
+
+
+

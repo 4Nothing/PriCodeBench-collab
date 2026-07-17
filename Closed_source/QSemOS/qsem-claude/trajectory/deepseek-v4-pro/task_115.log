@@ -1,0 +1,64 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It increments the per-core event counter (`event->count[PRT_GetCoreID()]`) by the given `value`. This matches how the function is called across the codebase:
+
+- **`armv8_pmu.c:309`**: `OsPerfUpdateEventCount(event, event->period)` — increments by the sampling period on hardware PMU overflow
+- **`prt_perf_sw_pmu.c:52`**: `OsPerfUpdateEventCount(event, 1)` — increments by 1 per software event occurrence  
+- **`prt_perf_timed_pmu.c:62`**: `OsPerfUpdateEventCount(event, 1)` — increments by 1 per timer tick
+
+The NULL guard matches the defensive pattern in the test stubs, since callers don't check for NULL before invoking this.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -310,7 +310,11 @@
+ 
+ void OsPerfUpdateEventCount(Event *event, U32 value)
+ {
+-    /* MASKED - implement this function */
++    if (event == NULL) {
++        return;
++    }
++
++    event->count[PRT_GetCoreID()] += value;
+ }
+ 
+ void OsPerfHandleOverFlow(Event *event, PerfRegs *regs)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (event == NULL) {
+        return;
+    }
+
+    event->count[PRT_GetCoreID()] += value;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfUpdateEventCount.c test_stubs.c
+[Null event no change] expect=0 actual=0 -> PASS
+[Increment by 3] expect=3 actual=3 -> PASS
+[Mask to low 32 bits] expect=2 actual=2 -> PASS
+[Multiple increments] expect=14 actual=14 -> PASS
+[Index 0 unchanged] expect=14 actual=14 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsPerfUpdateEventCount.c:2:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

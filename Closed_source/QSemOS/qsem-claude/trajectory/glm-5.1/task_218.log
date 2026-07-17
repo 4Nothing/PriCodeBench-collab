@@ -1,0 +1,217 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `PRT_TaskDelay` now does:
+
+1. **Disables interrupts** via `OsIntLock()` to protect scheduler state
+2. **Validates preconditions** (following `schedule_timeout.c` and `enter_wait_queue.c` patterns):
+   - `UNI_FLAG == 0` → system not initialized → returns `OS_ERRNO_TSK_DELAY_IN_INT`
+   - `OS_INT_ACTIVE` → caller is in interrupt context → returns `OS_ERRNO_TSK_DELAY_IN_INT`
+   - `OS_TASK_LOCK_DATA != 0` → task scheduling is locked → returns `OS_ERRNO_TSK_DELAY_IN_LOCK`
+3. **Tick == 0 (yield)**: triggers `OsTskSchedule()` to yield to the next ready task at the same priority, then returns `OS_OK`
+4. **Tick > 0 (delay)**: removes the running task from the ready list (`OsTskReadyDel`), marks it as delayed (`OS_TSK_DELAY`), adds it to the sorted timer list (`OsTskTimerAdd`), marks it as having a timeout (`OS_TSK_TIMEOUT`), and triggers reschedule (`OsTskSchedule()`)
+5. **Restores interrupts** and returns `OS_OK`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -110,7 +110,41 @@
+  */
+ OS_SEC_L0_TEXT U32 PRT_TaskDelay(U32 tick)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    struct TagTskCb *runTask;
++
++    intSave = OsIntLock();
++
++    if (UNI_FLAG == 0) {
++        OsIntRestore(intSave);
++        return OS_ERRNO_TSK_DELAY_IN_INT;
++    }
++
++    if (OS_INT_ACTIVE) {
++        OsIntRestore(intSave);
++        return OS_ERRNO_TSK_DELAY_IN_INT;
++    }
++
++    if (OS_TASK_LOCK_DATA != 0) {
++        OsIntRestore(intSave);
++        return OS_ERRNO_TSK_DELAY_IN_LOCK;
++    }
++
++    if (tick == 0) {
++        OsTskSchedule();
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    runTask = RUNNING_TASK;
++    OsTskReadyDel(runTask);
++    TSK_STATUS_SET(runTask, OS_TSK_DELAY);
++    OsTskTimerAdd(runTask, tick);
++    TSK_STATUS_SET(runTask, OS_TSK_TIMEOUT);
++
++    OsTskSchedule();
++    OsIntRestore(intSave);
++    return OS_OK;
+ }
+ 
+ #if defined(OS_OPTION_TASK_YIELD)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    struct TagTskCb *runTask;
+
+    intSave = OsIntLock();
+
+    if (UNI_FLAG == 0) {
+        OsIntRestore(intSave);
+        return OS_ERRNO_TSK_DELAY_IN_INT;
+    }
+
+    if (OS_INT_ACTIVE) {
+        OsIntRestore(intSave);
+        return OS_ERRNO_TSK_DELAY_IN_INT;
+    }
+
+    if (OS_TASK_LOCK_DATA != 0) {
+        OsIntRestore(intSave);
+        return OS_ERRNO_TSK_DELAY_IN_LOCK;
+    }
+
+    if (tick == 0) {
+        OsTskSchedule();
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    runTask = RUNNING_TASK;
+    OsTskReadyDel(runTask);
+    TSK_STATUS_SET(runTask, OS_TSK_DELAY);
+    OsTskTimerAdd(runTask, tick);
+    TSK_STATUS_SET(runTask, OS_TSK_TIMEOUT);
+
+    OsTskSchedule();
+    OsIntRestore(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskDelay.c common_test.c
+===== PRT_TaskDelay =====
+[INT context error] expect=50332429 actual=50332429 -> PASS
+[error reported] expect=50332429 actual=0 -> FAIL
+[lock held error] expect=33555214 actual=50332429 -> FAIL
+[tick>0 OK] expect=0 actual=50332429 -> FAIL
+[ready del called] expect=1 actual=0 -> FAIL
+[timer add called] expect=1 actual=0 -> FAIL
+[status has DELAY] expect=1 actual=0 -> FAIL
+[schedule fast ps called] expect=1 actual=0 -> FAIL
+[yield not enough] expect=33555216 actual=50332429 -> FAIL
+[yield OK] expect=0 actual=50332429 -> FAIL
+Pass-Rate: 10.00% (1/10)
+
+--- stderr ---
+In file included from common_test.h:33,
+                 from test_PRT_TaskDelay.c:1:
+auto_stub.h:1342:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1342 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1341:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1341 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1340:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1340 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1339:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1339 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1338:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1338 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1337:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1337 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1336:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1336 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1335:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1335 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1334:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1334 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1333:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1333 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1332:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1332 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1331:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1331 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1330:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1330 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1329:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1329 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from common_test.h:33,
+                 from common_test.c:1:
+auto_stub.h:1342:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1342 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1341:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1341 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1340:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1340 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1339:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1339 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1338:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1338 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1337:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1337 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1336:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1336 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1335:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1335 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1334:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1334 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1333:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1333 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1332:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1332 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1331:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1331 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1330:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1330 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1329:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1329 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

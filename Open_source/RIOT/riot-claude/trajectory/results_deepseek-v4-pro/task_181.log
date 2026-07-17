@@ -1,0 +1,105 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function now:
+
+1. **Bounds check**: Returns `NULL` immediately if `id >= GNRC_SIXLOWPAN_CTX_SIZE`
+2. **Thread safety**: Locks `_ctx_mutex` before accessing shared state
+3. **Lifetime update**: Calls `_valid(id)` which refreshes the context lifetime via `_update_lifetime()` and checks `prefix_len > 0`
+4. **Returns**: A pointer to the context at `_ctxs[id]` if valid, `NULL` otherwise
+
+This follows the same pattern as the existing `gnrc_sixlowpan_ctx_lookup_addr` function and matches the documented contract: returns the context for the given ID, or `NULL` if none exists.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
++++ sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
+@@ -77,7 +77,21 @@
+ 
+ gnrc_sixlowpan_ctx_t *gnrc_sixlowpan_ctx_lookup_id(uint8_t id)
+ {
+-    /* MASKED - implement this function */
++    gnrc_sixlowpan_ctx_t *res = NULL;
++
++    if (id >= GNRC_SIXLOWPAN_CTX_SIZE) {
++        return NULL;
++    }
++
++    mutex_lock(&_ctx_mutex);
++
++    if (_valid(id)) {
++        res = &_ctxs[id];
++    }
++
++    mutex_unlock(&_ctx_mutex);
++
++    return res;
+ }
+ 
+ gnrc_sixlowpan_ctx_t *gnrc_sixlowpan_ctx_update(uint8_t id, const ipv6_addr_t *prefix,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_ctx
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/ctx
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 125054	  38576	  85832	 249462	  3ce76	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+OK (13 tests)
+
+native: exiting
+
+--- stderr ---
+==479==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff1ddd3000; bottom 0x00000043a000; size: 0x7fff1d999000 (140733689991168)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

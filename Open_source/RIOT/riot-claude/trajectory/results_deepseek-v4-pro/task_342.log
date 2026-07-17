@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward:
+
+1. **Remove** any existing options with the given `number` via `unicoap_options_remove_all`. If the option doesn't exist, this is a no-op (returns 0).
+2. If removal fails (e.g., `-ENOBUFS` from delta expansion of the successor option), propagate the error.
+3. **Add** the new option with the provided `value` and `value_size` via `unicoap_options_add`, which handles insertion at the correct sorted position (including delta recalculations for the successor option).
+
+This reuses the already well-tested `remove_all` and `add` paths rather than duplicating the complex shift/delta logic.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/unicoap/options.c
++++ sys/net/application_layer/unicoap/options.c
+@@ -712,7 +712,11 @@
+ int unicoap_options_set(unicoap_options_t* options, unicoap_option_number_t number,
+                         const uint8_t* value, size_t value_size)
+ {
+-    /* MASKED - implement this function */
++    int res = unicoap_options_remove_all(options, number);
++    if (res < 0) {
++        return res;
++    }
++    return unicoap_options_add(options, number, value, value_size);
+ }
+ 
+ int unicoap_options_remove_all(unicoap_options_t* options, unicoap_option_number_t number)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 124482	  43144	  82464	 250090	  3d0ea	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffda3178000; bottom 0x00000043b000; size: 0x7ffda2d3d000 (140727335243776)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

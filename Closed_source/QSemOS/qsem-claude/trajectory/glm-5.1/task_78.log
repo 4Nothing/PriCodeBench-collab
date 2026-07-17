@@ -1,0 +1,168 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function initializes all 32 entries (indices 0 through 31) of the task's `sigVectors` array to `OsSigDefaultHandler` — the same no-op default handler that `PRT_SignalAction` installs when a user sets a signal to `SIG_DFL`. This is called from `prt_task_init.c` when a new task is created, ensuring each task starts with all signals using the default disposition.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -27,7 +27,10 @@
+ 
+ OS_SEC_L4_TEXT void OsInitSigVectors(struct TagTskCb *taskCb)
+ {
+-    /* MASKED - implement this function */
++    int i;
++    for (i = 0; i < PRT_SIGNAL_MAX; i++) {
++        taskCb->sigVectors[i] = OsSigDefaultHandler;
++    }
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsSignalTimeOutSet(struct TagTskCb *runTsk, U32 timeOutTick)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    int i;
+    for (i = 0; i < PRT_SIGNAL_MAX; i++) {
+        taskCb->sigVectors[i] = OsSigDefaultHandler;
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsInitSigVectors.c stub_prt_signal_env.c
+[CASE] vec[0] default
+  Expected: 0x610438d83539
+  Actual  : 0x610438d83539
+  Result  : PASS
+
+[CASE] vec[1] default
+  Expected: 0x610438d83539
+  Actual  : 0x610438d83539
+  Result  : PASS
+
+[CASE] vec[2] default
+  Expected: 0x610438d83539
+  Actual  : 0x610438d83539
+  Result  : PASS
+
+[CASE] vec[10] default
+  Expected: 0x610438d83539
+  Actual  : 0x610438d83539
+  Result  : PASS
+
+[CASE] vec[last] default
+  Expected: 0x610438d83539
+  Actual  : 0x610438d83539
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsInitSigVectors.c:3:
+../task_079/func_under_test.c: In function ‘OsSigDefaultHandler’:
+../task_079/func_under_test.c:1:45: warning: unused parameter ‘signum’ [-Wunused-parameter]
+    1 | OS_SEC_L4_TEXT void OsSigDefaultHandler(int signum)
+      |                                         ~~~~^~~~~~
+In file included from test_OsInitSigVectors.c:1:
+test_common.h: At top level:
+test_common.h:71:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   71 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:43:13: warning: ‘print_result_int’ defined but not used [-Wunused-function]
+   43 | static void print_result_int(const char *case_name, int expected, int actual)
+      |             ^~~~~~~~~~~~~~~~
+test_common.h:32:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   32 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1295:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1294:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1294 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1293:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1293 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1291:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1291 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1290:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1290 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1289:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1289 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1285:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1285 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1284:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1284 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1283:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1283 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1282:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1282 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from stub_prt_signal_env.c:1:
+auto_stub.h:1295:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1294:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1294 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1293:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1293 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1291:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1291 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1290:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1290 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1289:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1289 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1285:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1285 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1284:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1284 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1283:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1283 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1282:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1282 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

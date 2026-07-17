@@ -1,0 +1,160 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsTskInit` now does:
+
+1. **Guard check** — returns `OS_ERRNO_TSK_MAX_NUM_NOT_SUITED` if `g_tskMaxNum` is 0 (should have been set by prior `OsTskRegister`)
+2. **Allocate** — allocates a zeroed array of `g_tskMaxNum` task control blocks via `OsMemAllocAlign` with `MEM_ADDR_ALIGN_016` alignment
+3. **Initialize each TCB** — iterates the array, setting `taskPid` to the index, initializing all list heads (`pendList`, `semBList`, `timerList`, `sigInfoList`), and appending to the `g_tskCbFreeList` free list. Since `memset_s` zeroed the memory, `taskStatus` defaults to `OS_TSK_UNUSED` (0x0)
+4. **SMP lock init** — under `OS_OPTION_SMP`, initializes `g_createTskLock` (used by `TSK_CREATE_DEL_LOCK`/`TSK_CREATE_DEL_UNLOCK`)
+
+This follows the same pattern as `OsSemInit` / `OsSemInitCb` and `OsSwTmrResInit`, which allocate a control block array, zero it, initialize each entry, and add entries to a free list.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -106,7 +106,40 @@
+  */
+ OS_SEC_L4_TEXT U32 OsTskInit(void)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *tskCb = NULL;
++    U32 idx;
++    U32 size;
++
++    if (g_tskMaxNum == 0) {
++        return OS_ERRNO_TSK_MAX_NUM_NOT_SUITED;
++    }
++
++    size = sizeof(struct TagTskCb) * g_tskMaxNum;
++    g_tskCbArray = (struct TagTskCb *)OsMemAllocAlign((U32)OS_MID_TSK, OS_MEM_DEFAULT_FSC_PT, size,
++                                                      MEM_ADDR_ALIGN_016);
++    if (g_tskCbArray == NULL) {
++        return OS_ERRNO_TSK_NO_MEMORY;
++    }
++
++    if (memset_s((void *)g_tskCbArray, size, 0, size) != EOK) {
++        return OS_ERRNO_TSK_NO_MEMORY;
++    }
++
++    for (idx = 0; idx < g_tskMaxNum; idx++) {
++        tskCb = &g_tskCbArray[idx];
++        tskCb->taskPid = idx;
++        INIT_LIST_OBJECT(&tskCb->pendList);
++        INIT_LIST_OBJECT(&tskCb->semBList);
++        INIT_LIST_OBJECT(&tskCb->timerList);
++        INIT_LIST_OBJECT(&tskCb->sigInfoList);
++        ListTailAdd(&tskCb->pendList, &g_tskCbFreeList);
++    }
++
++#if defined(OS_OPTION_SMP)
++    OsSpinLockInitInner(&g_createTskLock);
++#endif
++
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *tskCb = NULL;
+    U32 idx;
+    U32 size;
+
+    if (g_tskMaxNum == 0) {
+        return OS_ERRNO_TSK_MAX_NUM_NOT_SUITED;
+    }
+
+    size = sizeof(struct TagTskCb) * g_tskMaxNum;
+    g_tskCbArray = (struct TagTskCb *)OsMemAllocAlign((U32)OS_MID_TSK, OS_MEM_DEFAULT_FSC_PT, size,
+                                                      MEM_ADDR_ALIGN_016);
+    if (g_tskCbArray == NULL) {
+        return OS_ERRNO_TSK_NO_MEMORY;
+    }
+
+    if (memset_s((void *)g_tskCbArray, size, 0, size) != EOK) {
+        return OS_ERRNO_TSK_NO_MEMORY;
+    }
+
+    for (idx = 0; idx < g_tskMaxNum; idx++) {
+        tskCb = &g_tskCbArray[idx];
+        tskCb->taskPid = idx;
+        INIT_LIST_OBJECT(&tskCb->pendList);
+        INIT_LIST_OBJECT(&tskCb->semBList);
+        INIT_LIST_OBJECT(&tskCb->timerList);
+        INIT_LIST_OBJECT(&tskCb->sigInfoList);
+        ListTailAdd(&tskCb->pendList, &g_tskCbFreeList);
+    }
+
+#if defined(OS_OPTION_SMP)
+    OsSpinLockInitInner(&g_createTskLock);
+#endif
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskInit.c
+
+--- stderr ---
+In file included from test_OsTskInit.c:5:
+func_under_test.c: In function ‘OsTskInit’:
+func_under_test.c:23:30: warning: dereferencing ‘void *’ pointer
+   23 |         tskCb = &g_tskCbArray[idx];
+      |                              ^
+func_under_test.c:33:5: warning: implicit declaration of function ‘OsSpinLockInitInner’ [-Wimplicit-function-declaration]
+   33 |     OsSpinLockInitInner(&g_createTskLock);
+      |     ^~~~~~~~~~~~~~~~~~~
+In file included from test_OsTskInit.c:4:
+auto_stub.h: At top level:
+auto_stub.h:1281:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1281 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1277:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1276:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/ccTgHF7d.o: in function `OsTskInit':
+test_OsTskInit.c:(.text+0x31c): undefined reference to `OsSpinLockInitInner'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

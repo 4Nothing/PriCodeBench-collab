@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_SAM3
+    bool
+    select CPU_CORE_CORTEX_M3
+
+## CPU Models
+config CPU_MODEL_SAM3X8E
+    bool
+    select CPU_FAM_SAM3
+
+## Common CPU symbols
+config CPU_FAM
+    default "sam3" if CPU_FAM_SAM3
+
+config CPU_MODEL
+    default "sam3x8e" if CPU_MODEL_SAM3X8E
+
+config CPU
+    default "sam3" if CPU_FAM_SAM3
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

@@ -1,0 +1,146 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSemCreateCb` now does:
+
+1. **`SEM_INIT_LOCK()`** — acquires the init mutex to protect the global free list `g_unusedSemList`
+2. **`ListEmpty` check** — if no free semaphores remain, unlocks and returns `OS_ERRNO_SEM_ALL_BUSY`
+3. **`GET_SEM_LIST(OS_LIST_FIRST(...))`** — retrieves the first semaphore control block from the free list via the `semList` embedded list node
+4. **`ListDelete`** — removes the node from the free list
+5. **`SEM_INIT_UNLOCK()`** — releases the init mutex
+6. **`OsSemCreateCbInit`** — initializes the control block fields (count, type, mode, status, owner, lists)
+7. **`*semHandle = semCreated->semId`** — outputs the semaphore handle (index into `g_allSem`)
+
+The pattern mirrors `PRT_SemDelete` (which returns semaphores to the free list using the same `SEM_INIT_LOCK`/`SEM_INIT_UNLOCK` guards) and `OsSemInitCb` (which populates the free list during module init).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem_init.c
++++ src/core/ipc/sem/prt_sem_init.c
+@@ -123,7 +123,23 @@
+ OS_SEC_ALW_INLINE INLINE U32 OsSemCreateCb(U32 count, U32 semType, enum SemMode semMode,
+                                            SemHandle *semHandle, U32 cookie)
+ {
+-    /* MASKED - implement this function */
++    struct TagSemCb *semCreated = NULL;
++
++    (void)cookie;
++
++    SEM_INIT_LOCK();
++    if (ListEmpty(&g_unusedSemList)) {
++        SEM_INIT_UNLOCK();
++        return OS_ERRNO_SEM_ALL_BUSY;
++    }
++    semCreated = GET_SEM_LIST(OS_LIST_FIRST(&g_unusedSemList));
++    ListDelete(&semCreated->semList);
++    SEM_INIT_UNLOCK();
++
++    OsSemCreateCbInit(count, semType, semMode, semCreated);
++    *semHandle = (SemHandle)(semCreated->semId);
++
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSemCb *semCreated = NULL;
+
+    (void)cookie;
+
+    SEM_INIT_LOCK();
+    if (ListEmpty(&g_unusedSemList)) {
+        SEM_INIT_UNLOCK();
+        return OS_ERRNO_SEM_ALL_BUSY;
+    }
+    semCreated = GET_SEM_LIST(OS_LIST_FIRST(&g_unusedSemList));
+    ListDelete(&semCreated->semList);
+    SEM_INIT_UNLOCK();
+
+    OsSemCreateCbInit(count, semType, semMode, semCreated);
+    *semHandle = (SemHandle)(semCreated->semId);
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSemCreateCb.c
+[CASE] OsSemCreateCb empty list
+  Expected: 33556228
+  Actual  : 33556228
+  Result  : PASS
+
+[CASE] OsSemCreateCb OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] semId valid
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] OsSemCreateCb #2 OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] Fields correct
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_sem_external.h:2,
+                 from test_OsSemCreateCb.c:2:
+auto_stub.h:1516:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1516 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1515:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1515 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1514:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1514 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1513:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1513 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1512:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1512 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1511:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1511 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1510:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1510 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1509:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1509 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1508:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1508 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

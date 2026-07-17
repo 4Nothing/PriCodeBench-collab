@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsPerfConfig` now does:
+
+1. **Looks up the PMU** via `OsPerfPmuGet(eventsCfg->type)` — returns `OS_ERRNO_PERF_INVALID_PMU` if no PMU is registered for that event type.
+2. **Copies event configuration** — caps events at `PERF_MAX_EVENT`, zeros the PMU's event array, then copies each event's `eventId` and `period` from the config struct to the PMU.
+3. **Sets PMU metadata** — `nr` (event count), `cntDivided` (prescaler flag), and `type` are transferred from the config.
+4. **Calls the PMU's config method** — each PMU type (HW, timed, SW) validates events in its own way (period ranges, hardware counter mapping, event ID bounds). On failure, the events are zeroed and `OS_ERRNO_PERF_PMU_CONFIG_ERROR` is returned.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -54,7 +54,34 @@
+ 
+ static U32 OsPerfConfig(PerfEventConfig *eventsCfg)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    U32 ret;
++    U32 eventNum;
++
++    g_pmu = OsPerfPmuGet(eventsCfg->type);
++    if (g_pmu == NULL) {
++        printf("perf config type invalid %u!\n", eventsCfg->type);
++        return OS_ERRNO_PERF_INVALID_PMU;
++    }
++
++    eventNum = MIN(eventsCfg->eventsNr, PERF_MAX_EVENT);
++    (void)memset_s(&g_pmu->events, sizeof(PerfEvent), 0, sizeof(PerfEvent));
++    for (i = 0; i < eventNum; i++) {
++        g_pmu->events.per[i].eventId = eventsCfg->events[i].eventId;
++        g_pmu->events.per[i].period = eventsCfg->events[i].period;
++    }
++    g_pmu->events.nr = (U8)i;
++    g_pmu->events.cntDivided = (U8)eventsCfg->predivided;
++    g_pmu->type = eventsCfg->type;
++
++    ret = g_pmu->config();
++    if (ret != OS_OK) {
++        printf("perf config failed, ret = 0x%x\n", ret);
++        (void)memset_s(&g_pmu->events, sizeof(PerfEvent), 0, sizeof(PerfEvent));
++        return OS_ERRNO_PERF_PMU_CONFIG_ERROR;
++    }
++
++    return OS_OK;
+ }
+ 
+ static void OsPerfPrintCount(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    U32 ret;
+    U32 eventNum;
+
+    g_pmu = OsPerfPmuGet(eventsCfg->type);
+    if (g_pmu == NULL) {
+        printf("perf config type invalid %u!\n", eventsCfg->type);
+        return OS_ERRNO_PERF_INVALID_PMU;
+    }
+
+    eventNum = MIN(eventsCfg->eventsNr, PERF_MAX_EVENT);
+    (void)memset_s(&g_pmu->events, sizeof(PerfEvent), 0, sizeof(PerfEvent));
+    for (i = 0; i < eventNum; i++) {
+        g_pmu->events.per[i].eventId = eventsCfg->events[i].eventId;
+        g_pmu->events.per[i].period = eventsCfg->events[i].period;
+    }
+    g_pmu->events.nr = (U8)i;
+    g_pmu->events.cntDivided = (U8)eventsCfg->predivided;
+    g_pmu->type = eventsCfg->type;
+
+    ret = g_pmu->config();
+    if (ret != OS_OK) {
+        printf("perf config failed, ret = 0x%x\n", ret);
+        (void)memset_s(&g_pmu->events, sizeof(PerfEvent), 0, sizeof(PerfEvent));
+        return OS_ERRNO_PERF_PMU_CONFIG_ERROR;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsPerfConfig.c
+perf config type invalid 4294967295!
+[Invalid PMU type] expect=4100 actual=4100 -> PASS
+[Config OK] expect=0 actual=0 -> PASS
+[Event number copied] expect=3 actual=3 -> PASS
+[Predivided copied] expect=7 actual=7 -> PASS
+perf config failed, ret = 0x1234
+[Config fails] expect=4101 actual=4101 -> PASS
+[Events capped OK] expect=0 actual=0 -> PASS
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+test_OsPerfConfig.c: In function ‘PRT_Printf’:
+test_OsPerfConfig.c:14:28: warning: unused parameter ‘fmt’ [-Wunused-parameter]
+   14 | int PRT_Printf(const char *fmt, ...) { return 0; }
+      |                ~~~~~~~~~~~~^~~
+test_OsPerfConfig.c: At top level:
+test_OsPerfConfig.c:43:21: warning: missing braces around initializer [-Wmissing-braces]
+   43 | static Pmu g_pmux = {{0}, 0, pmu_config_custom, pmu_start, pmu_stop, name_fn};
+      |                     ^
+      |                       -
+      |                       {{0}}
+
+
+

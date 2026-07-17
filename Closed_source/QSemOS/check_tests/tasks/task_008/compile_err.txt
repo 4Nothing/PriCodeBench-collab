@@ -1,0 +1,50 @@
+In file included from tasks/task_008/prt_perf_output.h:2,
+                 from tasks/task_008/test_OsPerfOutPutRemainSize.c:2:
+tasks/task_008/auto_stub.h:1926:29: warning: 'g_perfBufNotifyHook' defined but not used [-Wunused-variable]
+ 1926 | static PERF_BUF_NOTIFY_HOOK g_perfBufNotifyHook = NULL;
+      |                             ^~~~~~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1925:28: warning: 'g_perfBufFlushHook' defined but not used [-Wunused-variable]
+ 1925 | static PERF_BUF_FLUSH_HOOK g_perfBufFlushHook = NULL;
+      |                            ^~~~~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1924:32: warning: 'g_osRtSingleSchedClass' defined but not used [-Wunused-variable]
+ 1924 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1923:14: warning: 'g_tskSem' defined but not used [-Wunused-variable]
+ 1923 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+tasks/task_008/auto_stub.h:1922:14: warning: 'g_semTsk' defined but not used [-Wunused-variable]
+ 1922 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+tasks/task_008/auto_stub.h:1921:25: warning: 'g_runningTask' defined but not used [-Wunused-variable]
+ 1921 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1920:39: warning: 'g_tskSortedDelay' defined but not used [-Wunused-variable]
+ 1920 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1919:27: warning: 'g_runQueue' defined but not used [-Wunused-variable]
+ 1919 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+tasks/task_008/auto_stub.h:1918:25: warning: 'g_tskCbArray' defined but not used [-Wunused-variable]
+ 1918 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1917:12: warning: 'g_createTskLock' defined but not used [-Wunused-variable]
+ 1917 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1916:12: warning: 'g_tickNoRespondCnt' defined but not used [-Wunused-variable]
+ 1916 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1915:12: warning: 'g_uniTaskLock' defined but not used [-Wunused-variable]
+ 1915 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1914:12: warning: 'g_maxNumOfCores' defined but not used [-Wunused-variable]
+ 1914 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1913:12: warning: 'g_idleTaskId' defined but not used [-Wunused-variable]
+ 1913 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+tasks/task_008/auto_stub.h:1912:12: warning: 'g_tskMaxNum' defined but not used [-Wunused-variable]
+ 1912 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+tasks/task_008/auto_stub.h:1911:12: warning: 'g_tskBaseId' defined but not used [-Wunused-variable]
+ 1911 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~

@@ -1,0 +1,93 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established patterns in the codebase (same approach as `fib_get_next_hop` and `fib_update_entry`):
+
+1. **Lock the mutex** on the table
+2. **Call `fib_find_entry`** with `count=1` to locate the entry matching `dst`/`dst_size`
+3. **On success** (`ret == 0` for prefix match or `ret == 1` for exact match), copy the entry's `lifetime` field (an absolute timestamp in microseconds) to the output pointer
+4. **Unlock and return** — returns `0` or `1` on success, `-EHOSTUNREACH` if no matching entry exists, matching the documented contract in `fib.h:504-505`
+
+The lifetime value stored in entries is set via `fib_lifetime_to_absolute()`, which converts milliseconds to an absolute `xtimer_now_usec64()` timestamp, or `FIB_LIFETIME_NO_EXPIRE` (`0xFFFFFFFFffffffff`) for entries that never expire.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -1626,6 +1626,18 @@
+ int fib_devel_get_lifetime(fib_table_t *table, uint64_t *lifetime, uint8_t *dst,
+                            size_t dst_size)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++
++    size_t count = 1;
++    fib_entry_t *entry[count];
++
++    int ret = fib_find_entry(table, dst, dst_size, &(entry[0]), &count);
++
++    if (ret == 0 || ret == 1) {
++        *lifetime = entry[0]->lifetime;
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return ret;
+ }
+ #endif
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127601	  37800	  80456	 245857	  3c061	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............
+fib_tests.test_fib_15_get_lifetime (tests/unittests/tests-fib/tests-fib.c 606) exp 0 was 1
+.....
+run 20 failures 1
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc9928d000; bottom 0x00000043b000; size: 0x7ffc98e52000 (140722873638912)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

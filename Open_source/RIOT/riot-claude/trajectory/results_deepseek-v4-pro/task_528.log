@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It checks if the first byte is `0xfc` or `0xfd`, which corresponds to the `fc00::/7` Unique Local Unicast prefix defined in [RFC 4193](https://tools.ietf.org/html/rfc4193). The implementation follows the same pattern as the existing `ipv6_addr_is_multicast` at line 347.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -399,7 +399,7 @@
+  */
+ static inline bool ipv6_addr_is_unique_local_unicast(const ipv6_addr_t *addr)
+ {
+-    /* MASKED - implement this function */
++    return ((addr->u8[0] & 0xfe) == 0xfc);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193826	  41928	  78152	 313906	  4ca32	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe44df6000; bottom 0x00000044c000; size: 0x7ffe449aa000 (140730049404928)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

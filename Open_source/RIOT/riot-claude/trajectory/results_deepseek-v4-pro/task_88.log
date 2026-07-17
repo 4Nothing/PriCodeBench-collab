@@ -1,0 +1,323 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. Here's what it does:
+
+1. **Parses DER** — Uses `der_object_count` and `der_decode` to parse the input buffer as an ASN.1 tree
+2. **Validates the outer SEQUENCE** — The PKCS#8 / RFC 5958 `OneAsymmetricKey` must be wrapped in an ASN.1 SEQUENCE
+3. **Skips version** — The first child is the version INTEGER
+4. **Validates the algorithm** — The next child is the `AlgorithmIdentifier` SEQUENCE; its first child is the OID, which is checked against `ecPublicKey` (1.2.840.10045.2.1)
+5. **Extracts the inner key** — The next child is the `privateKey` OCTET STRING containing a DER-encoded `ECPrivateKey`
+6. **Delegates** — Calls `credman_load_private_ecc_key` to parse the inner `ECPrivateKey` (RFC 5915) structure, which handles extracting the private key data and the optional public key
+
+This approach reuses the existing `credman_load_private_ecc_key` for the algorithm-specific parsing, matching the layered structure of PKCS#8 wrapping an ECPrivateKey.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -173,7 +173,89 @@
+ 
+ int credman_load_private_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+ {
+-    /* MASKED - implement this function */
++    asn1_tree objects[CONFIG_CREDMAN_MAX_ASN1_OBJ];
++    asn1_tree priv_key_info;
++
++    assert(buf);
++    assert(cred);
++
++    int obj_count = der_object_count((uint8_t *)buf, buf_len);
++    if (obj_count <= 0) {
++        DEBUG("credman: could not calculate the number of elements within the key\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (obj_count > CONFIG_CREDMAN_MAX_ASN1_OBJ) {
++        DEBUG("credman: not enough ASN.1 objects to decode key.\n");
++        DEBUG("credman: current max is %d, and we need %d\n",
++              CONFIG_CREDMAN_MAX_ASN1_OBJ, obj_count);
++        return CREDMAN_INVALID;
++    }
++
++    if (der_decode((uint8_t *)buf, buf_len, &priv_key_info, objects, obj_count) < 0) {
++        DEBUG("credman: could not parse the key\n");
++        return CREDMAN_INVALID;
++    }
++
++    /*
++     * From https://tools.ietf.org/html/rfc5958#section-2
++     * (compatible with PKCS#8 from RFC 5208)
++     *
++     * OneAsymmetricKey ::= SEQUENCE {
++     *      version                   Version,
++     *      privateKeyAlgorithm       AlgorithmIdentifier,
++     *      privateKey                OCTET STRING,
++     *      attributes           [0]  IMPLICIT Attributes OPTIONAL,
++     *      publicKey             [1]  IMPLICIT PublicKey OPTIONAL
++     * }
++     *
++     * AlgorithmIdentifier ::= SEQUENCE {
++     *      algorithm   OBJECT IDENTIFIER,
++     *      parameters  ANY DEFINED BY algorithm OPTIONAL
++     * }
++     */
++
++    /* the outer container is a 'PrivateKeyInfo', which should be a SEQUENCE */
++    if (priv_key_info.type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: the private key information should be contained in an ASN.1 SEQUENCE\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* skip version */
++    asn1_tree *node = priv_key_info.child;
++    if (!node || node->type != ASN1_TYPE_INTEGER) {
++        DEBUG("credman: invalid PKCS#8 version field\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to algorithm identifier SEQUENCE */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: invalid PKCS#8 algorithm identifier\n");
++        return CREDMAN_INVALID;
++    }
++
++    asn1_tree *algorithm = node->child;
++
++    /* for now only ECDSA is supported by credman */
++    if (sizeof(ecPublicKey) != algorithm->length) {
++        DEBUG("credman: wrong OID length for algorithm\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (memcmp(ecPublicKey, algorithm->data, sizeof(ecPublicKey)) != 0) {
++        DEBUG("credman: wrong OID for algorithm. Expected 1.2.840.10045.2.1\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to privateKey (OCTET STRING containing DER-encoded ECPrivateKey) */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_OCTET_STRING) {
++        DEBUG("credman: invalid PKCS#8 privateKey field\n");
++        return CREDMAN_INVALID;
++    }
++
++    return credman_load_private_ecc_key(node->data, node->length, cred);
+ }
+ 
+ int credman_load_private_ecc_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/pkg/tiny-asn1/ 
+
+--- stderr ---
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+make[1]: *** [/workspace/pkg/pkg.mk:176: /tmp/build/pkg/tiny-asn1/.git] Error 128
+make: [/workspace/tests/unittests/../../Makefile.include:802: pkg-prepare] Error 2 (ignored)
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+make[1]: *** [/workspace/pkg/pkg.mk:133: /tmp/build/pkg/tiny-asn1/.pkg-state.git-downloaded] Error 128
+make: *** [/workspace/tests/unittests/../../Makefile.include:807: pkg-build] Error 2
+
+
+
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `credman_load_private_key` now does:
+
+1. **DER decoding** — Parses the input buffer using `der_decode` (same pattern as the other key-loading functions)
+2. **Structure validation** — Verifies the outer `OneAsymmetricKey` SEQUENCE per RFC5958
+3. **Version check** — Accepts v1 (PKCS#8/RFC5208) and v2 (RFC5958)
+4. **Algorithm verification** — Confirms the `PrivateKeyAlgorithmIdentifier` OID matches `ecPublicKey` (1.2.840.10045.2.1)
+5. **Private key extraction** — Pulls the OCTET STRING containing the DER-encoded `ECPrivateKey` and delegates to `credman_load_private_ecc_key` for inner parsing
+6. **Optional public key** — Searches for `publicKey [1]` context-specific tag at the PKCS#8 level; if present, uses `_parse_ecc_point` to extract x/y coordinates (overriding any public key found inside the ECPrivateKey)
+
+The function reuses existing code paths (`credman_load_private_ecc_key` and `_parse_ecc_point`) and follows the same conventions (DEBUG messages, return codes, error handling patterns) as the surrounding functions.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -173,7 +173,114 @@
+ 
+ int credman_load_private_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+ {
+-    /* MASKED - implement this function */
++    asn1_tree objects[CONFIG_CREDMAN_MAX_ASN1_OBJ];
++    asn1_tree priv_key_info;
++
++    assert(buf);
++    assert(cred);
++
++    int obj_count = der_object_count((uint8_t *)buf, buf_len);
++    if (obj_count <= 0) {
++        DEBUG("credman: could not calculate the number of elements within the key\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (obj_count > CONFIG_CREDMAN_MAX_ASN1_OBJ) {
++        DEBUG("credman: not enough ASN.1 objects to decode key.\n");
++        DEBUG("credman: current max is %d, and we need %d\n",
++              CONFIG_CREDMAN_MAX_ASN1_OBJ, obj_count);
++        return CREDMAN_INVALID;
++    }
++
++    int32_t res = der_decode((uint8_t *)buf, buf_len, &priv_key_info, objects, obj_count);
++    if (res < 0) {
++        DEBUG("credman: could not parse the key (%" PRId32 ")\n", res);
++        return CREDMAN_INVALID;
++    }
++
++    /*
++     * From https://tools.ietf.org/html/rfc5958#section-2
++     *
++     * OneAsymmetricKey ::= SEQUENCE {
++     *      version                   Version,
++     *      privateKeyAlgorithm       PrivateKeyAlgorithmIdentifier,
++     *      privateKey                OCTET STRING,
++     *      attributes            [0] Attributes OPTIONAL,
++     *      publicKey             [1] PublicKey OPTIONAL
++     * }
++     *
++     * PrivateKeyAlgorithmIdentifier ::= AlgorithmIdentifier
++     * Version ::= INTEGER { v1(0), v2(1) }
++     * PublicKey ::= BIT STRING
++     *
++     * This structure is compatible with PKCS#8 (RFC5208), which is the same
++     * but without the publicKey field.
++     */
++
++    /* the outer container is a 'OneAsymmetricKey', which should be a SEQUENCE */
++    if (priv_key_info.type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: the private key information should be contained in an ASN.1 SEQUENCE\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to version, it SHALL be 0 (v1) or 1 (v2) */
++    asn1_tree *node = priv_key_info.child;
++    if (!node || node->type != ASN1_TYPE_INTEGER) {
++        DEBUG("credman: invalid private key version\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (node->data[0] > 0x01) {
++        DEBUG("credman: unsupported private key version\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to privateKeyAlgorithm */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: invalid private key algorithm identifier\n");
++        return CREDMAN_INVALID;
++    }
++
++    asn1_tree *algorithm = node->child;
++
++    /* for now only ECDSA is supported by credman */
++    if (sizeof(ecPublicKey) != algorithm->length) {
++        DEBUG("credman: wrong OID length for algorithm\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (memcmp(ecPublicKey, algorithm->data, sizeof(ecPublicKey)) != 0) {
++        DEBUG("credman: wrong OID for algorithm. Expected 1.2.840.10045.2.1\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to privateKey (OCTET STRING wrapping the ECPrivateKey DER) */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_OCTET_STRING || !node->data || !node->length) {
++        DEBUG("credman: invalid private key\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* look for optional publicKey [1] */
++    asn1_tree *pub_key_node = node->next;
++    while (pub_key_node && pub_key_node->type != ASN1_CONTEXT_TAG(1)) {
++        pub_key_node = pub_key_node->next;
++    }
++
++    /* delegate to ECPrivateKey parser for the inner key */
++    int ret = credman_load_private_ecc_key(node->data, node->length, cred);
++    if (ret != CREDMAN_OK) {
++        return ret;
++    }
++
++    /* if publicKey is present at the PKCS#8 level, it takes precedence */
++    if (pub_key_node) {
++        return _parse_ecc_point(pub_key_node->child, &cred->params.ecdsa.public_key.x,
++                                &cred->params.ecdsa.public_key.y);
++    }
++
++    return CREDMAN_OK;
+ }
+ 
+ int credman_load_private_ecc_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+rm -Rf /tmp/build/pkg/tiny-asn1
+mkdir -p $(dirname /tmp/build/pkg/tiny-asn1)
+cp -a /workspace/build/pkg/tiny-asn1/ /tmp/build/pkg/tiny-asn1
+touch /tmp/build/pkg/tiny-asn1/.prepared
+"make" -C /workspace/pkg/tiny-asn1/ 
+"make" -C /tmp/build/pkg/tiny-asn1/src -f /workspace/Makefile.base MODULE=tiny-asn1
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-credman
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/credman
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  94884	  32840	  78440	 206164	  32554	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==380==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffda8a17000; bottom 0x000000431000; size: 0x7ffda85e6000 (140727428210688)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,112 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `vfs_unlink` function is now implemented at `sys/vfs/vfs.c:717`. It follows the same pattern as `vfs_rmdir` and `vfs_mkdir`:
+
+1. **NULL guard** on `name` → returns `-EINVAL`
+2. **`_find_mount`** resolves the path to a mount point and relative path (implicitly increments `open_files`)
+3. **Missing mount** → returns the error from `_find_mount`
+4. **Unsupported filesystem** (no `fs_op` or no `unlink` callback) → decrements `open_files` and returns `-EROFS`
+5. **Delegates** to `mountp->fs->fs_op->unlink(mountp, rel_path)`
+6. **Decrements `open_files`** on both success and failure paths before returning
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -716,7 +716,41 @@
+ 
+ int vfs_unlink(const char *name)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_unlink: \"%s\"\n", name);
++    if (name == NULL) {
++        return -EINVAL;
++    }
++    const char *rel_path;
++    vfs_mount_t *mountp;
++    int res;
++    res = _find_mount(&mountp, name, &rel_path);
++    /* _find_mount implicitly increments the open_files count on success */
++    if (res < 0) {
++        /* No mount point maps to the requested file name */
++        DEBUG("vfs_unlink: no matching mount\n");
++        return res;
++    }
++    if ((mountp->fs->fs_op == NULL) || (mountp->fs->fs_op->unlink == NULL)) {
++        /* unlink not supported */
++        DEBUG("vfs_unlink: unlink not supported by fs!\n");
++        /* remember to decrement the open_files count */
++        uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++        assume(before > 0);
++        return -EROFS;
++    }
++    res = mountp->fs->fs_op->unlink(mountp, rel_path);
++    DEBUG("vfs_unlink: unlink %p, \"%s\"", (void *)mountp, rel_path);
++    if (res < 0) {
++        /* something went wrong during unlink */
++        DEBUG(": ERR %d!\n", res);
++    }
++    else {
++        DEBUG("\n");
++    }
++    /* remember to decrement the open_files count */
++    uint16_t before = atomic_fetch_sub_u16(&mountp->open_files, 1);
++    assume(before > 0);
++    return res;
+ }
+ 
+ int vfs_mkdir(const char *name, mode_t mode)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123304	  45128	  79328	 247760	  3c7d0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff76d7b000; bottom 0x00000043b000; size: 0x7fff76940000 (140735182798848)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

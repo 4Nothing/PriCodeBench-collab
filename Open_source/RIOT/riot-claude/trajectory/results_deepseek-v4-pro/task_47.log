@@ -1,0 +1,129 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Validates preconditions**: Asserts match the documented `@pre` conditions from the header — `pkt`, `key`, and `key_len > 0` must be valid; `val` must be non-NULL if `val_len > 0`.
+
+2. **Computes query string length**: `key_len` for a bare key, or `key_len + 1 + val_len` for `key=value`.
+
+3. **Pre-checks space**: Returns `-ENOSPC` if the options array or payload area is full, before modifying any buffer.
+
+4. **Pre-computes the option header size** using the same `_put_delta_optlen` pattern that `_add_opt_pkt` uses internally (lines 1241-1243 mirror lines 1159-1161).
+
+5. **Builds the query string in-place** in the packet buffer at `pkt->payload + hdr_len` — the exact position where `coap_put_option` will expect the value data.
+
+6. **Delegates to `_add_opt_pkt`**: Writes the option header and handles all packet metadata updates. The `memcpy` inside `coap_put_option` copies from the pre-built position to itself (a no-op), so no data movement is needed.
+
+This avoids any stack allocation for the query string — all work happens directly in the packet buffer.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -1224,7 +1224,37 @@
+ ssize_t coap_opt_add_uri_query2(coap_pkt_t *pkt, const char *key, size_t key_len,
+                                 const char *val, size_t val_len)
+ {
+-    /* MASKED - implement this function */
++    assert(pkt && key && key_len);
++    assert((val_len == 0) || (val && val_len));
++
++    size_t query_len = key_len + (val_len ? 1 + val_len : 0);
++
++    if (pkt->options_len >= CONFIG_NANOCOAP_NOPTS_MAX) {
++        return -ENOSPC;
++    }
++
++    uint16_t lastonum = (pkt->options_len)
++            ? pkt->options[pkt->options_len - 1].opt_num : 0;
++    assert(COAP_OPT_URI_QUERY >= lastonum);
++
++    unsigned delta = COAP_OPT_URI_QUERY - lastonum;
++    uint8_t dummy[3] = { 0 };
++    size_t hdr_len = _put_delta_optlen(dummy, 1, 4, delta);
++    hdr_len += _put_delta_optlen(dummy, 0, 0, query_len);
++
++    size_t optlen = hdr_len + query_len;
++    if (pkt->payload_len < optlen) {
++        return -ENOSPC;
++    }
++
++    uint8_t *query_pos = pkt->payload + hdr_len;
++    memcpy(query_pos, key, key_len);
++    if (val_len) {
++        query_pos[key_len] = '=';
++        memcpy(query_pos + key_len + 1, val, val_len);
++    }
++
++    return _add_opt_pkt(pkt, COAP_OPT_URI_QUERY, query_pos, query_len);
+ }
+ 
+ ssize_t coap_opt_add_opaque(coap_pkt_t *pkt, uint16_t optnum, const void *val, size_t val_len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 148139	  36040	  78120	 262299	  4009b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff4f4af000; bottom 0x00000043f000; size: 0x7fff4f070000 (140734519246848)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==323==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x72cc95869ac4 bp 0x00000043aa20 sp 0x00000043a958 T0)
+==323==The signal is caused by a READ memory access.
+==323==Hint: address points to the zero page.
+    #0 0x72cc95869ac4  (/lib/x86_64-linux-gnu/libc.so.6+0x188ac4) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #1 0x40e66f in coap_opt_add_uri_query2 /workspace/sys/net/application_layer/nanocoap/nanocoap.c:1254
+    #2 0x4173fc in test_nanocoap__add_uri_query2 /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:480
+    #3 0x408c02 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #4 0x408a5c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #5 0x4091b6 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #6 0x4199b5 in tests_nanocoap /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1333
+    #7 0x402a17 in main /workspace/tests/unittests/main.c:47
+    #8 0x40383d in main_trampoline /workspace/core/lib/init.c:60
+    #9 0x72cc9573ff7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x188ac4) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb) 
+==323==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

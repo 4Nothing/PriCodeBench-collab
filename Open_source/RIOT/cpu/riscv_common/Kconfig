@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_ARCH_RISCV
+    bool
+
+config CPU_CORE_RV32IMAC
+    bool
+    select CPU_ARCH_RISCV
+
+config CPU_ARCH
+    default "rv32" if CPU_CORE_RV32IMAC

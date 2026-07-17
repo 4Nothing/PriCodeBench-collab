@@ -1,0 +1,121 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsPriorityRestore` does:
+
+This function is the counterpart to `OsPriorityInherit` in the mutex priority inheritance mechanism. When a task releases a mutex semaphore, it:
+
+1. **Returns `FALSE` immediately** if the running task's priority was never boosted (`priority == origPriority`).
+2. **Traverses all mutexes still held** by the running task via `OsGetPendTskMaxPriority`, finding the highest priority among any waiting tasks. The search starts from `origPriority`, so with no waiters the result is `origPriority`.
+3. **Returns `FALSE`** if the computed priority matches the current priority (no change needed).
+4. **Adjusts the ready queue**: removes the task, updates its priority, and re-adds it with `OsTskReadyAddBgd` (background add — doesn't immediately trigger scheduling; the callers handle that). The `!OS_TSK_SUSPEND_READY_BLOCK` guard prevents re-adding if the task was suspended during lock release within `OsGetPendTskMaxPriority`.
+5. **Returns `TRUE`** to signal that the priority changed and the caller should trigger a reschedule.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -228,7 +228,35 @@
+  */
+ OS_SEC_L0_TEXT bool OsPriorityRestore(void)
+ {
+-    /* MASKED - implement this function */
++    struct TagSemCb *curSem = NULL;
++    struct TagTskCb *taskCb = NULL;
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    TskPrior maxPriority = runTsk->origPriority;
++
++    if (runTsk->priority == runTsk->origPriority) {
++        return FALSE;
++    }
++
++    OsSpinLockTaskRq(runTsk);
++
++    /* 遍历当前任务持有的互斥信号量，获取pend任务的最高优先级 */
++    OsGetPendTskMaxPriority(runTsk, &maxPriority);
++
++    /* 最高优先级与任务当前优先级相等，不需要调整 */
++    if (maxPriority == runTsk->priority) {
++        OsSpinUnlockTaskRq(runTsk);
++        return FALSE;
++    }
++
++    /* 优先级降到最高优先，最高优先级至少为原始优先级 */
++    OsTskReadyDel(runTsk);
++    runTsk->priority = maxPriority;
++    if (!TSK_STATUS_TST(runTsk, OS_TSK_SUSPEND_READY_BLOCK)) {
++        // 中间放过锁，这里可能已经被置suspend, readAdd前必须有能否readyAdd的判断
++        OsTskReadyAddBgd(runTsk);
++    }
++    OsSpinUnlockTaskRq(runTsk);
++    return TRUE;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSemCb *curSem = NULL;
+    struct TagTskCb *taskCb = NULL;
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    TskPrior maxPriority = runTsk->origPriority;
+
+    if (runTsk->priority == runTsk->origPriority) {
+        return FALSE;
+    }
+
+    OsSpinLockTaskRq(runTsk);
+
+    /* 遍历当前任务持有的互斥信号量，获取pend任务的最高优先级 */
+    OsGetPendTskMaxPriority(runTsk, &maxPriority);
+
+    /* 最高优先级与任务当前优先级相等，不需要调整 */
+    if (maxPriority == runTsk->priority) {
+        OsSpinUnlockTaskRq(runTsk);
+        return FALSE;
+    }
+
+    /* 优先级降到最高优先，最高优先级至少为原始优先级 */
+    OsTskReadyDel(runTsk);
+    runTsk->priority = maxPriority;
+    if (!TSK_STATUS_TST(runTsk, OS_TSK_SUSPEND_READY_BLOCK)) {
+        // 中间放过锁，这里可能已经被置suspend, readAdd前必须有能否readyAdd的判断
+        OsTskReadyAddBgd(runTsk);
+    }
+    OsSpinUnlockTaskRq(runTsk);
+    return TRUE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsPriorityRestore.c test_stubs.c notifier_test_stubs.c
+already original => expected ret=0 prio=20, actual ret=0 prio=20
+drop to original => expected ret=1 prio=20, actual ret=1 prio=20
+drop to highest waiter => expected ret=1 prio=12, actual ret=1 prio=12
+no change when equal => expected ret=0 prio=12, actual ret=0 prio=12
+no mutex held => expected ret=0 prio=10, actual ret=0 prio=10
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsPriorityRestore.c:6:
+func_under_test.c: In function ‘OsPriorityRestore’:
+func_under_test.c:15:5: warning: implicit declaration of function ‘OsGetPendTskMaxPriority’ [-Wimplicit-function-declaration]
+   15 |     OsGetPendTskMaxPriority(runTsk, &maxPriority);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:4:22: warning: unused variable ‘taskCb’ [-Wunused-variable]
+    4 |     struct TagTskCb *taskCb = NULL;
+      |                      ^~~~~~
+func_under_test.c:3:22: warning: unused variable ‘curSem’ [-Wunused-variable]
+    3 |     struct TagSemCb *curSem = NULL;
+      |                      ^~~~~~
+
+
+

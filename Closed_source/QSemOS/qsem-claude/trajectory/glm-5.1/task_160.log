@@ -1,0 +1,126 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `OsSemPendListPut` now does:
+
+1. **Lock the run queue** and **remove the current task from the ready queue** (`OsTskReadyDel`)
+2. **Set `taskPend`** to point at the semaphore being waited on
+3. **Set `OS_TSK_PEND`** status flag on the task
+4. **Enqueue the task** on the semaphore's wait list (`semList`):
+   - If `SEM_MODE_PRIOR`, insert sorted by priority (before the first task with lower priority)
+   - Otherwise (FIFO), append to the tail
+5. **If timeout is finite** (not `OS_WAIT_FOREVER`), set `OS_TSK_TIMEOUT` and call `OsTskTimerAdd`
+6. **Unlock the run queue**
+7. **If priority inheritance is enabled** (`OS_OPTION_SEM_PRIO_INHERIT`), call `OsPriorityInherit` to propagate the blocking task's priority to the mutex owner
+
+The implementation follows the same patterns as the inverse function `OsSemPendListGet` and matches the coding style of the surrounding code (same macros, same lock discipline, same list operations).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -268,7 +268,41 @@
+  */
+ OS_SEC_L0_TEXT void OsSemPendListPut(struct TagSemCb *semPended, U32 timeOut)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *curTskCb = NULL;
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    struct TagListObject *pendObj = &runTsk->pendList;
++    struct TagOsRunQue *runQue;
++
++    runQue = OsSpinLockRunTaskRq();
++    OsTskReadyDel(runTsk);
++
++    runTsk->taskPend = (void *)semPended;
++
++    TSK_STATUS_SET(runTsk, OS_TSK_PEND);
++
++    /* 根据唤醒方式挂接此链表，同优先级再按FIFO子顺序插入 */
++    if (semPended->semMode == SEM_MODE_PRIOR) {
++        LIST_FOR_EACH(curTskCb, &semPended->semList, struct TagTskCb, pendList) {
++            if (curTskCb->priority > runTsk->priority) {
++                ListTailAdd(pendObj, &curTskCb->pendList);
++                goto TIMER_ADD;
++            }
++        }
++    }
++    /* FIFO方式，或者优先级方式且挂接首个/尾节点 */
++    ListTailAdd(pendObj, &semPended->semList);
++
++TIMER_ADD:
++    if (timeOut != OS_WAIT_FOREVER) {
++        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
++        OsTskTimerAdd(runTsk, timeOut);
++    }
++
++    OsSpinUnLockRunTaskRq(runQue);
++
++#if defined(OS_OPTION_SEM_PRIO_INHERIT)
++    OsPriorityInherit(semPended, runTsk);
++#endif
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *curTskCb = NULL;
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    struct TagListObject *pendObj = &runTsk->pendList;
+    struct TagOsRunQue *runQue;
+
+    runQue = OsSpinLockRunTaskRq();
+    OsTskReadyDel(runTsk);
+
+    runTsk->taskPend = (void *)semPended;
+
+    TSK_STATUS_SET(runTsk, OS_TSK_PEND);
+
+    /* 根据唤醒方式挂接此链表，同优先级再按FIFO子顺序插入 */
+    if (semPended->semMode == SEM_MODE_PRIOR) {
+        LIST_FOR_EACH(curTskCb, &semPended->semList, struct TagTskCb, pendList) {
+            if (curTskCb->priority > runTsk->priority) {
+                ListTailAdd(pendObj, &curTskCb->pendList);
+                goto TIMER_ADD;
+            }
+        }
+    }
+    /* FIFO方式，或者优先级方式且挂接首个/尾节点 */
+    ListTailAdd(pendObj, &semPended->semList);
+
+TIMER_ADD:
+    if (timeOut != OS_WAIT_FOREVER) {
+        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
+        OsTskTimerAdd(runTsk, timeOut);
+    }
+
+    OsSpinUnLockRunTaskRq(runQue);
+
+#if defined(OS_OPTION_SEM_PRIO_INHERIT)
+    OsPriorityInherit(semPended, runTsk);
+#endif
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendListPut.c test_stubs.c notifier_test_stubs.c
+forever timeout => expected flags=2 actual=2 | expected timerAdd=0 actual=0
+finite timeout => expected flags=10 actual=10 | expected timerAdd=1 actual=1
+taskPend set => expected=1, actual=1
+enqueued tail => expected=1, actual=1
+readyDel count => expected=1, actual=1
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

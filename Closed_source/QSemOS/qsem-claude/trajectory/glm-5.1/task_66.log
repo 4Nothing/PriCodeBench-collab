@@ -1,0 +1,108 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what was done:
+
+**Replaced the placeholder** in `src/core/kernel/timer/swtmr/prt_swtmr_minor.c:65` with the non-SMP `OsSwTmrGetRemain` implementation.
+
+The function uses the sort-link timer wheel mechanism (non-SMP case):
+
+1. **`UWSORTINDEX(swtmr->idxRollNum)`** extracts the slot index (high 6 bits of `idxRollNum`)
+2. **Slot distance computation**: If the slot is at or behind the cursor, the wheel wrapped — add `OS_SWTMR_SORTLINK_LEN` to account for a full revolution, then subtract the cursor position
+3. **Roll number accumulation**: Walks the `prev` chain from the timer back to the slot's list head, summing `UWROLLNUM` (low 26 bits) from each timer encountered on the way — these represent full wheel revolutions
+4. **Final result**: `accumulated_rolls * OS_SWTMR_SORTLINK_LEN + slot_distance`
+
+This mirrors the existing SMP implementation (lines 18-28) which uses `expectedTick - g_uniTicks` instead. The two branches share the same function signature and return semantics, just with different underlying timer tracking mechanisms.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -62,7 +62,29 @@
+ #else
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemain(struct TagSwTmrCtrl *swtmr)
+ {
+-    /* MASKED - implement this function */
++    U32 retValue = 0;
++    U32 temp;
++    struct TagSwTmrCtrl *timer = NULL;
++    struct TagListObject *listObject = NULL;
++
++    temp = UWSORTINDEX(swtmr->idxRollNum);
++    if (temp <= g_tmrSortLink.cursor) {
++        temp = temp + OS_SWTMR_SORTLINK_LEN;
++    }
++    temp -= g_tmrSortLink.cursor;
++
++    listObject = g_tmrSortLink.sortLink + (uintptr_t)UWSORTINDEX(swtmr->idxRollNum);
++
++    timer = swtmr;
++
++    while (timer != (struct TagSwTmrCtrl *)listObject) {
++        retValue += UWROLLNUM(timer->idxRollNum);
++        timer = timer->prev;
++    }
++    retValue = retValue * OS_SWTMR_SORTLINK_LEN;
++    retValue = retValue + temp;
++
++    return retValue;
+ }
+ #endif
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 retValue = 0;
+    U32 temp;
+    struct TagSwTmrCtrl *timer = NULL;
+    struct TagListObject *listObject = NULL;
+
+    temp = UWSORTINDEX(swtmr->idxRollNum);
+    if (temp <= g_tmrSortLink.cursor) {
+        temp = temp + OS_SWTMR_SORTLINK_LEN;
+    }
+    temp -= g_tmrSortLink.cursor;
+
+    listObject = g_tmrSortLink.sortLink + (uintptr_t)UWSORTINDEX(swtmr->idxRollNum);
+
+    timer = swtmr;
+
+    while (timer != (struct TagSwTmrCtrl *)listObject) {
+        retValue += UWROLLNUM(timer->idxRollNum);
+        timer = timer->prev;
+    }
+    retValue = retValue * OS_SWTMR_SORTLINK_LEN;
+    retValue = retValue + temp;
+
+    return retValue;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrGetRemain test_OsSwTmrGetRemain.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrGetRemain test
+[cursor=0, idx=50        ] expect=50, actual=50 => PASS
+[cursor=49, idx=50       ] expect=1, actual=1 => PASS
+[cursor=50, idx=50       ] expect=64, actual=64 => PASS
+[cursor=60, idx=50       ] expect=54, actual=54 => PASS
+[roll=1, idx=10, cur=0   ] expect=74, actual=74 => PASS
+
+OsSwTmrGetRemain Pass-Rate: 100.00% (5/5)
+
+
+--- stderr ---
+test_OsSwTmrGetRemain.c: In function ‘main’:
+test_OsSwTmrGetRemain.c:15:5: warning: implicit declaration of function ‘OsSwTmrStart’ [-Wimplicit-function-declaration]
+   15 |     OsSwTmrStart(&t1, 50);
+      |     ^~~~~~~~~~~~
+
+
+

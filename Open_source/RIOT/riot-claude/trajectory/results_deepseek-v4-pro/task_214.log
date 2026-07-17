@@ -1,0 +1,97 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. Tries `tsrb_get` to read from the ringbuffer (same as `isrpipe_read`)
+2. If no data is available, sets a ztimer with the given `timeout` in microseconds
+3. Blocks on the isrpipe's mutex — woken either by `isrpipe_write` (data arrived) or the ztimer callback `_cb` (timeout fired)
+4. Cancels the timer if it hasn't fired yet
+5. Checks `t.flag`: if the timeout fired, returns `-ETIMEDOUT`; otherwise loops back to read the newly arrived data
+
+This follows the same pattern as the blocking `isrpipe_read` in `sys/isrpipe/isrpipe.c:49-57`, augmented with the existing `_isrpipe_timeout_t`/`_cb` timeout mechanism defined earlier in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/isrpipe/read_timeout/read_timeout.c
++++ sys/isrpipe/read_timeout/read_timeout.c
+@@ -37,7 +37,23 @@
+ 
+ int isrpipe_read_timeout(isrpipe_t *isrpipe, uint8_t *buffer, size_t count, uint32_t timeout)
+ {
+-    /* MASKED - implement this function */
++    int res;
++    ztimer_t timer = { .callback = _cb };
++    _isrpipe_timeout_t t = {
++        .mutex = &isrpipe->mutex,
++        .flag = 0,
++    };
++    timer.arg = &t;
++
++    while (!(res = tsrb_get(&isrpipe->tsrb, buffer, count))) {
++        ztimer_set(ZTIMER_USEC, &timer, timeout);
++        mutex_lock(&isrpipe->mutex);
++        ztimer_remove(ZTIMER_USEC, &timer);
++        if (t.flag) {
++            return -ETIMEDOUT;
++        }
++    }
++    return res;
+ }
+ 
+ int isrpipe_read_all_timeout(isrpipe_t *isrpipe, uint8_t *buffer, size_t count, uint32_t timeout)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-isrpipe
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/isrpipe
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/isrpipe/read_timeout
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  95138	  34296	  82728	 212162	  33cc2	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==381==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd929ba000; bottom 0x000000431000; size: 0x7ffd92589000 (140727058731008)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==381==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

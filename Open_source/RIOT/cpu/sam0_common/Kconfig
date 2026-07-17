@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_COMMON_SAM0
+    bool
+
+if CPU_COMMON_SAM0
+
+rsource "periph/Kconfig"
+
+endif # CPU_COMMON_SAM0
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

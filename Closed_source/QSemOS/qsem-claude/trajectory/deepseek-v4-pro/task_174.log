@@ -1,0 +1,134 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsQueueWriteParaCheck` does:
+
+- **`innerId >= g_maxQueue`** → returns `OS_ERRNO_QUEUE_INVALID` (queue handle out of range)
+- **`bufferAddr == NULL`** → returns `OS_ERRNO_QUEUE_PTR_NULL` (null buffer pointer)
+- **`bufferSize == 0`** → returns `OS_ERRNO_QUEUE_SIZE_ZERO` (zero-length write)
+- **`prio` not `OS_QUEUE_NORMAL` or `OS_QUEUE_URGENT`** → returns `OS_ERRNO_QUEUE_PRIO_INVALID` (invalid priority)
+- Otherwise → returns `OS_OK`
+
+These are the parameter validation checks that can be performed without accessing the queue control block. The two checks that require the CB — `queueState == OS_QUEUE_UNUSED` and `bufferSize > nodeSize - OS_QUEUE_NODE_HEAD_LEN` — correctly remain in `PRT_QueueWrite` after the CB is acquired.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -243,7 +243,27 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueWriteParaCheck(U32 innerId, uintptr_t bufferAddr, U32 bufferSize, U32 prio)
+ {
+-    /* MASKED - implement this function */
++    if (innerId >= g_maxQueue)
++    {
++        return OS_ERRNO_QUEUE_INVALID;
++    }
++
++    if (bufferAddr == (uintptr_t)NULL)
++    {
++        return OS_ERRNO_QUEUE_PTR_NULL;
++    }
++
++    if (bufferSize == 0)
++    {
++        return OS_ERRNO_QUEUE_SIZE_ZERO;
++    }
++
++    if (prio != (U32)OS_QUEUE_NORMAL && prio != (U32)OS_QUEUE_URGENT)
++    {
++        return OS_ERRNO_QUEUE_PRIO_INVALID;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (innerId >= g_maxQueue)
+    {
+        return OS_ERRNO_QUEUE_INVALID;
+    }
+
+    if (bufferAddr == (uintptr_t)NULL)
+    {
+        return OS_ERRNO_QUEUE_PTR_NULL;
+    }
+
+    if (bufferSize == 0)
+    {
+        return OS_ERRNO_QUEUE_SIZE_ZERO;
+    }
+
+    if (prio != (U32)OS_QUEUE_NORMAL && prio != (U32)OS_QUEUE_URGENT)
+    {
+        return OS_ERRNO_QUEUE_PRIO_INVALID;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueWriteParaCheck.c notifier_test_stubs.c
+[CASE] ParaCheck invalid id
+  Expect: 8193
+  Actual: 8193
+[CASE] ParaCheck null buf
+  Expect: 8194
+  Actual: 8194
+[CASE] ParaCheck size zero
+  Expect: 8195
+  Actual: 8195
+[CASE] ParaCheck prio invalid
+  Expect: 8202
+  Actual: 8202
+[CASE] ParaCheck ok
+  Expect: 0
+  Actual: 0
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsQueueWriteParaCheck.c: In function ‘main’:
+test_OsQueueWriteParaCheck.c:7:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+    7 |     reset_task();
+      |     ^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:50:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   50 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:50:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   50 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:76:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   76 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:82:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:82:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   82 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:13:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   13 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:7:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    7 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

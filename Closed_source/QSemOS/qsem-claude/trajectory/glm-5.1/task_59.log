@@ -1,0 +1,78 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now follows the same lock-call-restore pattern as the other public functions in the file. It acquires the interrupt lock, delegates to `NotifierCallChain` with the caller's `nr_to_call` and `nr_calls` parameters (unlike `OsNotifierRawCallChain` which hardcodes `-1`/`NULL`), restores interrupts, and returns the result.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -106,7 +106,13 @@
+                    int val, void *v,
+                    int nr_to_call, int *nr_calls)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t flags;
++    int ret;
++
++    flags = PRT_HwiLock();
++    ret = NotifierCallChain(&nh->head, val, v, nr_to_call, nr_calls);
++    PRT_HwiRestore(flags);
++    return ret;
+ }
+ 
+ int OsNotifierRawCallChain(struct NotifierHead *nh,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t flags;
+    int ret;
+
+    flags = PRT_HwiLock();
+    ret = NotifierCallChain(&nh->head, val, v, nr_to_call, nr_calls);
+    PRT_HwiRestore(flags);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsNotifierCallChain.c notifier_test_stubs.c
+[CASE 1] ret has STOP mask
+  Expect: 32768
+  Actual: 32768
+  Result: PASS
+
+[CASE 2] lock restored after call
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 3] head highest prio is a
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 4] ret from last is OK
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 5] call chain still works
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

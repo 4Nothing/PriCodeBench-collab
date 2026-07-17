@@ -1,0 +1,164 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsPerfCollectData` does:
+
+It serializes perf sample data fields into a contiguous byte buffer (the `PerfSampleData` struct) based on the `sampleType` bitmask in `g_perfCb.sampleType`, returning the total number of bytes written. The supported record types are:
+
+- **PERF_RECORD_CPU** — writes the current core ID via `PRT_GetCoreID()`
+- **PERF_RECORD_TID** — writes the current task ID via `PRT_TaskSelf()`
+- **PERF_RECORD_TYPE** — writes the event's `eventId`
+- **PERF_RECORD_PERIOD** — writes the event's `period`
+- **PERF_RECORD_TIMESTAMP** — writes the current cycle count via `PRT_ClkGetCycleCount64()`
+- **PERF_RECORD_IP** — writes the PC from the register context
+- **PERF_RECORD_CALLCHAIN** — captures a backtrace via `OsPerfBackTrace()` and writes the full `PerfBackTrace` struct
+
+The caller (`OsPerfHandleOverFlow`) uses the returned byte count when writing to the ring buffer, so only the selected fields are stored.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -197,7 +197,49 @@
+ 
+ static U32 OsPerfCollectData(Event *event, PerfSampleData *data, PerfRegs *regs)
+ {
+-    /* MASKED - implement this function */
++    U32 size = 0;
++    U32 sampleType = g_perfCb.sampleType;
++    TskHandle threadId;
++    char *p = (char *)data;
++
++    if (sampleType & PERF_RECORD_CPU) {
++        *(U32 *)(p + size) = PRT_GetCoreID();
++        size += sizeof(data->cpuid);
++    }
++
++    if (sampleType & PERF_RECORD_TID) {
++        (void)PRT_TaskSelf(&threadId);
++        *(U32 *)(p + size) = (U32)threadId;
++        size += sizeof(data->taskId);
++    }
++
++    if (sampleType & PERF_RECORD_TYPE) {
++        *(U32 *)(p + size) = event->eventId;
++        size += sizeof(data->eventId);
++    }
++
++    if (sampleType & PERF_RECORD_PERIOD) {
++        *(U32 *)(p + size) = event->period;
++        size += sizeof(data->period);
++    }
++
++    if (sampleType & PERF_RECORD_TIMESTAMP) {
++        *(U64 *)(p + size) = PRT_ClkGetCycleCount64();
++        size += sizeof(data->time);
++    }
++
++    if (sampleType & PERF_RECORD_IP) {
++        *(uintptr_t *)(p + size) = regs->pc;
++        size += sizeof(data->pc);
++    }
++
++    if (sampleType & PERF_RECORD_CALLCHAIN) {
++        PerfBackTrace *bt = (PerfBackTrace *)(p + size);
++        bt->ipNr = OsPerfBackTrace(bt->ip, PERF_MAX_CALLCHAIN_DEPTH, regs);
++        size += sizeof(PerfBackTrace);
++    }
++
++    return size;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 size = 0;
+    U32 sampleType = g_perfCb.sampleType;
+    TskHandle threadId;
+    char *p = (char *)data;
+
+    if (sampleType & PERF_RECORD_CPU) {
+        *(U32 *)(p + size) = PRT_GetCoreID();
+        size += sizeof(data->cpuid);
+    }
+
+    if (sampleType & PERF_RECORD_TID) {
+        (void)PRT_TaskSelf(&threadId);
+        *(U32 *)(p + size) = (U32)threadId;
+        size += sizeof(data->taskId);
+    }
+
+    if (sampleType & PERF_RECORD_TYPE) {
+        *(U32 *)(p + size) = event->eventId;
+        size += sizeof(data->eventId);
+    }
+
+    if (sampleType & PERF_RECORD_PERIOD) {
+        *(U32 *)(p + size) = event->period;
+        size += sizeof(data->period);
+    }
+
+    if (sampleType & PERF_RECORD_TIMESTAMP) {
+        *(U64 *)(p + size) = PRT_ClkGetCycleCount64();
+        size += sizeof(data->time);
+    }
+
+    if (sampleType & PERF_RECORD_IP) {
+        *(uintptr_t *)(p + size) = regs->pc;
+        size += sizeof(data->pc);
+    }
+
+    if (sampleType & PERF_RECORD_CALLCHAIN) {
+        PerfBackTrace *bt = (PerfBackTrace *)(p + size);
+        bt->ipNr = OsPerfBackTrace(bt->ip, PERF_MAX_CALLCHAIN_DEPTH, regs);
+        size += sizeof(PerfBackTrace);
+    }
+
+    return size;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfCollectData.c test_stubs.c
+
+--- stderr ---
+In file included from test_OsPerfCollectData.c:4:
+func_under_test.c: In function ‘OsPerfCollectData’:
+func_under_test.c:40:9: error: unknown type name ‘PerfBackTrace’
+   40 |         PerfBackTrace *bt = (PerfBackTrace *)(p + size);
+      |         ^~~~~~~~~~~~~
+func_under_test.c:40:30: error: ‘PerfBackTrace’ undeclared (first use in this function); did you mean ‘OsPerfBackTrace’?
+   40 |         PerfBackTrace *bt = (PerfBackTrace *)(p + size);
+      |                              ^~~~~~~~~~~~~
+      |                              OsPerfBackTrace
+func_under_test.c:40:30: note: each undeclared identifier is reported only once for each function it appears in
+func_under_test.c:40:45: error: expected expression before ‘)’ token
+   40 |         PerfBackTrace *bt = (PerfBackTrace *)(p + size);
+      |                                             ^
+func_under_test.c:41:11: error: request for member ‘ipNr’ in something not a structure or union
+   41 |         bt->ipNr = OsPerfBackTrace(bt->ip, PERF_MAX_CALLCHAIN_DEPTH, regs);
+      |           ^~
+func_under_test.c:41:38: error: request for member ‘ip’ in something not a structure or union
+   41 |         bt->ipNr = OsPerfBackTrace(bt->ip, PERF_MAX_CALLCHAIN_DEPTH, regs);
+      |                                      ^~
+In file included from test_OsPerfCollectData.c:1:
+test_util.h: At top level:
+test_util.h:35:13: warning: ‘TU_EXPECT_TRUE’ defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+test_stubs.c:99:5: warning: ‘OsPerfCollectData’ defined but not used [-Wunused-function]
+   99 | U32 OsPerfCollectData(Event *event, PerfSampleData *data, PerfRegs *regs) {
+      |     ^~~~~~~~~~~~~~~~~
+make: *** [Makefile:13: test] Error 1
+
+
+

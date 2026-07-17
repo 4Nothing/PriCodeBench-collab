@@ -1,0 +1,104 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `PRT_LogSetFilter` now:
+
+1. **Validates** the `level` parameter is in range `[OS_LOG_EMERG, OS_LOG_NONE]`, returning `-1` if invalid
+2. **Iterates** over all 8 facilities (`LOG_FACILITY_NUM`) and sets each `g_logFilter[i]` to the given level
+3. **Returns 0** on success
+
+This matches the documented behavior — "对每个Facility都用相同的优先级过滤" (apply the same filter level to every facility). The existing comment about concurrent usage risks remains accurate: since there's no lock, another core could see a partially updated array, but the project considers that acceptable.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -133,7 +133,15 @@
+ /* 并发使用的情况下可能导致结果不符合预期，但影响不大，可以忽略 */
+ OS_SEC_L2_TEXT U32 PRT_LogSetFilter(enum OsLogLevel level)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++
++    if (level < OS_LOG_EMERG || level > OS_LOG_NONE) {
++        return -1;
++    }
++    for (i = 0; i < LOG_FACILITY_NUM; i++) {
++        g_logFilter[i] = level;
++    }
++    return 0;
+ }
+ 
+ OS_SEC_L2_TEXT void PRT_LogGetStatus(U8 *switchStat, U8 *levelStat)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+
+    if (level < OS_LOG_EMERG || level > OS_LOG_NONE) {
+        return -1;
+    }
+    for (i = 0; i < LOG_FACILITY_NUM; i++) {
+        g_logFilter[i] = level;
+    }
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LogOnOff.c
+[CASE] LogOff causes drop (returns 0)
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] LogOn + filtered returns 0
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] EMERG not filtered
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] Invalid level returns -1
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] Null str returns -1
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_common.h:8,
+                 from test_PRT_LogOnOff.c:1:
+auto_stub.h: In function ‘OsLog’:
+auto_stub.h:728:22: warning: unused variable ‘header’ [-Wunused-variable]
+  728 |     struct logHeader header;
+      |                      ^~~~~~
+auto_stub.h:727:9: warning: unused variable ‘targetMem’ [-Wunused-variable]
+  727 |     U8 *targetMem;
+      |         ^~~~~~~~~
+test_common.h: At top level:
+test_common.h:37:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   37 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+auto_stub.h:661:27: warning: ‘g_logLock’ defined but not used [-Wunused-variable]
+  661 | static struct PrtSpinLock g_logLock;
+      |                           ^~~~~~~~~
+
+
+

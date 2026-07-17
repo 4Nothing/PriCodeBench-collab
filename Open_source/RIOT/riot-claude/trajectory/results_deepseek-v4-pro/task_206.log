@@ -1,0 +1,86 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation delegates to `ipv6_addr_from_buf`, which already handles all validation (NULL inputs, empty string, max length, and full IPv6 parsing logic). This follows the same pattern as `ipv6_prefix_from_str`, which also calls `ipv6_addr_from_buf` after computing a string length.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr_from_str.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr_from_str.c
+@@ -157,7 +157,7 @@
+ 
+ ipv6_addr_t *ipv6_addr_from_str(ipv6_addr_t *result, const char *addr)
+ {
+-    /* MASKED - implement this function */
++    return ipv6_addr_from_buf(result, addr, strlen(addr));
+ }
+ 
+ int ipv6_prefix_from_str(ipv6_addr_t *result, const char *addr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193804	  41928	  78152	 313884	  4ca1c	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc3148d000; bottom 0x00000044c000; size: 0x7ffc31041000 (140721130835968)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x7e1d6ea767dd bp 0x000000447fc0 sp 0x000000447748 T0)
+==329==The signal is caused by a READ memory access.
+==329==Hint: address points to the zero page.
+    #0 0x7e1d6ea767dd  (/lib/x86_64-linux-gnu/libc.so.6+0x18b7dd) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #1 0x7e1d6ec63826 in strlen ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:389
+    #2 0x40aab9 in ipv6_addr_from_str /workspace/sys/net/network_layer/ipv6/addr/ipv6_addr_from_str.c:160
+    #3 0x4139b1 in test_ipv6_addr_from_str__addr_NULL /workspace/tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c:956
+    #4 0x408bb2 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #5 0x408a0c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #6 0x409166 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #7 0x422ac9 in tests_ipv6_addr /workspace/tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c:1199
+    #8 0x4029c7 in main /workspace/tests/unittests/main.c:47
+    #9 0x4037ed in main_trampoline /workspace/core/lib/init.c:60
+    #10 0x7e1d6e949f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x18b7dd) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb) 
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

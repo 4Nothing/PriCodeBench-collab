@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2022 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-f439zi" if BOARD_NUCLEO_F439ZI
+
+config BOARD_NUCLEO_F439ZI
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32F439ZI
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

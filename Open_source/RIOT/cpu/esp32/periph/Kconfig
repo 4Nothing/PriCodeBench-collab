@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2021 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+choice ESP_FLASHPAGE_CAPACITY
+    bool "Flashpage capacity"
+    default ESP_FLASHPAGE_CAPACITY_512K
+    depends on USEMODULE_PERIPH_FLASHPAGE
+    config ESP_FLASHPAGE_CAPACITY_64K
+        bool "64 kByte"
+    config ESP_FLASHPAGE_CAPACITY_128K
+        bool "128 kByte"
+    config ESP_FLASHPAGE_CAPACITY_256K
+        bool "256 kByte"
+    config ESP_FLASHPAGE_CAPACITY_512K
+        bool "512 kByte"
+    config ESP_FLASHPAGE_CAPACITY_1M
+        bool "1 MByte"
+    config ESP_FLASHPAGE_CAPACITY_2M
+        bool "2 MByte"
+endchoice

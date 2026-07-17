@@ -1,0 +1,95 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation:
+
+- Uses `#if IS_USED(MODULE_GNRC_NETIF_PKTQ)` to match the pattern of `gnrc_netif_pktq_empty`
+- Calls `gnrc_pktqueue_remove_head()` which safely handles an empty queue (returns NULL)
+- Extracts the packet from the dequeued entry
+- Sets `entry->pkt = NULL` to return the pool entry to the free pool (matching how `_get_free_entry` in the `.c` file checks `_pool[i].pkt == NULL` for availability)
+- Returns the packet, or NULL if the queue was empty
+- Handles the `!MODULE_GNRC_NETIF_PKTQ` case by suppressing the unused parameter warning and returning NULL
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/netif/pktq.h
++++ sys/include/net/gnrc/netif/pktq.h
+@@ -65,7 +65,22 @@
+  */
+ static inline gnrc_pktsnip_t *gnrc_netif_pktq_get(gnrc_netif_t *netif)
+ {
+-    /* MASKED - implement this function */
++#if IS_USED(MODULE_GNRC_NETIF_PKTQ)
++    assert(netif != NULL);
++
++    gnrc_pktqueue_t *entry = gnrc_pktqueue_remove_head(&netif->send_queue.queue);
++
++    if (entry) {
++        gnrc_pktsnip_t *pkt = entry->pkt;
++
++        entry->pkt = NULL;
++        return pkt;
++    }
++    return NULL;
++#else   /* IS_USED(MODULE_GNRC_NETIF_PKTQ) */
++    (void)netif;
++    return NULL;
++#endif  /* IS_USED(MODULE_GNRC_NETIF_PKTQ) */
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_netif_pktq
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netif/pktq
+   text	   data	    bss	    dec	    hex	filename
+  90294	  34080	  79080	 203454	  31abe	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc69b28000; bottom 0x000000430000; size: 0x7ffc696f8000 (140722077401088)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

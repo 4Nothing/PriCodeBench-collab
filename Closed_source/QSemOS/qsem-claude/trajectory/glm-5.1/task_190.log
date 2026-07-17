@@ -1,0 +1,125 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The function `OsTskCreateTcbStatusSet` at `prt_task_init.c:397` now:
+
+1. **Acquires the run-queue spinlock** (`OsSpinLockTaskRq`) — necessary because `taskStatus` is an SMP-shared field that other cores may read concurrently.
+2. **Sets `taskCB->taskStatus = OS_TSK_SUSPEND | OS_TSK_INUSE`** — marks the TCB as allocated (`OS_TSK_INUSE`, 0x0001) and the task as suspended (`OS_TSK_SUSPEND`, 0x0004), consistent with the `PRT_TaskCreate` API contract: "creates a task that is not added to the ready queue, only in suspended state."
+3. **Releases the spinlock** (`OsSpinUnlockTaskRq`).
+
+The `initParam` parameter is unused (given the status at creation is independent of the init parameters), so `(void)initParam` suppresses the compiler warning.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -396,7 +396,11 @@
+ 
+ OS_SEC_ALW_INLINE INLINE void OsTskCreateTcbStatusSet(struct TagTskCb *taskCB, const struct TskInitParam *initParam)
+ {
+-    /* MASKED - implement this function */
++    (void)initParam;
++    OsSpinLockTaskRq(taskCB);
++    taskCB->taskStatus = OS_TSK_SUSPEND | OS_TSK_INUSE;
++    OsSpinUnlockTaskRq(taskCB);
++    return;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsTaskManageFreeCb(struct TagTskCb *taskCB)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)initParam;
+    OsSpinLockTaskRq(taskCB);
+    taskCB->taskStatus = OS_TSK_SUSPEND | OS_TSK_INUSE;
+    OsSpinUnlockTaskRq(taskCB);
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskCreateTcbStatusSet.c
+[CASE] status set
+  Expected: 3
+  Actual  : 3
+  Result  : PASS
+
+[CASE] lock called
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] unlock called
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] status unchanged
+  Expected: 3
+  Actual  : 3
+  Result  : PASS
+
+[CASE] overwritten
+  Expected: 3
+  Actual  : 3
+  Result  : PASS
+
+[CASE] status independent of param
+  Expected: 3
+  Actual  : 3
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTskCreateTcbStatusSet.c:4:
+auto_stub.h:1282:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1282 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1278:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1278 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1277:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1276:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1276 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

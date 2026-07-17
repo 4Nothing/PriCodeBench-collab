@@ -1,0 +1,119 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `dns_cache_add` now does:
+
+1. Computes a fletcher32 hash of the domain name and gets the current time
+2. Locks the cache mutex
+3. Scans the cache for an existing entry with the same hash + address length — if found, updates it in place (handles TTL refresh)
+4. Tracks the first empty or expired slot (preferred for reuse)
+5. Tracks the entry with the earliest expiration time (for eviction fallback)
+6. Picks the empty/expired slot if available, otherwise evicts the soonest-to-expire entry — matching the documented eviction strategy from the header
+7. Fills the chosen slot via the existing `_add_entry` helper
+
+The implementation follows the same patterns used by `dns_cache_query`: same hash computation, time handling, mutex discipline, and use of `_is_empty`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/dns/cache.c
++++ sys/net/application_layer/dns/cache.c
+@@ -165,5 +165,41 @@
+ void dns_cache_add(const char *domain_name, const void *addr_out,
+                         int addr_len, uint32_t ttl)
+ {
+-    /* MASKED - implement this function */
+-}
++    uint32_t hash = _hash(domain_name, strlen(domain_name));
++    uint32_t now = ztimer_now(ZTIMER_MSEC) / MS_PER_SEC;
++
++    mutex_lock(&cache_mutex);
++
++    int empty_slot = -1;
++    int evict_slot = -1;
++    uint32_t min_expires = UINT32_MAX;
++
++    for (unsigned i = 0; i < CONFIG_DNS_CACHE_SIZE; ++i) {
++        /* check for existing entry - update in place */
++        if (!_is_empty(i) && cache[i].hash == hash
++                && _get_len(i) == (uint8_t)addr_len) {
++            _add_entry(i, hash, addr_out, addr_len, now + ttl);
++            mutex_unlock(&cache_mutex);
++            return;
++        }
++        /* prefer empty or expired slot */
++        if (_is_empty(i) || now > cache[i].expires) {
++            if (empty_slot < 0) {
++                empty_slot = i;
++            }
++            continue;
++        }
++        /* track entry that expires earliest for eviction */
++        if (cache[i].expires < min_expires) {
++            min_expires = cache[i].expires;
++            evict_slot = i;
++        }
++    }
++
++    int slot = (empty_slot >= 0) ? empty_slot : evict_slot;
++    if (slot >= 0) {
++        _add_entry(slot, hash, addr_out, addr_len, now + ttl);
++    }
++
++    mutex_unlock(&cache_mutex);
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-dns_cache
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/dns
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  94391	  33776	  78920	 207087	  328ef	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+dns_cache_tests.test_dns_cache_add_ttl0 (tests/unittests/tests-dns_cache/tests-dns_cache.c 44) exp 0 was 16
+
+run 2 failures 1
+
+native: exiting
+
+--- stderr ---
+==386==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe48944000; bottom 0x000000431000; size: 0x7ffe48513000 (140730111700992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==386==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

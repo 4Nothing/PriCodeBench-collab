@@ -1,0 +1,83 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation:
+
+1. Disables IRQs (as all `*_atomic` variants in this codebase do)
+2. Finds the first unset bit via `bf_find_first_unset`
+3. If found, sets it via `bf_set`
+4. Restores IRQs and returns the result
+
+This follows the exact same atomic pattern used by `bf_set_atomic`, `bf_unset_atomic`, `bf_set_all_atomic`, etc. in the header, and reuses the existing `bf_find_first_unset` and `bf_set` functions rather than duplicating bit-manipulation logic.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bitfield/bitfield.c
++++ sys/bitfield/bitfield.c
+@@ -35,7 +35,15 @@
+ 
+ int bf_get_unset(uint8_t field[], size_t size)
+ {
+-    /* MASKED - implement this function */
++    unsigned state = irq_disable();
++
++    int result = bf_find_first_unset(field, size);
++    if (result >= 0) {
++        bf_set(field, result);
++    }
++
++    irq_restore(state);
++    return result;
+ }
+ 
+ int bf_find_first_set(const uint8_t field[], size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bitfield
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  85910	  32024	  78120	 196054	  2fdd6	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+OK (14 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeb7efd000; bottom 0x00000042f000; size: 0x7ffeb7ace000 (140731979980800)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

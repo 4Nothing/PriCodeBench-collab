@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2020 Freie Universität Berlin
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_MSP430_X1XX
+    bool
+    select CPU_MSP430
+
+## CPU Models
+config CPU_MODEL_MSP430F1611
+    bool
+    select CPU_FAM_MSP430_X1XX
+
+config CPU_MODEL_MSP430F1612
+    bool
+    select CPU_FAM_MSP430_X1XX
+
+## Common CPU symbols
+config CPU_FAM
+    default "msp430_x1xx" if HAS_CPU_MSP430_X1XX
+
+config CPU_MODEL
+    default "msp430f1611" if CPU_MODEL_MSP430F1611
+    default "msp430f1612" if CPU_MODEL_MSP430F1612

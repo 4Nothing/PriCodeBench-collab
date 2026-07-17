@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_SODAQ
+    bool

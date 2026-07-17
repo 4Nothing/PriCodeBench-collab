@@ -1,0 +1,86 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **Source Address** (16 bytes): Added to the checksum directly from `hdr->src.u8` (already in network byte order)
+- **Destination Address** (16 bytes): Same via `hdr->dst.u8`
+- **Upper-Layer Packet Length** (4 bytes): `len` is zero-extended to `uint32_t`, converted to network byte order via `byteorder_htonl()`, then checksummed
+- **Next Header** (4 bytes): `prot_num` is zero-extended to `uint32_t` (producing 3 zero bytes + 1 protocol byte), converted to network byte order, then checksummed
+
+This builds the IPv6 pseudo header per [RFC 8200, section 8.1](https://tools.ietf.org/html/rfc8200#section-8.1). Each call to `inet_csum()` passes the running sum through, and since all individual components are even-sized, there are no padding concerns.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/hdr.h
++++ sys/include/net/ipv6/hdr.h
+@@ -283,7 +283,16 @@
+ static inline uint16_t ipv6_hdr_inet_csum(uint16_t sum, ipv6_hdr_t *hdr,
+                                           uint8_t prot_num, uint16_t len)
+ {
+-    /* MASKED - implement this function */
++    sum = inet_csum(sum, hdr->src.u8, sizeof(ipv6_addr_t));
++    sum = inet_csum(sum, hdr->dst.u8, sizeof(ipv6_addr_t));
++
++    network_uint32_t tmp = byteorder_htonl((uint32_t)len);
++    sum = inet_csum(sum, tmp.u8, sizeof(tmp));
++
++    tmp = byteorder_htonl((uint32_t)prot_num);
++    sum = inet_csum(sum, tmp.u8, sizeof(tmp));
++
++    return sum;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_hdr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  86423	  34256	  78152	 198831	  308af	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==343==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffb8637000; bottom 0x000000430000; size: 0x7fffb8207000 (140736282521600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

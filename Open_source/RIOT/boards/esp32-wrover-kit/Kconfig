@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "esp32-wrover-kit" if BOARD_ESP32_WROVER_KIT
+
+config BOARD_ESP32_WROVER_KIT
+    bool
+    default y
+    select BOARD_COMMON_ESP32
+    select CPU_MODEL_ESP32_WROVER
+
+source "$(RIOTBOARD)/common/esp32/Kconfig"

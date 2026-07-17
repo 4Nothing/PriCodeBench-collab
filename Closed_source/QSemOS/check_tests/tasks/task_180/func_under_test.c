@@ -1,0 +1,4 @@
+OS_SEC_ALW_INLINE INLINE U32 OsQueueGetNodeSize(U16 nodeSize)
+{
+    return ALIGN(nodeSize, OS_QUEUE_NODE_SIZE_ALIGN) + OS_QUEUE_NODE_HEAD_LEN;
+}

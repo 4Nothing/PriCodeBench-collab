@@ -1,0 +1,179 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- Iterates all program headers in the ELF, skipping non-`PT_LOAD` segments
+- For each loadable segment, copies `p_filesz` bytes from the file buffer (`moduleStr + p_offset`) to the allocated load memory (`loadSegMem + p_vaddr - loadSegStartAddr`)
+- Uses `p_filesz` rather than `p_memsz` because the `.bss` portion (`memsz - filesz`) was already zero-initialized when the memory was allocated in `OsDynModuleAllocMemForLoadSeg`
+- Returns `OS_MODULE_ERRNO_MEMCOPY` if `memcpy_s` fails, `OS_MODULE_OK` on success
+- On non-x86_64 architectures, invalidates the data cache via `os_asm_invalidate_dcache_all()`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -257,7 +257,25 @@
+  */
+ static U32 OsDynModuleGetLoadSegData(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    int ret;
++    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
++    Elf_Phdr *phdr = (Elf_Phdr *)(unitInfo->moduleStr + elfInfo->e_phoff);
++    for (i = 0; i < elfInfo->e_phnum; i++) {
++        if (phdr[i].p_type != PT_LOAD) {
++            continue;
++        }
++        /* 前面申请内存的时候已经初始化0了，这里拷贝的大小使用p_filesz而不是用p_memsz的原因就是memsz-filesz这一块是bss，需要清0 */
++        ret = memcpy_s(unitInfo->loadSegMem + phdr[i].p_vaddr - unitInfo->loadSegStartAddr,
++            phdr[i].p_filesz, unitInfo->moduleStr + phdr[i].p_offset, phdr[i].p_filesz);
++        if (ret != EOK) {
++            return OS_MODULE_ERRNO_MEMCOPY;
++        }
++    }
++#ifndef OS_ARCH_X86_64
++    os_asm_invalidate_dcache_all();
++#endif
++    return OS_MODULE_OK;
+ }
+ 
+ static U32 OsDynModuleRelocatePrepare(struct DynModuleUnitInfo *unitInfo, uintptr_t reloc,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    int ret;
+    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
+    Elf_Phdr *phdr = (Elf_Phdr *)(unitInfo->moduleStr + elfInfo->e_phoff);
+    for (i = 0; i < elfInfo->e_phnum; i++) {
+        if (phdr[i].p_type != PT_LOAD) {
+            continue;
+        }
+        /* 前面申请内存的时候已经初始化0了，这里拷贝的大小使用p_filesz而不是用p_memsz的原因就是memsz-filesz这一块是bss，需要清0 */
+        ret = memcpy_s(unitInfo->loadSegMem + phdr[i].p_vaddr - unitInfo->loadSegStartAddr,
+            phdr[i].p_filesz, unitInfo->moduleStr + phdr[i].p_offset, phdr[i].p_filesz);
+        if (ret != EOK) {
+            return OS_MODULE_ERRNO_MEMCOPY;
+        }
+    }
+#ifndef OS_ARCH_X86_64
+    os_asm_invalidate_dcache_all();
+#endif
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleGetLoadSegData.c
+[CASE] no PT_LOAD
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] one zero-sized
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] two zero-sized
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] mixed zero-sized
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] NULL dest zero-sized
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleGetLoadSegData.c:4:
+auto_stub.h:48:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   48 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:630:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  630 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+auto_stub.h: At top level:
+auto_stub.h:642: warning: "ELF_R_SYM" redefined
+  642 | #define ELF_R_SYM(info) ((info) >> 8)
+      | 
+In file included from auto_stub.h:19:
+elf.h:123: note: this is the location of the previous definition
+  123 | #define ELF_R_SYM(info) ELF64_R_SYM(info)
+      | 
+auto_stub.h:643: warning: "ELF_R_TYPE" redefined
+  643 | #define ELF_R_TYPE(info) ((info) & 0xff)
+      | 
+elf.h:124: note: this is the location of the previous definition
+  124 | #define ELF_R_TYPE(info) ELF64_R_TYPE(info)
+      | 
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:686:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  686 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:685:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  685 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  684 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:683:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  683 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  682 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:681:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  681 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:680:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  680 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  679 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  678 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  677 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  676 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  675 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:673:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  673 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

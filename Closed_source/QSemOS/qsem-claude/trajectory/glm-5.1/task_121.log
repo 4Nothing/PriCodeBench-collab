@@ -1,0 +1,55 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same lock-and-delegate pattern as `PRT_PerfFlushHookReg` — acquire the spinlock, call the internal `OsPerfNotifyHookReg` (which stores the hook function pointer in the output module's static variable `g_perfBufNotifyHook`), then release the lock.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -483,7 +483,11 @@
+ 
+ void PRT_PerfNotifyHookReg(const PERF_BUF_NOTIFY_HOOK func)
+ {
+-    /* MASKED - implement this function */
++    U32 intSave;
++
++    PERF_LOCK(intSave);
++    OsPerfNotifyHookReg(func);
++    PERF_UNLOCK(intSave);
+ }
+ 
+ void PRT_PerfFlushHookReg(const PERF_BUF_FLUSH_HOOK func)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 intSave;
+
+    PERF_LOCK(intSave);
+    OsPerfNotifyHookReg(func);
+    PERF_UNLOCK(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfNotifyHookReg.c test_stubs.c
+[Notify hook registered] -> PASS
+[Re-register ok] -> PASS
+Pass-Rate: 100.00% (2/2)
+
+--- stderr ---
+In file included from test_PRT_PerfNotifyHookReg.c:3:
+test_util.h:27:13: warning: ‘TU_EXPECT_EQ_U32’ defined but not used [-Wunused-function]
+   27 | static void TU_EXPECT_EQ_U32(U32 expected, U32 actual, const char *name)
+      |             ^~~~~~~~~~~~~~~~
+
+
+

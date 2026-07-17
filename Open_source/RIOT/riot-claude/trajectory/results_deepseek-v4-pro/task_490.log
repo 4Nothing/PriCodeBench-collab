@@ -1,0 +1,74 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation:
+
+```c
+return ((uint64_t)x * (uint64_t)frac->frac) >> frac->shift;
+```
+
+The `frac_t` struct holds a fixed-point representation of `num/den`, where `frac` = `num/den * 2^shift`. Multiplying the input `x` by `frac` using 64-bit arithmetic (to avoid overflow) and then shifting right by `shift` yields `x * num / den` — the desired scaled value modulo 2³².
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/frac.h
++++ sys/include/frac.h
+@@ -89,7 +89,7 @@
+  */
+ static inline uint32_t frac_scale(const frac_t *frac, uint32_t x)
+ {
+-    /* MASKED - implement this function */
++    return ((uint64_t)x * (uint64_t)frac->frac) >> frac->shift;
+ }
+ 
+ #ifdef __cplusplus
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-frac
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  76362	  31152	  78120	 185634	  2d522	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+OK (1 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc29289000; bottom 0x00000042d000; size: 0x7ffc28e5c000 (140720994631680)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_LogInit` now does:
+
+1. **Idempotency guard**: Returns 0 immediately if `g_logMemBase` is already set (double-init protection)
+2. **Zeroes the shared memory region**: Uses `memset_s` to clear all `SHM_USED_SIZE` bytes — this covers the buffer blocks, valid flags array, head/tail pointers
+3. **Resets the sequence number**: Sets `g_sequenceNum = 0`
+4. **Store fence**: `STORE_FENCE()` ensures all zeroed memory is visible to other cores before they observe the initialized state
+5. **Publishes the base address**: Sets `g_logMemBase = memBase`, which acts as the "initialized" flag — `PRT_IsLogInit()` and `PRT_Log()` both check this value
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -80,7 +80,14 @@
+ /* 只能调用一次 */
+ OS_SEC_L2_TEXT U32 PRT_LogInit(uintptr_t memBase)
+ {
+-    /* MASKED - implement this function */
++    if (g_logMemBase != 0) {
++        return 0;
++    }
++    (void)memset_s((void *)memBase, SHM_USED_SIZE, 0, SHM_USED_SIZE);
++    g_sequenceNum = 0;
++    STORE_FENCE();
++    g_logMemBase = memBase;
++    return 0;
+ }
+ 
+ /* 从核可能需要通过该函数判断 */
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (g_logMemBase != 0) {
+        return 0;
+    }
+    (void)memset_s((void *)memBase, SHM_USED_SIZE, 0, SHM_USED_SIZE);
+    g_sequenceNum = 0;
+    STORE_FENCE();
+    g_logMemBase = memBase;
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LogInit.c
+
+--- stderr ---
+In file included from test_PRT_LogInit.c:29:
+func_under_test.c: In function ‘PRT_LogInit’:
+func_under_test.c:6:11: warning: implicit declaration of function ‘memset_s’; did you mean ‘memset’? [-Wimplicit-function-declaration]
+    6 |     (void)memset_s((void *)memBase, SHM_USED_SIZE, 0, SHM_USED_SIZE);
+      |           ^~~~~~~~
+      |           memset
+func_under_test.c:6:37: error: ‘SHM_USED_SIZE’ undeclared (first use in this function)
+    6 |     (void)memset_s((void *)memBase, SHM_USED_SIZE, 0, SHM_USED_SIZE);
+      |                                     ^~~~~~~~~~~~~
+func_under_test.c:6:37: note: each undeclared identifier is reported only once for each function it appears in
+func_under_test.c:7:5: error: ‘g_sequenceNum’ undeclared (first use in this function)
+    7 |     g_sequenceNum = 0;
+      |     ^~~~~~~~~~~~~
+func_under_test.c:9:18: warning: assignment to ‘void *’ from ‘uintptr_t’ {aka ‘long unsigned int’} makes pointer from integer without a cast [-Wint-conversion]
+    9 |     g_logMemBase = memBase;
+      |                  ^
+test_PRT_LogInit.c: In function ‘print_result’:
+test_PRT_LogInit.c:34:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   34 |     printf("  Expected: 0x%lX\n", (long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+test_PRT_LogInit.c:35:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   35 |     printf("  Actual  : 0x%lX\n", (long long)actual);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+make: *** [Makefile:13: test] Error 1
+
+
+

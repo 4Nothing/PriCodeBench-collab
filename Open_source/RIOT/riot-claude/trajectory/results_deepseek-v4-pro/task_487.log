@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now follows the same two-path structure as `div_u64_by_15625`:
+
+- **Small values** (`val ≤ 16383999997`): Uses a 32-bit inverse multiply with shift `12 + 32 - 9 = 35`, which is the 32-bit version's approach adapted for 64-bit inputs.
+- **Large values**: Uses `_div_mulhi64` for the 128-bit product upper half, shifted by `12 - 9 = 3` (9 fewer bits than the plain division by 15625, accounting for the ×512 factor).
+
+This is the direct analog of the 32-bit `div_u32_by_15625div512` (line 129-132), which uses shift `12 + 32 - 9 = 35` on a 64-bit product — the large-value path extends the same principle to the 128-bit product via `_div_mulhi64`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/div.h
++++ sys/include/div.h
+@@ -142,7 +142,10 @@
+  */
+ static inline uint64_t div_u64_by_15625div512(uint64_t val)
+ {
+-    /* MASKED - implement this function */
++    if (val > 16383999997ull) {
++        return (_div_mulhi64(DIV_H_INV_15625_64, val) >> (DIV_H_INV_15625_SHIFT - 9));
++    }
++    return (val * DIV_H_INV_15625_32) >> (DIV_H_INV_15625_SHIFT + 32 - 9);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-div
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/drivers/periph_common
+   text	   data	    bss	    dec	    hex	filename
+  75728	  31472	  78120	 185320	  2d3e8	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffede253000; bottom 0x00000042d000; size: 0x7ffedde26000 (140732621021184)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

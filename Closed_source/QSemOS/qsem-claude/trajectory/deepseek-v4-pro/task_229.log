@@ -1,0 +1,163 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the `OsDynModuleLoad` function does:
+
+1. **NULL guard** — returns NULL with an error message if `moduleFile` is NULL
+2. **File check with dedup** — calls `OsDynModuleFileCheck` to `stat()` the file and check whether it's already loaded; returns the existing handle on duplicate
+3. **Unit allocation** — `OsDynModuleUnitAlloc` grabs a slot from `g_dynModuleInfoPool`
+4. **File read** — `OsDynModuleGetFileContent` reads the ELF binary into `unitInfo->moduleStr`
+5. **Tracks identity** — saves `st_dev` / `st_ino` so subsequent loads of the same file return the cached handle
+6. **ELF validation** — `OsDynModuleCheckElf` verifies magic, class, machine, type, etc.
+7. **Module loading** — `OsDynModuleUnitLoad` allocates load segments, copies PT_LOAD data, processes relocations, and extracts the `.dynsym` symbol table
+8. **State** — sets `unitInfo->state = MODULE_UNIT_ACTIVE` on success
+9. **Cleanup on failure** — every error path calls `OsDynModuleSetError` to set a diagnostic string and `OsDynModuleUnitFree` to release all allocated resources
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -544,7 +544,58 @@
+ 
+ void *OsDynModuleLoad(const char *moduleFile, S32 mode)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    struct stat moduleFileStat;
++    struct DynModuleUnitInfo *unitInfo = NULL;
++
++    if (moduleFile == NULL) {
++        OsDynModuleSetError("OsDynModuleLoad: moduleFile is NULL");
++        return NULL;
++    }
++
++    ret = OsDynModuleFileCheck(moduleFile, &moduleFileStat, &unitInfo);
++    if (ret != OS_MODULE_OK) {
++        OsDynModuleSetError("OsDynModuleLoad: file check failed for %s, error %u", moduleFile, ret);
++        return NULL;
++    }
++
++    /* Return existing handle if module is already loaded */
++    if (unitInfo != NULL) {
++        return (void *)unitInfo;
++    }
++
++    ret = OsDynModuleUnitAlloc(&unitInfo);
++    if (ret != OS_MODULE_OK) {
++        OsDynModuleSetError("OsDynModuleLoad: unit allocation failed, error %u", ret);
++        return NULL;
++    }
++
++    ret = OsDynModuleGetFileContent(moduleFile, &unitInfo->moduleStr);
++    if (ret != OS_MODULE_OK) {
++        OsDynModuleSetError("OsDynModuleLoad: get file content failed for %s, error %u", moduleFile, ret);
++        OsDynModuleUnitFree(unitInfo);
++        return NULL;
++    }
++
++    unitInfo->stDev = moduleFileStat.st_dev;
++    unitInfo->stIno = moduleFileStat.st_ino;
++
++    ret = OsDynModuleCheckElf((Elf_Ehdr *)unitInfo->moduleStr);
++    if (ret != OS_MODULE_OK) {
++        OsDynModuleSetError("OsDynModuleLoad: ELF check failed for %s, error %u", moduleFile, ret);
++        OsDynModuleUnitFree(unitInfo);
++        return NULL;
++    }
++
++    ret = OsDynModuleUnitLoad(unitInfo, mode);
++    if (ret != OS_MODULE_OK) {
++        OsDynModuleSetError("OsDynModuleLoad: unit load failed for %s, error %u", moduleFile, ret);
++        OsDynModuleUnitFree(unitInfo);
++        return NULL;
++    }
++
++    unitInfo->state = MODULE_UNIT_ACTIVE;
++    return (void *)unitInfo;
+ }
+ 
+ void *OsDynModuleFind(void *handle, const char *symbol)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    struct stat moduleFileStat;
+    struct DynModuleUnitInfo *unitInfo = NULL;
+
+    if (moduleFile == NULL) {
+        OsDynModuleSetError("OsDynModuleLoad: moduleFile is NULL");
+        return NULL;
+    }
+
+    ret = OsDynModuleFileCheck(moduleFile, &moduleFileStat, &unitInfo);
+    if (ret != OS_MODULE_OK) {
+        OsDynModuleSetError("OsDynModuleLoad: file check failed for %s, error %u", moduleFile, ret);
+        return NULL;
+    }
+
+    /* Return existing handle if module is already loaded */
+    if (unitInfo != NULL) {
+        return (void *)unitInfo;
+    }
+
+    ret = OsDynModuleUnitAlloc(&unitInfo);
+    if (ret != OS_MODULE_OK) {
+        OsDynModuleSetError("OsDynModuleLoad: unit allocation failed, error %u", ret);
+        return NULL;
+    }
+
+    ret = OsDynModuleGetFileContent(moduleFile, &unitInfo->moduleStr);
+    if (ret != OS_MODULE_OK) {
+        OsDynModuleSetError("OsDynModuleLoad: get file content failed for %s, error %u", moduleFile, ret);
+        OsDynModuleUnitFree(unitInfo);
+        return NULL;
+    }
+
+    unitInfo->stDev = moduleFileStat.st_dev;
+    unitInfo->stIno = moduleFileStat.st_ino;
+
+    ret = OsDynModuleCheckElf((Elf_Ehdr *)unitInfo->moduleStr);
+    if (ret != OS_MODULE_OK) {
+        OsDynModuleSetError("OsDynModuleLoad: ELF check failed for %s, error %u", moduleFile, ret);
+        OsDynModuleUnitFree(unitInfo);
+        return NULL;
+    }
+
+    ret = OsDynModuleUnitLoad(unitInfo, mode);
+    if (ret != OS_MODULE_OK) {
+        OsDynModuleSetError("OsDynModuleLoad: unit load failed for %s, error %u", moduleFile, ret);
+        OsDynModuleUnitFree(unitInfo);
+        return NULL;
+    }
+
+    unitInfo->state = MODULE_UNIT_ACTIVE;
+    return (void *)unitInfo;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleLoad.c
+[CASE] NULL path returns NULL
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] Invalid path returns NULL
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+Pass-Rate: 100.00% (2/2)
+
+--- stderr ---
+
+
+

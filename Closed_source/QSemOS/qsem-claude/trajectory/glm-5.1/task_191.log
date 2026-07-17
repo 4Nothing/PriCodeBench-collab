@@ -1,0 +1,109 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Gets current TCB** via `RUNNING_TASK` 
+2. **Locks interrupts** with `OsIntLock()`
+3. **Clears `OS_TASK_LOCK_DATA`** to 0 (releasing the task-level lock)
+4. **Calls the user's task entry function** with the 4 stored arguments (`args[0..3]`)
+5. **Restores interrupts** with `OsIntRestore()`
+6. **Exits the task** via `OsTaskExit(taskCb)` — this handles cleanup when the entry function returns
+
+The `taskId` parameter is received by calling convention (the context init sets it as the first argument in the initial stack frame) but the implementation obtains the TCB from the per-core `RUNNING_TASK` pointer instead, which is the standard pattern for SMP mode.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -178,7 +178,18 @@
+  */
+ OS_SEC_L4_TEXT void OsTskEntry(TskHandle taskId)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *taskCb = RUNNING_TASK;
++    uintptr_t intSave;
++
++    intSave = OsIntLock();
++    OS_TASK_LOCK_DATA = 0;
++
++    taskCb->taskEntry(taskCb->args[OS_TSK_PARA_0], taskCb->args[OS_TSK_PARA_1],
++                      taskCb->args[OS_TSK_PARA_2], taskCb->args[OS_TSK_PARA_3]);
++
++    OsIntRestore(intSave);
++    (void)taskId;
++    OsTaskExit(taskCb);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *taskCb = RUNNING_TASK;
+    uintptr_t intSave;
+
+    intSave = OsIntLock();
+    OS_TASK_LOCK_DATA = 0;
+
+    taskCb->taskEntry(taskCb->args[OS_TSK_PARA_0], taskCb->args[OS_TSK_PARA_1],
+                      taskCb->args[OS_TSK_PARA_2], taskCb->args[OS_TSK_PARA_3]);
+
+    OsIntRestore(intSave);
+    (void)taskId;
+    OsTaskExit(taskCb);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskEntry.c
+
+--- stderr ---
+In file included from test_OsTskEntry.c:4:
+auto_stub.h:1282:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1282 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1278 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1277:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1276:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1276 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+Segmentation fault (core dumped)
+
+
+

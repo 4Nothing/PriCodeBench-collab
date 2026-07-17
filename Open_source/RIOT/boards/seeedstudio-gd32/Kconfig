@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "seeedstudio-gd32" if BOARD_SEEEDSTUDIO_GD32
+
+config BOARD_SEEEDSTUDIO_GD32
+    bool
+    default y
+    select CPU_MODEL_GD32VF103VBT6
+    select BOARD_HAS_HXTAL
+    select BOARD_HAS_LXTAL
+
+source "$(RIOTBOARD)/common/gd32v/Kconfig"

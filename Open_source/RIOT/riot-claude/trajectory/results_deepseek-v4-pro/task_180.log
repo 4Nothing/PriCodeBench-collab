@@ -1,0 +1,109 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Acquires the mutex** — follows the same locking pattern as `gnrc_sixlowpan_ctx_lookup_id` and `gnrc_sixlowpan_ctx_update`.
+
+2. **Iterates all 16 context slots** — for each valid context (validated via `_valid()`, which also updates lifetimes), checks whether the address matches the context's prefix using `ipv6_addr_match_prefix`.
+
+3. **Finds the best (longest prefix) match** — tracks the context with the largest `prefix_len` that still matches the address. This is what "best" means per the header doc.
+
+4. **Returns NULL if no match** — if no context's prefix matches the given address, returns NULL.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
++++ sys/net/gnrc/network_layer/sixlowpan/ctx/gnrc_sixlowpan_ctx.c
+@@ -44,7 +44,24 @@
+ 
+ gnrc_sixlowpan_ctx_t *gnrc_sixlowpan_ctx_lookup_addr(const ipv6_addr_t *addr)
+ {
+-    /* MASKED - implement this function */
++    gnrc_sixlowpan_ctx_t *best = NULL;
++    uint8_t best_len = 0;
++
++    mutex_lock(&_ctx_mutex);
++
++    for (uint8_t id = 0; id < GNRC_SIXLOWPAN_CTX_SIZE; id++) {
++        if (_valid(id) &&
++            ipv6_addr_match_prefix(&_ctxs[id].prefix, addr) >= _ctxs[id].prefix_len) {
++            if (_ctxs[id].prefix_len > best_len) {
++                best = &_ctxs[id];
++                best_len = _ctxs[id].prefix_len;
++            }
++        }
++    }
++
++    mutex_unlock(&_ctx_mutex);
++
++    return best;
+ }
+ 
+ gnrc_sixlowpan_ctx_t *gnrc_sixlowpan_ctx_lookup_id(uint8_t id)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-sixlowpan_ctx
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/ctx
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+   text	   data	    bss	    dec	    hex	filename
+ 125088	  38576	  85832	 249496	  3ce98	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+OK (13 tests)
+
+native: exiting
+
+--- stderr ---
+==480==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffff3ba6000; bottom 0x00000043a000; size: 0x7ffff376c000 (140737278033920)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

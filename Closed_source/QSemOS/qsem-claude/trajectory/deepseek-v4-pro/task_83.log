@@ -1,0 +1,138 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Cancel pending timeout** — If the task had `OS_TSK_TIMEOUT` set (checked via the `taskStatus` parameter), it clears the flag and detaches the task from the delay list via `OS_TSK_DELAY_LOCKED_DETACH`.
+2. **Clear wait mask** — Resets `sigWaitMask` since the awaited signal has arrived.
+3. **Add to ready queue** — Puts the task back on the ready queue with `OsTskReadyAdd`.
+4. **Unlock and schedule** — Releases the spin lock (held by the caller) and triggers `OsTskSchedule()` to potentially switch to the now-ready task.
+
+This mirrors `OsSignalWaitSche` (line 50), which does the reverse: removes from ready, sets the wait flag, sets a timeout, then unlocks and schedules. The caller (`PRT_SignalDeliver` at line 266) returns immediately after `OsSignalWaitReSche`, so the function correctly handles unlock + schedule itself rather than expecting the caller to do so.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -140,7 +140,16 @@
+ 
+ OS_SEC_ALW_INLINE INLINE void OsSignalWaitReSche(struct TagTskCb *taskCb, U32 taskStatus)
+ {
+-    /* MASKED - implement this function */
++    if ((taskStatus & OS_TSK_TIMEOUT) != 0) {
++        TSK_STATUS_CLEAR(taskCb, OS_TSK_TIMEOUT);
++        OS_TSK_DELAY_LOCKED_DETACH(taskCb);
++    }
++
++    taskCb->sigWaitMask = 0;
++    OsTskReadyAdd(taskCb);
++
++    OsSpinUnlockTaskRq(taskCb);
++    OsTskSchedule();
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsHandleOneSignal(struct TagTskCb *runTsk, int signum)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if ((taskStatus & OS_TSK_TIMEOUT) != 0) {
+        TSK_STATUS_CLEAR(taskCb, OS_TSK_TIMEOUT);
+        OS_TSK_DELAY_LOCKED_DETACH(taskCb);
+    }
+
+    taskCb->sigWaitMask = 0;
+    OsTskReadyAdd(taskCb);
+
+    OsSpinUnlockTaskRq(taskCb);
+    OsTskSchedule();
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSignalWaitReSche.c stub_prt_signal_env.c
+[CASE] clears timeout
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] status unchanged
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] suspend unchanged
+  Expected: 0x00000080
+  Actual  : 0x00000080
+  Result  : PASS
+
+[CASE] combined unchanged
+  Expected: 0x0000008C
+  Actual  : 0x0000008C
+  Result  : PASS
+
+[CASE] after clear suspend
+  Expected: 0x0000000C
+  Actual  : 0x0000000C
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsSignalWaitReSche.c:1:
+test_common.h:56:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   56 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:16:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   16 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1300:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1300 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1299:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1299 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1298:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1298 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1296:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1296 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1295:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1294:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1294 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1293:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1293 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1292:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1292 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

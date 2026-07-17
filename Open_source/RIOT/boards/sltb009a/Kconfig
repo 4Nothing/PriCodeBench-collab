@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "sltb009a" if BOARD_SLTB009A
+
+config BOARD_SLTB009A
+    bool
+    default y
+    select BOARD_COMMON_SILABS
+    select CPU_MODEL_EFM32GG12B810F1024GM64
+
+source "$(RIOTBOARD)/common/silabs/Kconfig"

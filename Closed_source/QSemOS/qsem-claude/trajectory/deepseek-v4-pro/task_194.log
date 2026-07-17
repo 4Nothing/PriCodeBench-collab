@@ -1,0 +1,132 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. `OsTskMemAlloc` now calls `OsMemAllocAlign` with:
+
+- **`OS_MID_TSK`** — the task module's memory pool ID (0x3)
+- **`OS_MEM_DEFAULT_FSC_PT`** — the default FSC memory partition
+- **`size`** — the requested stack size
+- **`OS_TSK_STACK_SIZE_ALLOC_ALIGN`** — 16-byte alignment (`MEM_ADDR_ALIGN_016`)
+
+This matches the caller at line 309, which assigns `taskCb->stackCfgFlg = OS_TSK_STACK_CFG_BY_SYS` on success, and returns `OS_ERRNO_TSK_NO_MEMORY` when `NULL` is returned — the exact contract fulfilled by delegating to the aligned allocator.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -135,7 +135,9 @@
+  */
+ OS_SEC_L4_TEXT void *OsTskMemAlloc(U32 size)
+ {
+-    /* MASKED - implement this function */
++    void *stackAddr = OsMemAllocAlign((U32)OS_MID_TSK, (U8)OS_MEM_DEFAULT_FSC_PT, size,
++                                      OS_TSK_STACK_SIZE_ALLOC_ALIGN);
++    return stackAddr;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    void *stackAddr = OsMemAllocAlign((U32)OS_MID_TSK, (U8)OS_MEM_DEFAULT_FSC_PT, size,
+                                      OS_TSK_STACK_SIZE_ALLOC_ALIGN);
+    return stackAddr;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskMemAlloc.c
+[CASE] non-NULL on success
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] 16-byte aligned
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] allow zero -> non-NULL or NULL acceptable
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] large alloc non-NULL
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] aligned
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] returns NULL on fail
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] both succeed
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsTskMemAlloc.c: In function ‘case_alloc_zero_size’:
+test_OsTskMemAlloc.c:26:11: warning: unused variable ‘p’ [-Wunused-variable]
+   26 |     void *p = OsTskMemAlloc(0);
+      |           ^
+In file included from test_OsTskMemAlloc.c:4:
+auto_stub.h: At top level:
+auto_stub.h:1281:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1281 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1277:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1276:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1275:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1275 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

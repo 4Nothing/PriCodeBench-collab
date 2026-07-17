@@ -1,0 +1,84 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented at `sys/include/net/ipv6/addr.h:575-581`. Per [RFC 4291, section 2.7](http://tools.ietf.org/html/rfc4291#section-2.7), the multicast address format is:
+
+```
+|   8    |  4 |  4 |         112 bits         |
++--------+----+----+---------------------------+
+|11111111|flgs|scop|        group ID           |
++--------+----+----+---------------------------+
+```
+
+The implementation:
+1. **`memset(addr, 0, ...)`** — zeroes the address (group ID = 0)
+2. **`addr->u8[0] = 0xff`** — sets the 8-bit multicast prefix
+3. **`addr->u8[1] = (flags << 4) | (scope & 0x0f)`** — places the 4 flag bits in the upper nibble and the 4 scope bits in the lower nibble
+
+This follows the same pattern used by the neighboring functions (`ipv6_addr_set_all_nodes_multicast`, `ipv6_addr_set_all_routers_multicast`) which also manipulate `u8[1]` for scope.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -575,7 +575,9 @@
+ static inline void ipv6_addr_set_multicast(ipv6_addr_t *addr, unsigned int flags,
+                                            unsigned int scope)
+ {
+-    /* MASKED - implement this function */
++    memset(addr, 0, sizeof(ipv6_addr_t));
++    addr->u8[0] = 0xff;
++    addr->u8[1] = (uint8_t)((flags << 4) | (scope & 0x0f));
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 194133	  41928	  78152	 314213	  4cb65	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcb2dc9000; bottom 0x00000044c000; size: 0x7ffcb297d000 (140723304779776)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

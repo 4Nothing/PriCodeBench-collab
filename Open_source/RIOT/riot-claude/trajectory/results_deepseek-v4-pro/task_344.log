@@ -1,0 +1,84 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what it does:
+
+- Iterates over all entries in `universal_address_table` (up to `UNIVERSAL_ADDRESS_MAX_ENTRIES`)
+- For each entry with `use_count > 0`, delegates to the existing `universal_address_print_entry` to print it
+- Does not acquire the mutex itself — `universal_address_print_entry` handles its own locking, so this avoids a deadlock
+- Includes the same `cppcheck-suppress` comment used by other loops in the file (since `UNIVERSAL_ADDRESS_MAX_ENTRIES` may be zero)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/universal_address/universal_address.c
++++ sys/universal_address/universal_address.c
+@@ -359,5 +359,12 @@
+ 
+ void universal_address_print_table(void)
+ {
+-    /* MASKED - implement this function */
+-}
++    /* cppcheck-suppress unsignedLessThanZero
++     * (reason: UNIVERSAL_ADDRESS_MAX_ENTRIES may be zero in which case this
++     * code is optimized out) */
++    for (size_t i = 0; i < UNIVERSAL_ADDRESS_MAX_ENTRIES; ++i) {
++        if (universal_address_table[i].use_count > 0) {
++            universal_address_print_entry(&universal_address_table[i]);
++        }
++    }
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127908	  37736	  80456	 246100	  3c154	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................
+OK (20 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc133cf000; bottom 0x00000043b000; size: 0x7ffc12f94000 (140720626810880)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

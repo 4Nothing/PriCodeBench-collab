@@ -1,0 +1,121 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The `PRT_QueueCreate` function now:
+
+1. **Validates parameters** via `OsQueueCreatParaCheck` — checks for NULL `queueId`, zero `nodeNum`/`nodeSize`, and invalid node size
+2. **Acquires an IRQ lock** via `QUEUE_INIT_IRQ_LOCK` before calling the core create logic
+3. **Delegates to `OsQueueCreate`** which allocates memory, initializes the queue control block, and sets up the node list
+4. **Handles errors properly** — restores interrupts via `OsIntRestore` before returning any error from `OsQueueCreate`
+5. **Returns the queue ID** through the output parameter on success
+
+This follows the same pattern as other `PRT_*` functions in the codebase (e.g., `PRT_QueueRead`, `PRT_QueueWrite`): public API wrapper → parameter check → IRQ lock → internal logic → IRQ unlock.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -117,5 +117,23 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_QueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 ret;
++    U32 qId = 0;
++
++    ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    QUEUE_INIT_IRQ_LOCK(intSave);
++    ret = OsQueueCreate(nodeNum, maxNodeSize, &qId);
++    if (ret != OS_OK) {
++        OsIntRestore(intSave);
++        return ret;
++    }
++
++    *queueId = qId;
++    QUEUE_INIT_IRQ_UNLOCK(intSave);
++    return OS_OK;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 ret;
+    U32 qId = 0;
+
+    ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    QUEUE_INIT_IRQ_LOCK(intSave);
+    ret = OsQueueCreate(nodeNum, maxNodeSize, &qId);
+    if (ret != OS_OK) {
+        OsIntRestore(intSave);
+        return ret;
+    }
+
+    *queueId = qId;
+    QUEUE_INIT_IRQ_UNLOCK(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_QueueCreate.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 8 / total 8)
+
+--- stderr ---
+In file included from test_support.h:5,
+                 from test_PRT_QueueCreate.c:6:
+prt_queue_external.h:21: warning: "INLINE" redefined
+   21 | #define INLINE static inline
+      | 
+In file included from test_support.h:4:
+common.h:35: note: this is the location of the previous definition
+   35 | #define INLINE inline
+      | 
+prt_queue_external.h:49: warning: "OS_QUEUE_PID_INVALID" redefined
+   49 | #define OS_QUEUE_PID_INVALID 0xFFFFFFFFU
+      | 
+common.h:206: note: this is the location of the previous definition
+  206 | #define OS_QUEUE_PID_INVALID 0xFFFFU
+      | 
+In file included from test_PRT_QueueCreate.c:7:
+func_under_test.c: In function ‘PRT_QueueCreate’:
+func_under_test.c:7:11: warning: implicit declaration of function ‘OsQueueCreatParaCheck’ [-Wimplicit-function-declaration]
+    7 |     ret = OsQueueCreatParaCheck(nodeNum, maxNodeSize, queueId);
+      |           ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:13:11: warning: implicit declaration of function ‘OsQueueCreate’; did you mean ‘PRT_QueueCreate’? [-Wimplicit-function-declaration]
+   13 |     ret = OsQueueCreate(nodeNum, maxNodeSize, &qId);
+      |           ^~~~~~~~~~~~~
+      |           PRT_QueueCreate
+In file included from test_support.h:5,
+                 from notifier_test_stubs.c:5:
+prt_queue_external.h:21: warning: "INLINE" redefined
+   21 | #define INLINE static inline
+      | 
+In file included from test_support.h:4:
+common.h:35: note: this is the location of the previous definition
+   35 | #define INLINE inline
+      | 
+prt_queue_external.h:49: warning: "OS_QUEUE_PID_INVALID" redefined
+   49 | #define OS_QUEUE_PID_INVALID 0xFFFFFFFFU
+      | 
+common.h:206: note: this is the location of the previous definition
+  206 | #define OS_QUEUE_PID_INVALID 0xFFFFU
+      | 
+
+
+

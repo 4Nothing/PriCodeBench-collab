@@ -1,0 +1,142 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsCheckPrioritySet` now does, matching the documented constraints from `PRT_TaskSetPriority` and the available error codes:
+
+1. **Priority inheritance active** (`priority != origPriority`): Returns `OS_ERRNO_TSK_PRIORITY_INHERIT` — the task's priority is currently boosted due to priority inheritance, so it cannot be changed.
+
+2. **Task blocked on a mutex semaphore**: Returns `OS_ERRNO_TSK_PEND_MUTEX` — a task waiting on a mutex cannot have its priority changed.
+
+3. **Task blocked on a priority-wake-mode semaphore**: Returns `OS_ERRNO_TSK_PEND_PRIOR` — a task waiting on a priority-mode semaphore cannot have its priority changed.
+
+4. **New priority lower than pending tasks on held mutexes**: Iterates through all mutex semaphores held by the task, checks the first (highest-priority) pending task on each. If the new priority is numerically higher (lower priority) than any of those pending tasks, returns `OS_ERRNO_TSK_PRIOR_LOWER_THAN_PENDTSK` to prevent priority inversion.
+
+5. **All checks pass**: Returns `OS_OK`, allowing the priority change.
+
+The implementation follows the same patterns and macros used by the surrounding functions (e.g., `OsGetPendTskMaxPriority`, `OsPriorityRestore`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -101,7 +101,44 @@
+  */
+ OS_SEC_L4_TEXT U32 OsCheckPrioritySet(struct TagTskCb *taskCb, TskPrior taskPrio)
+ {
+-    /* MASKED - implement this function */
++    struct TagSemCb *semPended;
++    struct TagSemCb *curSem;
++    struct TagTskCb *pendTask;
++
++    /* 任务当前正处于优先级继承状态（优先级已被提升），不可重设优先级 */
++    if (taskCb->priority != taskCb->origPriority)
++    {
++        return OS_ERRNO_TSK_PRIORITY_INHERIT;
++    }
++
++    /* 任务阻塞在互斥信号量或优先级唤醒模式的信号量上，不可重设优先级 */
++    if (TSK_STATUS_TST(taskCb, OS_TSK_PEND))
++    {
++        semPended = (struct TagSemCb *)taskCb->taskPend;
++        if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN)
++        {
++            return OS_ERRNO_TSK_PEND_MUTEX;
++        }
++        if (semPended->semMode == SEM_MODE_PRIOR)
++        {
++            return OS_ERRNO_TSK_PEND_PRIOR;
++        }
++    }
++
++    /* 遍历任务持有的互斥信号量，若新优先级低于等待这些互斥信号量的任务优先级，不可重设 */
++    LIST_FOR_EACH(curSem, &taskCb->semBList, struct TagSemCb, semBList)
++    {
++        if (!ListEmpty(&curSem->semList))
++        {
++            pendTask = GET_TCB_PEND(OS_LIST_FIRST(&(curSem->semList)));
++            if (taskPrio > pendTask->priority)
++            {
++                return OS_ERRNO_TSK_PRIOR_LOWER_THAN_PENDTSK;
++            }
++        }
++    }
++
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSemCb *semPended;
+    struct TagSemCb *curSem;
+    struct TagTskCb *pendTask;
+
+    /* 任务当前正处于优先级继承状态（优先级已被提升），不可重设优先级 */
+    if (taskCb->priority != taskCb->origPriority)
+    {
+        return OS_ERRNO_TSK_PRIORITY_INHERIT;
+    }
+
+    /* 任务阻塞在互斥信号量或优先级唤醒模式的信号量上，不可重设优先级 */
+    if (TSK_STATUS_TST(taskCb, OS_TSK_PEND))
+    {
+        semPended = (struct TagSemCb *)taskCb->taskPend;
+        if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN)
+        {
+            return OS_ERRNO_TSK_PEND_MUTEX;
+        }
+        if (semPended->semMode == SEM_MODE_PRIOR)
+        {
+            return OS_ERRNO_TSK_PEND_PRIOR;
+        }
+    }
+
+    /* 遍历任务持有的互斥信号量，若新优先级低于等待这些互斥信号量的任务优先级，不可重设 */
+    LIST_FOR_EACH(curSem, &taskCb->semBList, struct TagSemCb, semBList)
+    {
+        if (!ListEmpty(&curSem->semList))
+        {
+            pendTask = GET_TCB_PEND(OS_LIST_FIRST(&(curSem->semList)));
+            if (taskPrio > pendTask->priority)
+            {
+                return OS_ERRNO_TSK_PRIOR_LOWER_THAN_PENDTSK;
+            }
+        }
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsCheckPrioritySet.c test_stubs.c notifier_test_stubs.c
+no mutex held => expected=0, actual=0
+priority inherited => expected=5, actual=5
+pending on mutex => expected=6, actual=6
+pending prior count => expected=7, actual=7
+new prio lower than waiter => expected=8, actual=8
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsCheckPrioritySet.c: In function ‘main’:
+test_OsCheckPrioritySet.c:18:5: warning: implicit declaration of function ‘test_reset’ [-Wimplicit-function-declaration]
+   18 |     test_reset();
+      |     ^~~~~~~~~~
+test_OsCheckPrioritySet.c:22:5: warning: implicit declaration of function ‘test_init_task’ [-Wimplicit-function-declaration]
+   22 |     test_init_task(&t, 1, 10);
+      |     ^~~~~~~~~~~~~~
+test_OsCheckPrioritySet.c:38:5: warning: implicit declaration of function ‘test_init_sem’ [-Wimplicit-function-declaration]
+   38 |     test_init_sem(&s, OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_BIN, SEM_MUTEX_TYPE_NORMAL), 0, SEM_MODE_FIFO);
+      |     ^~~~~~~~~~~~~
+
+
+

@@ -1,0 +1,151 @@
+============================================================
+=== Claude Session ===
+============================================================
+That was just a stale background search finishing — it's not relevant to the work. The implementation is already complete and verified at `src/core/kernel/task/smp/prt_task.c:104-121`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task.c
++++ src/core/kernel/task/smp/prt_task.c
+@@ -103,7 +103,21 @@
+  */
+ OS_SEC_L0_TEXT void OsTskReadyDel(struct TagTskCb *taskCb)
+ {
+-    /* MASKED - implement this function */
++    struct TagOsRunQue *runQue = NULL;
++    TSK_STATUS_CLEAR(taskCb, OS_TSK_READY);
++
++    runQue = GET_RUNQ(taskCb->coreID);
++
++    if (!(taskCb->isOnRq)) {
++        return;
++    }
++
++    OsDequeueTask(runQue, taskCb, 0);
++    OsDecNrRunning(runQue);
++
++    if (taskCb == runQue->tskCurr) {
++        OsReschedTask(taskCb);
++    }
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagOsRunQue *runQue = NULL;
+    TSK_STATUS_CLEAR(taskCb, OS_TSK_READY);
+
+    runQue = GET_RUNQ(taskCb->coreID);
+
+    if (!(taskCb->isOnRq)) {
+        return;
+    }
+
+    OsDequeueTask(runQue, taskCb, 0);
+    OsDecNrRunning(runQue);
+
+    if (taskCb == runQue->tskCurr) {
+        OsReschedTask(taskCb);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskReadyDel.c test_stubs.c notifier_test_stubs.c
+[ready flag cleared] PASS: expected=false, actual=false -> PASS
+[isOnRq false] PASS: expected=false, actual=false -> PASS
+[nrRunning dec] PASS: expected=0, actual=0 -> PASS
+[dequeue called only once] PASS: expected=1, actual=1 -> PASS
+[resched called] PASS: expected=1, actual=1 -> PASS
+[resched still 1] PASS: expected=1, actual=1 -> PASS
+[nrRunning core1 dec] PASS: expected=0, actual=0 -> PASS
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+In file included from common/shim_prt_task_test.h:9,
+                 from test_OsTskReadyDel.c:3:
+common/../auto_stub.h:80:1: warning: parameter names (without types) in function declaration
+   80 | typedef void (*HwiProcFunc)(HwiArg);
+      | ^~~~~~~
+common/shim_prt_task_test.h:60:31: warning: variable ‘g_dummy_ref__avoid_empty_units’ declared ‘inline’
+   60 | static inline void (*volatile g_dummy_ref__avoid_empty_units)(void) = 0;
+      |                               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from test_OsTskReadyDel.c:4:
+common/test_common.h:16:20: warning: inline function ‘OsSignalTimeOutSet’ declared but never defined
+   16 | extern inline void OsSignalTimeOutSet(struct TagTskCb *runTsk, U32 timeOutTick);
+      |                    ^~~~~~~~~~~~~~~~~~
+common/test_common.h:15:20: warning: inline function ‘OsHandleOneSignal’ declared but never defined
+   15 | extern inline void OsHandleOneSignal(struct TagTskCb *runTsk, int signum);
+      |                    ^~~~~~~~~~~~~~~~~
+common/test_common.h:14:19: warning: inline function ‘OsSignalWaitSche’ declared but never defined
+   14 | extern inline U32 OsSignalWaitSche(struct TagTskCb *runTsk, const signalSet *set, U32 timeOutTick);
+      |                   ^~~~~~~~~~~~~~~~
+common/test_common.h:13:19: warning: inline function ‘OsSigWaitProcPendingSignal’ declared but never defined
+   13 | extern inline U32 OsSigWaitProcPendingSignal(struct TagTskCb *runTsk, const signalSet *set, signalInfo *info);
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~
+common/test_common.h:12:20: warning: inline function ‘OsSignalWaitReSche’ declared but never defined
+   12 | extern inline void OsSignalWaitReSche(struct TagTskCb *taskCb, U32 taskStatus);
+      |                    ^~~~~~~~~~~~~~~~~~
+common/test_common.h:11:19: warning: inline function ‘OsAddSignalPendingFlag’ declared but never defined
+   11 | extern inline U32 OsAddSignalPendingFlag(struct TagTskCb *taskCb, signalInfo *info);
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+common/test_common.h:43:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   43 | static void print_pass_rate(void)
+      |             ^~~~~~~~~~~~~~~
+common/test_common.h:38:13: warning: ‘print_result_int’ defined but not used [-Wunused-function]
+   38 | static void print_result_int(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~~~~~
+common/shim_prt_task_test.h:194:39: warning: ‘g_testDelayBase’ defined but not used [-Wunused-variable]
+  194 | static struct TagOsTskSortedDelayList g_testDelayBase;
+      |                                       ^~~~~~~~~~~~~~~
+common/../auto_stub.h:1524:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1524 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+common/../auto_stub.h:1523:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1523 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+common/../auto_stub.h:1522:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1522 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+common/../auto_stub.h:1521:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1521 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+common/../auto_stub.h:1520:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1520 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+common/../auto_stub.h:1518:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1518 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+common/../auto_stub.h:1517:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1517 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+common/../auto_stub.h:1516:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1516 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+common/../auto_stub.h:1515:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1515 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+common/../auto_stub.h:1514:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1514 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+common/../auto_stub.h:1513:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1513 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+common/../auto_stub.h:1512:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1512 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+common/../auto_stub.h:1511:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1511 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

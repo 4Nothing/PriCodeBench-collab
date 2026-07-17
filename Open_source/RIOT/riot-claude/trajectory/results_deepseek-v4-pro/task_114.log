@@ -1,0 +1,105 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Locks the mutex** (following the pattern of all other FIB functions)
+2. **Validates parameters** — returns `-EFAULT` if `fib_sr`, `dst`, or `dst_size` is NULL, or if `fib_sr` isn't in the table
+3. **Checks lifetime** — returns `-ENOENT` if the source route has expired
+4. **Checks destination exists** — returns `-EHOSTUNREACH` if `sr_dest` is NULL (no destination has been set)
+5. **Copies the address** via `universal_address_get_address()` — returns 0 on success or `-ENOBUFS` if the provided buffer is too small
+
+The implementation follows the same patterns used by `fib_sr_read_head` and `fib_sr_entry_get_address` in the same file, and matches all documented return values in the header.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -795,7 +795,31 @@
+ int fib_sr_read_destination(fib_table_t *table, fib_sr_t *fib_sr,
+                             uint8_t *dst, size_t *dst_size)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    if ((fib_sr == NULL) || (dst == NULL) || (dst_size == NULL)
++        || (fib_is_sr_in_table(table, fib_sr) == -ENOENT)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_sr_check_lifetime(fib_sr) == -ENOENT) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOENT;
++    }
++
++    if (fib_sr->sr_dest == NULL) {
++        mutex_unlock(&(table->mtx_access));
++        return -EHOSTUNREACH;
++    }
++
++    if (universal_address_get_address(fib_sr->sr_dest->address, dst, dst_size) != NULL) {
++        mutex_unlock(&(table->mtx_access));
++        return 0;
++    }
++    else {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOBUFS;
++    }
+ }
+ 
+ int fib_sr_set(fib_table_t *table, fib_sr_t *fib_sr, kernel_pid_t *sr_iface_id,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127000	  36808	  86856	 250664	  3d328	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffff4360000; bottom 0x000000439000; size: 0x7ffff3f27000 (140737286139904)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

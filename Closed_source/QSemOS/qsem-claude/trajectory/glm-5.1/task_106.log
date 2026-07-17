@@ -1,0 +1,213 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function `PRT_HwiDelete` now:
+
+1. **Validates** the HWI number, returning `OS_ERRNO_HWI_NUM_INVALID` if out of range
+2. **Disables** the interrupt via `PRT_HwiDisable` before removal
+3. **Locks** IRQ context with `OS_HWI_IRQ_LOCK`
+4. **Delegates** to `OsHwiDeleteFormResume` which handles attribute cleanup, combine-mode teardown, and resetting the handler to the default
+5. **Unlocks** and returns
+
+The implementation follows the same pattern as `PRT_HwiCreate` and matches the expected behavior from the test cases: invalid-number check, disabling the interrupt before deletion, and proper lock/unlock pairing around `OsHwiDeleteFormResume`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -453,7 +453,28 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_HwiDelete(HwiHandle hwiNum)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 irqNum;
++    U32 ret;
++
++    if (OS_HWI_NUM_CHECK(hwiNum)) {
++        return OS_ERRNO_HWI_NUM_INVALID;
++    }
++
++    irqNum = OS_HWI2IRQ(hwiNum);
++
++    (void)PRT_HwiDisable(hwiNum);
++
++    OS_HWI_IRQ_LOCK(intSave);
++
++    ret = OsHwiDeleteFormResume(irqNum);
++    if (ret != OS_OK) {
++        OS_HWI_IRQ_UNLOCK(intSave);
++        return ret;
++    }
++
++    OS_HWI_IRQ_UNLOCK(intSave);
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT void OsHwiDisableAll(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 irqNum;
+    U32 ret;
+
+    if (OS_HWI_NUM_CHECK(hwiNum)) {
+        return OS_ERRNO_HWI_NUM_INVALID;
+    }
+
+    irqNum = OS_HWI2IRQ(hwiNum);
+
+    (void)PRT_HwiDisable(hwiNum);
+
+    OS_HWI_IRQ_LOCK(intSave);
+
+    ret = OsHwiDeleteFormResume(irqNum);
+    if (ret != OS_OK) {
+        OS_HWI_IRQ_UNLOCK(intSave);
+        return ret;
+    }
+
+    OS_HWI_IRQ_UNLOCK(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test_PRT_HwiDelete test_PRT_HwiDelete.c test_stubs.c notifier_test_stubs.c
+ln -sf test_PRT_HwiDelete test
+[CASE] invalid hwi num
+  Expected: 33556481
+  Actual: 33556481
+  Result: PASS
+[CASE] delete default ok
+  Expected: 0
+  Actual: 0
+  Result: PASS
+[CASE] delete created ok
+  Expected: 0
+  Actual: 0
+  Result: PASS
+[CASE] after delete default
+  Expected: 100263933511537
+  Actual: 100263933511537
+  Result: PASS
+[CASE] disable called
+  Expected: 3
+  Actual: 3
+  Result: PASS
+[CASE] delete edge ok
+  Expected: 0
+  Actual: 0
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_PRT_HwiDelete.c:3:
+auto_stub.h:836: warning: "OS_ERRNO_HWI_ALREADY_CREATED" redefined
+  836 | #define OS_ERRNO_HWI_ALREADY_CREATED OS_ERRNO_BUILD_ERROR(OS_MID_HWI, 0x03)
+      | 
+In file included from test_PRT_HwiDelete.c:1:
+test_support.h:36: note: this is the location of the previous definition
+   36 | #define OS_ERRNO_HWI_ALREADY_CREATED 0x02000803U
+      | 
+auto_stub.h:845: warning: "OS_ERRNO_HWI_MODE_UNSET" redefined
+  845 | #define OS_ERRNO_HWI_MODE_UNSET OS_ERRNO_BUILD_ERROR(OS_MID_HWI, 0x0b)
+      | 
+test_support.h:22: note: this is the location of the previous definition
+   22 | #define OS_ERRNO_HWI_MODE_UNSET 0x02000804U
+      | 
+auto_stub.h:848: warning: "OS_ERRNO_HWI_PROC_FUNC_NULL" redefined
+  848 | #define OS_ERRNO_HWI_PROC_FUNC_NULL OS_ERRNO_BUILD_ERROR(OS_MID_HWI, 0x04)
+      | 
+test_support.h:21: note: this is the location of the previous definition
+   21 | #define OS_ERRNO_HWI_PROC_FUNC_NULL 0x02000802U
+      | 
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+test_support.h:62:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   62 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:56:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   56 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+test_stubs.c: In function ‘OsMemAllocAlign’:
+test_stubs.c:159:12: warning: implicit declaration of function ‘malloc’ [-Wimplicit-function-declaration]
+  159 |     return malloc(size);
+      |            ^~~~~~
+test_stubs.c:2:1: note: include ‘<stdlib.h>’ or provide a declaration of ‘malloc’
+    1 | #include "test_support.h"
+  +++ |+#include <stdlib.h>
+    2 | 
+test_stubs.c:159:12: warning: incompatible implicit declaration of built-in function ‘malloc’ [-Wbuiltin-declaration-mismatch]
+  159 |     return malloc(size);
+      |            ^~~~~~
+test_stubs.c:159:12: note: include ‘<stdlib.h>’ or provide a declaration of ‘malloc’
+test_stubs.c: In function ‘OsMemAlloc’:
+test_stubs.c:166:12: warning: incompatible implicit declaration of built-in function ‘malloc’ [-Wbuiltin-declaration-mismatch]
+  166 |     return malloc(size);
+      |            ^~~~~~
+test_stubs.c:166:12: note: include ‘<stdlib.h>’ or provide a declaration of ‘malloc’
+In file included from test_stubs.c:1:
+test_support.h: At top level:
+test_support.h:68:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   68 | static void print_case_result(const char *name, long long expected, long long actual, int passed)
+      |             ^~~~~~~~~~~~~~~~~
+test_support.h:62:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   62 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:56:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   56 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

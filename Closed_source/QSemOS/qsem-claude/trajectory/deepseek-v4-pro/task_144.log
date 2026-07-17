@@ -1,0 +1,180 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete and matches the expected behavior from the test oracle.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sched/prt_sched_single.c
++++ src/core/kernel/sched/prt_sched_single.c
+@@ -58,7 +58,27 @@
+  */
+ OS_SEC_L0_TEXT void OsMainSchedule(void)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *prevTsk = RUNNING_TASK;
++#if defined(OS_OPTION_RR_SCHED)
++    U64 currTime = OsCurCycleGet64();
++    OsTimeSliceUpdate(prevTsk, currTime, 0);
++#endif
++    if ((UNI_FLAG & OS_FLG_TSK_REQ) != 0) {
++        UNI_FLAG &= ~OS_FLG_TSK_REQ;
++
++        RUNNING_TASK->taskStatus &= ~OS_TSK_RUNNING;
++        g_highestTask->taskStatus |= OS_TSK_RUNNING;
++
++        RUNNING_TASK = g_highestTask;
++
++        if (prevTsk != g_highestTask) {
++#if defined(OS_OPTION_RR_SCHED)
++            g_highestTask->startTime = currTime;
++#endif
++            OsTskSwitchHookCaller(prevTsk->taskPid, g_highestTask->taskPid);
++        }
++    }
++    OsTskContextLoad((uintptr_t)RUNNING_TASK);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *prevTsk = RUNNING_TASK;
+#if defined(OS_OPTION_RR_SCHED)
+    U64 currTime = OsCurCycleGet64();
+    OsTimeSliceUpdate(prevTsk, currTime, 0);
+#endif
+    if ((UNI_FLAG & OS_FLG_TSK_REQ) != 0) {
+        UNI_FLAG &= ~OS_FLG_TSK_REQ;
+
+        RUNNING_TASK->taskStatus &= ~OS_TSK_RUNNING;
+        g_highestTask->taskStatus |= OS_TSK_RUNNING;
+
+        RUNNING_TASK = g_highestTask;
+
+        if (prevTsk != g_highestTask) {
+#if defined(OS_OPTION_RR_SCHED)
+            g_highestTask->startTime = currTime;
+#endif
+            OsTskSwitchHookCaller(prevTsk->taskPid, g_highestTask->taskPid);
+        }
+    }
+    OsTskContextLoad((uintptr_t)RUNNING_TASK);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsMainSchedule.c test_support.c notifier_test_stubs.c
+[Case] No req flag loads current
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Switch to highest
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] Switch hook called
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Req flag cleared
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] Prev==Highest no extra hook
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] RR update startTime set
+  Expect: 1
+  Actual: 1
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsMainSchedule.c: In function ‘main’:
+test_OsMainSchedule.c:45:5: warning: implicit declaration of function ‘init_task’ [-Wimplicit-function-declaration]
+   45 |     init_task(&g_taskA, 1, 0, 0);
+      |     ^~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_OsMainSchedule.c:8:
+auto_stub.h: At top level:
+auto_stub.h:1668:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1668 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1667:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1667 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1666 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1664:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1663:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1663 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1662:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1662 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1661:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1661 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1656:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1656 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1655:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1655 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_hook_external.h:2,
+                 from test_support.c:4:
+auto_stub.h:1668:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1668 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1667:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1667 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1666:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1666 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1664:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1664 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1663:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1663 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1662:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1662 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1661:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1661 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1658:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1658 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1657:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1657 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1656:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1656 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1655:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1655 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

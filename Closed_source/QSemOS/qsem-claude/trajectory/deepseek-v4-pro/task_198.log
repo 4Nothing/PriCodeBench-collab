@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation is a one-line delegation to `OsTaskCreateOnly` with `isSmpIdle = FALSE`. This matches the pattern already established in the file — `OsTaskCreateOnly` (line 417) contains the complete task creation logic (parameter validation, TCB allocation, stack/resource initialization, context setup, and status assignment), and `PRT_TaskCreate` simply wraps it for the non-idle case, consistent with how callers use it (call `PRT_TaskCreate`, then `PRT_TaskResume` to activate).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -467,7 +467,7 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_TaskCreate(TskHandle *taskPid, struct TskInitParam *initParam)
+ {
+-    /* MASKED - implement this function */
++    return OsTaskCreateOnly(taskPid, initParam, FALSE);
+ }
+ 
+ #if defined(OS_OPTION_LOCALE)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return OsTaskCreateOnly(taskPid, initParam, FALSE);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskCreate.c
+[CASE] returns fake_ret
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] forward called once
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] task id set
+  Expected: 999
+  Actual  : 999
+  Result  : PASS
+
+[CASE] error bubbled
+  Expected: 177
+  Actual  : 177
+  Result  : PASS
+
+[CASE] policy passed
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] name passed len
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] called twice
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+[CASE] id is 999
+  Expected: 999
+  Actual  : 999
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

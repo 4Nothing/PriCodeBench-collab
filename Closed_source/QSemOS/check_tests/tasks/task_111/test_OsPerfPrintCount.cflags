@@ -1,0 +1,2 @@
+-DSKIP_OsPerfPrintCount
+-DSKIP_OsPerfPmuGet

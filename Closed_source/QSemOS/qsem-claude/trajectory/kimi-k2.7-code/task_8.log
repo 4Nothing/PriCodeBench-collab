@@ -1,0 +1,124 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsPerfOutPutRemainSize` in `src/extended/perf/prt_perf_output.c:112`.
+
+The function returns the current free space of the perf output ring buffer, using the same lock-protected pattern as `PRT_RingbufUsedSize`:
+- Returns `0` if the ring buffer is not initialized.
+- Otherwise, reads `g_perfOutputCb.ringbuf.remain` under the ring buffer's spinlock and returns it.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -111,7 +111,18 @@
+ 
+ U32 OsPerfOutPutRemainSize()
+ {
+-    /* MASKED - implement this function */
++    U32 size;
++    uintptr_t intSave;
++
++    if (g_perfOutputCb.ringbuf.status != RBUF_INITED) {
++        return 0;
++    }
++
++    intSave = PRT_SplIrqLock(&g_perfOutputCb.ringbuf.lock);
++    size = g_perfOutputCb.ringbuf.remain;
++    PRT_SplIrqUnlock(&g_perfOutputCb.ringbuf.lock, intSave);
++
++    return size;
+ }
+ 
+ void OsPerfOutPutInfo(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 size;
+    uintptr_t intSave;
+
+    if (g_perfOutputCb.ringbuf.status != RBUF_INITED) {
+        return 0;
+    }
+
+    intSave = PRT_SplIrqLock(&g_perfOutputCb.ringbuf.lock);
+    size = g_perfOutputCb.ringbuf.remain;
+    PRT_SplIrqUnlock(&g_perfOutputCb.ringbuf.lock, intSave);
+
+    return size;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfOutPutRemainSize.c
+
+--- stderr ---
+In file included from test_OsPerfOutPutRemainSize.c:5:
+func_under_test.c: In function ‘OsPerfOutPutRemainSize’:
+func_under_test.c:10:15: warning: implicit declaration of function ‘PRT_SplIrqLock’ [-Wimplicit-function-declaration]
+   10 |     intSave = PRT_SplIrqLock(&g_perfOutputCb.ringbuf.lock);
+      |               ^~~~~~~~~~~~~~
+func_under_test.c:12:5: warning: implicit declaration of function ‘PRT_SplIrqUnlock’ [-Wimplicit-function-declaration]
+   12 |     PRT_SplIrqUnlock(&g_perfOutputCb.ringbuf.lock, intSave);
+      |     ^~~~~~~~~~~~~~~~
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfOutPutRemainSize.c:2:
+auto_stub.h: At top level:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/ccBhuDzm.o: in function `OsPerfOutPutRemainSize':
+test_OsPerfOutPutRemainSize.c:(.text+0x4d2): undefined reference to `PRT_SplIrqLock'
+/usr/bin/ld: test_OsPerfOutPutRemainSize.c:(.text+0x4fc): undefined reference to `PRT_SplIrqUnlock'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

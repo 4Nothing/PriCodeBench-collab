@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l476rg" if BOARD_NUCLEO_L476RG
+
+config BOARD_NUCLEO_L476RG
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO64
+    select CPU_MODEL_STM32L476RG
+
+source "$(RIOTBOARD)/common/nucleo64/Kconfig"

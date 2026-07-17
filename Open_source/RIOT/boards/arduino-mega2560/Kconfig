@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "arduino-mega2560" if BOARD_ARDUINO_MEGA2560
+
+config BOARD_ARDUINO_MEGA2560
+    bool
+    default y
+    select CPU_MODEL_ATMEGA2560
+    select BOARD_COMMON_ARDUINO_ATMEGA
+
+source "$(RIOTBOARD)/common/arduino-atmega/Kconfig"

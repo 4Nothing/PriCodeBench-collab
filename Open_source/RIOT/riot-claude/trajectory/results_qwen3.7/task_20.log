@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. Implemented `bhp_msg_init` in `sys/bhp/msg.c`:
+
+- Calls `bhp_set_cb()` to register the callback and context on the underlying `bhp_t`
+- Sets `pid` to `KERNEL_PID_UNDEF` (per the `@post` condition in the header)
+- Initializes the message with type `BHP_MSG_BH_REQUEST` and `content.ptr` pointing to the `bhp_t` descriptor, so `bhp_msg_handler` can pass it to `bhp_irq_handler` when the message is received
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bhp/msg.c
++++ sys/bhp/msg.c
+@@ -22,7 +22,10 @@
+ 
+ void bhp_msg_init(bhp_msg_t *bhp_msg, bhp_cb_t cb, void *ctx)
+ {
+-    /* MASKED - implement this function */
++    bhp_set_cb(&bhp_msg->bhp, cb, ctx);
++    bhp_msg->pid = KERNEL_PID_UNDEF;
++    bhp_msg->msg.type = BHP_MSG_BH_REQUEST;
++    bhp_msg->msg.content.ptr = &bhp_msg->bhp;
+ }
+ 
+ void bhp_msg_isr_cb(void *bhp_msg_ctx)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bhp_msg
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bhp
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79058	  31808	  94720	 205586	  32312	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffd051b000; bottom 0x00000042d000; size: 0x7fffd00ee000 (140736684023808)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==323==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

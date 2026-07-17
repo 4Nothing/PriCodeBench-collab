@@ -1,0 +1,98 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward:
+
+1. **Target first**: Uses `clif_add_target_from_buffer` to write the `<target>` portion (or calculate its size when `buf` is NULL).
+2. **Attributes follow**: Iterates over `link->attrs` and calls `clif_add_attr` for each one, which handles the `;key=value` formatting.
+3. **Error propagation**: If any sub-call returns a negative value (e.g., `CLIF_NO_SPACE`), the error is returned immediately.
+4. **NULL-buf mode**: When `buf` is NULL, both helpers return only the size they *would* have written, so the function computes the total required buffer size.
+
+This directly uses the existing lower-level helpers (`clif_add_target_from_buffer` at line 110 and `clif_add_attr` at line 158) that were already designed for exactly this purpose.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/clif/clif.c
++++ sys/clif/clif.c
+@@ -104,7 +104,30 @@
+ 
+ ssize_t clif_encode_link(const clif_t *link, char *buf, size_t maxlen)
+ {
+-    /* MASKED - implement this function */
++    assert(link);
++
++    size_t pos = 0;
++    ssize_t res;
++
++    res = clif_add_target_from_buffer(link->target, link->target_len,
++                                      buf ? &buf[pos] : NULL,
++                                      buf ? maxlen - pos : 0);
++    if (res < 0) {
++        return res;
++    }
++    pos += res;
++
++    for (unsigned i = 0; i < link->attrs_len; i++) {
++        res = clif_add_attr(&link->attrs[i],
++                            buf ? &buf[pos] : NULL,
++                            buf ? maxlen - pos : 0);
++        if (res < 0) {
++            return res;
++        }
++        pos += res;
++    }
++
++    return pos;
+ }
+ 
+ ssize_t clif_add_target_from_buffer(const char *target, size_t target_len, char *buf, size_t maxlen)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-clif
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/clif
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  94285	  35080	  78120	 207485	  32a7d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff3dca6000; bottom 0x000000432000; size: 0x7fff3d874000 (140734225661952)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

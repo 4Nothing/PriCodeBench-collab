@@ -1,0 +1,173 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implementation complete. The `OsActivate` function now does the following:
+
+1. **Creates the SMP idle task** via `OsIdleTskSMPCreate()` — returns early on failure.
+2. **Sets the background active flag** (`UNI_FLAG |= OS_FLG_BGD_ACTIVE`) to indicate the background task is running.
+3. **On the primary core** (when `OsGetHwThreadId() < g_primaryCoreId + g_numOfCores - 1`): fires the first-time switch hook and wakes up secondary cores via `OsSmpWakeUpSecondaryCore()`.
+4. **Starts multitasking** via `OsFirstTimeSwitch()`. This function never returns on success, so the fallthrough returns `OS_ERRNO_TSK_ACTIVE_FAILED` as an error sentinel.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -147,7 +147,28 @@
+  */
+ OS_SEC_L4_TEXT U32 OsActivate(void)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++    ret = OsIdleTskSMPCreate();
++
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    /* Indicate that background task is running. */
++    UNI_FLAG |= OS_FLG_BGD_ACTIVE;
++
++    if (OsGetHwThreadId() < (g_primaryCoreId + g_numOfCores - 1)) {
++
++        OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_FIRST_TIME_SWH);
++
++        OsSmpWakeUpSecondaryCore();
++    }
++
++    /* Start Multitasking. */
++    OsFirstTimeSwitch();
++
++    return OS_ERRNO_TSK_ACTIVE_FAILED;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+    ret = OsIdleTskSMPCreate();
+
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    /* Indicate that background task is running. */
+    UNI_FLAG |= OS_FLG_BGD_ACTIVE;
+
+    if (OsGetHwThreadId() < (g_primaryCoreId + g_numOfCores - 1)) {
+
+        OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_FIRST_TIME_SWH);
+
+        OsSmpWakeUpSecondaryCore();
+    }
+
+    /* Start Multitasking. */
+    OsFirstTimeSwitch();
+
+    return OS_ERRNO_TSK_ACTIVE_FAILED;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsActivate.c
+[CASE] propagate fail
+  Expected: 119
+  Actual  : 119
+  Result  : PASS
+
+[CASE] no bgd active flag
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] return active_failed sentinel
+  Expected: 4107
+  Actual  : 4107
+  Result  : PASS
+
+[CASE] bgd active flag set
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+[CASE] first time switch called
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] wakeup secondary called
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] no wakeup on last core
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] bgd flag set
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+[CASE] bgd flag still set
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsActivate.c:4:
+auto_stub.h:1280:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1277:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1277 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1276:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1275:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1275 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1274:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1274 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1268:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1268 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

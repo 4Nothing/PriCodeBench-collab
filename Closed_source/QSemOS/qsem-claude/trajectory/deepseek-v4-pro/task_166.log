@@ -1,0 +1,151 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_SemPost` does:
+
+1. **PERF tracing** — records the semaphore post event if performance tracing is enabled
+2. **Handle validation** — rejects handles beyond `g_maxSem` with `OS_ERRNO_SEM_INVALID`
+3. **Error checking** — delegates to `OsSemPostErrorCheck` which validates the semaphore is in use, checks for counting semaphore overflow, and (for binary mutexes) ensures the caller is the owner and not in interrupt context
+4. **Invalid post check** — delegates to `OsSemPostIsInvalid` which handles recursive mutex decrement and the "already free" case for binary semaphores
+5. **Wakeup path** — if tasks are blocked on the semaphore (`!ListEmpty`), calls `OsSemPendListGet` to dequeue and wake the first/highest-priority waiter, then triggers rescheduling via `OsTskScheduleFastPs`
+6. **No-waiter path** — increments `semCount` directly when no tasks are waiting
+
+The implementation follows the same lock/unlock discipline as `PRT_SemPend`: `OsSemIfPrioLock`/`OsSemIfPrioUnLock` for the priority lock, `SEM_CB_IRQ_LOCK`/`SEM_CB_IRQ_UNLOCK` for error-return paths, and `SEM_CB_UNLOCK` + `OsIntRestore` for the scheduling path.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -508,5 +508,49 @@
+  */
+ OS_SEC_L0_TEXT U32 PRT_SemPost(SemHandle semHandle)
+ {
+-    /* MASKED - implement this function */
++#if defined(OS_OPTION_PERF) && defined(OS_OPTION_PERF_SW_PMU)
++    PRT_PERF(SEM_POST);
++#endif
++    uintptr_t intSave;
++    U32 ret;
++    struct TagSemCb *semPosted = NULL;
++
++    if (semHandle >= (SemHandle)g_maxSem)
++    {
++        return OS_ERRNO_SEM_INVALID;
++    }
++
++    semPosted = GET_SEM(semHandle);
++
++    SEM_CB_IRQ_LOCK(semPosted, intSave);
++
++    ret = OsSemPostErrorCheck(semPosted, semHandle);
++    if (ret != OS_OK)
++    {
++        SEM_CB_IRQ_UNLOCK(semPosted, intSave);
++        return ret;
++    }
++
++    if (OsSemPostIsInvalid(semPosted) == TRUE)
++    {
++        SEM_CB_IRQ_UNLOCK(semPosted, intSave);
++        return OS_OK;
++    }
++
++    OsSemIfPrioLock(semPosted);
++
++    if (!ListEmpty(&semPosted->semList))
++    {
++        OsSemPendListGet(semPosted);
++        OsSemIfPrioUnLock(semPosted);
++        SEM_CB_UNLOCK(semPosted);
++        OsTskScheduleFastPs(intSave);
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    semPosted->semCount++;
++    OsSemIfPrioUnLock(semPosted);
++    SEM_CB_IRQ_UNLOCK(semPosted, intSave);
++    return OS_OK;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+#if defined(OS_OPTION_PERF) && defined(OS_OPTION_PERF_SW_PMU)
+    PRT_PERF(SEM_POST);
+#endif
+    uintptr_t intSave;
+    U32 ret;
+    struct TagSemCb *semPosted = NULL;
+
+    if (semHandle >= (SemHandle)g_maxSem)
+    {
+        return OS_ERRNO_SEM_INVALID;
+    }
+
+    semPosted = GET_SEM(semHandle);
+
+    SEM_CB_IRQ_LOCK(semPosted, intSave);
+
+    ret = OsSemPostErrorCheck(semPosted, semHandle);
+    if (ret != OS_OK)
+    {
+        SEM_CB_IRQ_UNLOCK(semPosted, intSave);
+        return ret;
+    }
+
+    if (OsSemPostIsInvalid(semPosted) == TRUE)
+    {
+        SEM_CB_IRQ_UNLOCK(semPosted, intSave);
+        return OS_OK;
+    }
+
+    OsSemIfPrioLock(semPosted);
+
+    if (!ListEmpty(&semPosted->semList))
+    {
+        OsSemPendListGet(semPosted);
+        OsSemIfPrioUnLock(semPosted);
+        SEM_CB_UNLOCK(semPosted);
+        OsTskScheduleFastPs(intSave);
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    semPosted->semCount++;
+    OsSemIfPrioUnLock(semPosted);
+    SEM_CB_IRQ_UNLOCK(semPosted, intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SemPost.c notifier_test_stubs.c test_stubs.c
+invalid handle => expected=1, actual=1
+unused sem => expected=1, actual=1
+count overflow => expected=2, actual=2
+count increment => expected=0, actual=0
+woke waiter schedule fast => expected=1 actual=1
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_PRT_SemPost.c:4:
+func_under_test.c: In function ‘PRT_SemPost’:
+func_under_test.c:19:11: warning: implicit declaration of function ‘OsSemPostErrorCheck’ [-Wimplicit-function-declaration]
+   19 |     ret = OsSemPostErrorCheck(semPosted, semHandle);
+      |           ^~~~~~~~~~~~~~~~~~~
+func_under_test.c:26:9: warning: implicit declaration of function ‘OsSemPostIsInvalid’ [-Wimplicit-function-declaration]
+   26 |     if (OsSemPostIsInvalid(semPosted) == TRUE)
+      |         ^~~~~~~~~~~~~~~~~~
+func_under_test.c:36:9: warning: implicit declaration of function ‘OsSemPendListGet’ [-Wimplicit-function-declaration]
+   36 |         OsSemPendListGet(semPosted);
+      |         ^~~~~~~~~~~~~~~~
+
+
+

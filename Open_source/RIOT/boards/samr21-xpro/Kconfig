@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "samr21-xpro" if BOARD_SAMR21_XPRO
+
+config BOARD_SAMR21_XPRO
+    bool
+    default y
+    select CPU_MODEL_SAMR21G18A

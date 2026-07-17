@@ -1,0 +1,113 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsPerfPrintCount` now does:
+
+- **Grabs the current CPU ID** and references `g_pmu->events`
+- **SMP lock handling**: Only acquires `PERF_LOCK` on secondary cores — the primary core already holds it from `PRT_PerfStop`
+- **Iterates all configured events**, skipping any with `period == 0` (no event bound to that slot)
+- **Prints each event** in the format `[name] eventType: 0x%x [core %u]: %llu` — showing the event name, event ID (hex), CPU ID, and the per-core count — using `printf` or `PRT_Printf` depending on `LOSCFG_SHELL_PERF`, consistent with `OsPerfPrintTs`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -86,7 +86,34 @@
+ 
+ static void OsPerfPrintCount(void)
+ {
+-    /* MASKED - implement this function */
++    U32 index;
++    U32 intSave;
++    Event *event = NULL;
++    U32 cpuid = PRT_GetCoreID();
++    PerfEvent *events = &g_pmu->events;
++    U32 eventNum = events->nr;
++
++    if (cpuid != g_primaryCoreId) {
++        PERF_LOCK(intSave);
++    }
++    for (index = 0; index < eventNum; index++) {
++        event = &(events->per[index]);
++
++        /* filter out event counter with no event binded. */
++        if (event->period == 0) {
++            continue;
++        }
++#ifdef LOSCFG_SHELL_PERF
++        printf("[%s] eventType: 0x%x [core %u]: %llu\n", g_pmu->getName(event), event->eventId, cpuid, event->count[cpuid]);
++#else
++        PRT_Printf("[%s] eventType: 0x%x [core %u]: %llu\n", g_pmu->getName(event), event->eventId, cpuid, event->count[cpuid]);
++#endif
++    }
++    if (cpuid != g_primaryCoreId) {
++        PERF_UNLOCK(intSave);
++    }
++
++    return;
+ }
+ 
+ static inline void OsPerfPrintTs(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 index;
+    U32 intSave;
+    Event *event = NULL;
+    U32 cpuid = PRT_GetCoreID();
+    PerfEvent *events = &g_pmu->events;
+    U32 eventNum = events->nr;
+
+    if (cpuid != g_primaryCoreId) {
+        PERF_LOCK(intSave);
+    }
+    for (index = 0; index < eventNum; index++) {
+        event = &(events->per[index]);
+
+        /* filter out event counter with no event binded. */
+        if (event->period == 0) {
+            continue;
+        }
+#ifdef LOSCFG_SHELL_PERF
+        printf("[%s] eventType: 0x%x [core %u]: %llu\n", g_pmu->getName(event), event->eventId, cpuid, event->count[cpuid]);
+#else
+        PRT_Printf("[%s] eventType: 0x%x [core %u]: %llu\n", g_pmu->getName(event), event->eventId, cpuid, event->count[cpuid]);
+#endif
+    }
+    if (cpuid != g_primaryCoreId) {
+        PERF_UNLOCK(intSave);
+    }
+
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfPrintCount.c test_stubs.c
+[Primary core setup] -> PASS
+[Secondary core] -> PASS
+[Zero period skipped] expect=0 actual=0 -> PASS
+[Counts not modified] expect=0 actual=0 -> PASS
+[CPU1 path] -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_OsPerfPrintCount.c:14:21: warning: missing braces around initializer [-Wmissing-braces]
+   14 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_OsPerfPrintCount.c:14:21: warning: missing braces around initializer [-Wmissing-braces]
+   14 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+
+
+

@@ -1,0 +1,220 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what was done:
+
+The function `OsTaskInfoCommonGet` fills the middle portion of `struct TskInfo` — the fields that aren't set by `OsTaskSpPcGet` (which sets `sp`/`pc`) or `OsTaskInfoStackGet` (which sets `bottom`/`currUsed`/`peakUsed`/`ovf`), or conditionally by `OsTskContextGet` (which sets `context`).
+
+Fields populated:
+- `taskStatus` ← `taskCb->taskStatus`
+- `taskPrio` ← `taskCb->priority`
+- `stackSize` ← `taskCb->stackSize` (cast to `U32`)
+- `topOfStack` ← `taskCb->topOfStack`
+- `name` ← `taskCb->name` (via `memcpy_s`, consistent with the secure CRT style used in `OsTaskNameAdd`)
+- `core` ← `taskCb->coreID`
+- `entry` ← `taskCb->taskEntry`
+- `tcbAddr` ← `taskCb` itself (the TCB pointer as opaque address)
+
+The `taskPid` parameter is unused (all data comes from `taskCb`), so it's cast to `void` to suppress warnings — this matches the convention seen elsewhere in the file (e.g., line 71 `(void)taskCB` in `OsTaskStackPeakCal`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_info.c
++++ src/core/kernel/task/smp/prt_task_info.c
+@@ -65,7 +65,20 @@
+ 
+ OS_SEC_ALW_INLINE INLINE void OsTaskInfoCommonGet(struct TskInfo *taskInfo, struct TagTskCb *taskCb, TskHandle taskPid)
+ {
+-    /* MASKED - implement this function */
++    (void)taskPid;
++
++    taskInfo->taskStatus = taskCb->taskStatus;
++    taskInfo->taskPrio = taskCb->priority;
++    taskInfo->stackSize = (U32)taskCb->stackSize;
++    taskInfo->topOfStack = taskCb->topOfStack;
++    taskInfo->core = taskCb->coreID;
++    taskInfo->entry = (void *)taskCb->taskEntry;
++    taskInfo->tcbAddr = (void *)taskCb;
++
++    if (memcpy_s(taskInfo->name, sizeof(taskInfo->name), taskCb->name, sizeof(taskCb->name)) != EOK)
++    {
++        taskInfo->name[0] = '\0';
++    }
+ }OS_SEC_L4_TEXT void OsTaskStackPeakCal(struct TagTskCb *taskCB, struct TskStackInfo *stackInfo)
+ {
+     (void)taskCB;
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)taskPid;
+
+    taskInfo->taskStatus = taskCb->taskStatus;
+    taskInfo->taskPrio = taskCb->priority;
+    taskInfo->stackSize = (U32)taskCb->stackSize;
+    taskInfo->topOfStack = taskCb->topOfStack;
+    taskInfo->core = taskCb->coreID;
+    taskInfo->entry = (void *)taskCb->taskEntry;
+    taskInfo->tcbAddr = (void *)taskCb;
+
+    if (memcpy_s(taskInfo->name, sizeof(taskInfo->name), taskCb->name, sizeof(taskCb->name)) != EOK)
+    {
+        taskInfo->name[0] = '\0';
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskInfoCommonGet.c notifier_test_stubs.c
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsTaskInfoCommonGet.c:1:
+auto_stub.h:891: warning: "OS_GOTO_SYS_ERROR1" redefined
+  891 | #define OS_GOTO_SYS_ERROR1() OS_GOTO_SYS_ERROR()
+      | 
+auto_stub.h:29: note: this is the location of the previous definition
+   29 | #define OS_GOTO_SYS_ERROR1() do { return; } while(0)
+      | 
+In file included from test_OsTaskInfoCommonGet.c:4:
+func_under_test.c: In function ‘OsTaskInfoCommonGet’:
+func_under_test.c:13:9: warning: implicit declaration of function ‘memcpy_s’; did you mean ‘memcpy’? [-Wimplicit-function-declaration]
+   13 |     if (memcpy_s(taskInfo->name, sizeof(taskInfo->name), taskCb->name, sizeof(taskCb->name)) != EOK)
+      |         ^~~~~~~~
+      |         memcpy
+test_OsTaskInfoCommonGet.c: In function ‘main’:
+test_OsTaskInfoCommonGet.c:31:18: warning: assignment to ‘uintptr_t’ {aka ‘long unsigned int’} from ‘void *’ makes integer from pointer without a cast [-Wint-conversion]
+   31 |     t.topOfStack = (void *)0x1000;
+      |                  ^
+test_common.h:24:20: warning: comparison between pointer and integer
+   24 |     if ((expected) == (actual)) { \
+      |                    ^~
+test_OsTaskInfoCommonGet.c:43:5: note: in expansion of macro ‘ASSERT_EQ_UPTR’
+   43 |     ASSERT_EQ_UPTR((uintptr_t)0x12345678, info.entry);
+      |     ^~~~~~~~~~~~~~
+test_common.h: At top level:
+test_common.h:47:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   47 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:36:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   36 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:1407:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1407 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1406:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1406 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1405:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1405 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1404:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1404 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1403:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1403 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1402:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1402 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1401:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1401 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1400:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1400 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1399:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1399 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1398:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1398 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1397:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1397 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1396:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1396 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1395:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1395 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1394:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1394 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_task_internal.h:2,
+                 from notifier_test_stubs.c:3:
+auto_stub.h:891: warning: "OS_GOTO_SYS_ERROR1" redefined
+  891 | #define OS_GOTO_SYS_ERROR1() OS_GOTO_SYS_ERROR()
+      | 
+auto_stub.h:29: note: this is the location of the previous definition
+   29 | #define OS_GOTO_SYS_ERROR1() do { return; } while(0)
+      | 
+In file included from notifier_test_stubs.c:4:
+test_common.h:54:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   54 | static void print_pass_rate(void)
+      |             ^~~~~~~~~~~~~~~
+test_common.h:47:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   47 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:36:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   36 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:1407:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1407 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1406:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1406 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1405:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1405 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1404:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1404 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1403:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1403 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1402:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1402 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1401:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1401 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1400:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1400 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1399:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1399 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1398:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1398 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1397:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1397 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1396:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1396 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1395:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1395 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1394:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1394 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/ccrYRVDP.o: in function `main':
+test_OsTaskInfoCommonGet.c:(.text+0x390): undefined reference to `memcpy_s'
+/usr/bin/ld: test_OsTaskInfoCommonGet.c:(.text+0x62c): undefined reference to `memcpy_s'
+/usr/bin/ld: test_OsTaskInfoCommonGet.c:(.text+0x7a4): undefined reference to `memcpy_s'
+/usr/bin/ld: test_OsTaskInfoCommonGet.c:(.text+0x8ef): undefined reference to `memcpy_s'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

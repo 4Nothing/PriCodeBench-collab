@@ -1,0 +1,126 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsRwLockPendPre` now does:
+
+1. **`OsTskReadyDel(runTask)`** — Removes the running task from the ready queue since it's about to block on the rwlock.
+2. **`TSK_STATUS_SET(runTask, OS_TSK_RW_PEND)`** — Marks the task as pending on an rwlock.
+3. **SMP block** — Under `OS_OPTION_SMP`, records the rwlock's spinlock in `taskPend` so the scheduler knows which lock the task is blocked on (mirrored by `OsRwLockTaskWake` which sets it to `NULL`).
+4. **Timeout handling** — If `timeout != OS_WAIT_FOREVER`, sets `OS_TSK_TIMEOUT` status and arms the timer via `OsTskTimerAdd`.
+5. **`ListTailAdd(&(runTask->pendList), list)`** — Inserts the task into the pending list at the priority-ordered position (determined earlier by `OsRwLockPendFindPos`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -90,7 +90,19 @@
+ 
+ void OsRwLockPendPre(struct TagTskCb *runTask, struct TagListObject *list, U32 timeout, pthread_rwlock_t *rwl)
+ {
+-    /* MASKED - implement this function */
++    OsTskReadyDel(runTask);
++
++    TSK_STATUS_SET(runTask, OS_TSK_RW_PEND);
++#if defined(OS_OPTION_SMP)
++    runTask->taskPend = (void *)(&rwl->rwSpinLock);
++#endif
++
++    if (timeout != OS_WAIT_FOREVER) {
++        TSK_STATUS_SET(runTask, OS_TSK_TIMEOUT);
++        OsTskTimerAdd(runTask, timeout);
++    }
++
++    ListTailAdd(&(runTask->pendList), list);
+ }
+ 
+ void OsRwLockTaskWake(struct TagTskCb *resumedTask)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsTskReadyDel(runTask);
+
+    TSK_STATUS_SET(runTask, OS_TSK_RW_PEND);
+#if defined(OS_OPTION_SMP)
+    runTask->taskPend = (void *)(&rwl->rwSpinLock);
+#endif
+
+    if (timeout != OS_WAIT_FOREVER) {
+        TSK_STATUS_SET(runTask, OS_TSK_TIMEOUT);
+        OsTskTimerAdd(runTask, timeout);
+    }
+
+    ListTailAdd(&(runTask->pendList), list);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockPendPre.c
+Case 1: expect=1, actual=1
+Case 2: expect=1, actual=1
+Case 3: expect=1, actual=1
+Case 4: expect=1, actual=1
+Case 5: expect=1, actual=1
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwLockPendPre.c:3:
+func_under_test.c: In function ‘OsRwLockPendPre’:
+func_under_test.c:1:107: warning: unused parameter ‘rwl’ [-Wunused-parameter]
+    1 | void OsRwLockPendPre(struct TagTskCb *runTask, struct TagListObject *list, U32 timeout, pthread_rwlock_t *rwl)
+      |                                                                                         ~~~~~~~~~~~~~~~~~~^~~
+In file included from test_OsRwLockPendPre.c:1:
+test_common.h: At top level:
+test_common.h:55:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   55 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:44:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   44 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+test_common.h:32:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   32 | static void print_case_result(int case_no, unsigned expected, unsigned actual)
+      |             ^~~~~~~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1422:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1422 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1421:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1421 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1420 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1418:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1416:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1416 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1415:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1415 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1410:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1410 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1409:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1409 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

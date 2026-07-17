@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "stk3200" if BOARD_STK3200
+
+config BOARD_STK3200
+    bool
+    default y
+    select BOARD_COMMON_SILABS
+    select CPU_MODEL_EFM32ZG222F32
+
+source "$(RIOTBOARD)/common/silabs/Kconfig"

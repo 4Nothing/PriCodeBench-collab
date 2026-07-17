@@ -1,0 +1,193 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_TaskYield` does:
+
+1. **Priority validation** — returns `OS_ERRNO_TSK_PRIOR_ERROR` if `taskPrio` exceeds `OS_TSK_PRIORITY_LOWEST`
+2. **Task ID validation** — returns `OS_ERRNO_BUILD_ID_INVALID` if `nextTask` is specified (not `OS_TSK_NULL_ID`) but its ID overflows
+3. **Core logic** — disables interrupts, delegates to the existing static `OsTaskYield` function (which handles the actual yield logic: checking task count, calling `OsTaskYieldProc`, and rescheduling if needed), then restores interrupts
+
+This follows the same pattern used by `PRT_TaskDelay` for its yield path (lines 150-154 of the original file), and matches the test suite's expected behavior.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -160,7 +160,21 @@
+ #if defined(OS_OPTION_TASK_YIELD)
+ OS_SEC_L2_TEXT U32 PRT_TaskYield(TskPrior taskPrio, TskHandle nextTask, TskHandle *yieldTo)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 ret;
++
++    if (taskPrio > OS_TSK_PRIORITY_LOWEST) {
++        return OS_ERRNO_TSK_PRIOR_ERROR;
++    }
++
++    if ((nextTask != OS_TSK_NULL_ID) && (CHECK_TSK_PID_OVERFLOW(nextTask))) {
++        return OS_ERRNO_BUILD_ID_INVALID;
++    }
++
++    intSave = OsIntLock();
++    ret = OsTaskYield(taskPrio, nextTask, yieldTo, intSave);
++    OsIntRestore(intSave);
++    return ret;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 ret;
+
+    if (taskPrio > OS_TSK_PRIORITY_LOWEST) {
+        return OS_ERRNO_TSK_PRIOR_ERROR;
+    }
+
+    if ((nextTask != OS_TSK_NULL_ID) && (CHECK_TSK_PID_OVERFLOW(nextTask))) {
+        return OS_ERRNO_BUILD_ID_INVALID;
+    }
+
+    intSave = OsIntLock();
+    ret = OsTaskYield(taskPrio, nextTask, yieldTo, intSave);
+    OsIntRestore(intSave);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskYield.c common_test.c
+===== PRT_TaskYield =====
+[prior error] expect=33555204 actual=33555204 -> PASS
+[id overflow] expect=33555235 actual=33555235 -> PASS
+[not enough] expect=33555216 actual=33555216 -> PASS
+[OK] expect=0 actual=0 -> PASS
+[invalid next] expect=33555215 actual=33555215 -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from common_test.h:35,
+                 from test_PRT_TaskYield.c:1:
+auto_stub.h:750: warning: "OS_ERRNO_TSK_YIELD_INVALID_TASK" redefined
+  750 | #define OS_ERRNO_TSK_YIELD_INVALID_TASK OS_ERRNO_BUILD_ERROR(OS_MID_TSK, 0x0f)
+      | 
+common_test.h:30: note: this is the location of the previous definition
+   30 | #define OS_ERRNO_TSK_YIELD_INVALID_TASK 0x02000081
+      | 
+auto_stub.h:751: warning: "OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK" redefined
+  751 | #define OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK OS_ERRNO_BUILD_ERROR(OS_MID_TSK, 0x10)
+      | 
+common_test.h:29: note: this is the location of the previous definition
+   29 | #define OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK 0x02000080
+      | 
+auto_stub.h:1298:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1298 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1297:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1297 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1296:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1296 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1295:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1295 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1294:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1294 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1293:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1293 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1292:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1292 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1285:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1285 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from common_test.h:35,
+                 from common_test.c:1:
+auto_stub.h:750: warning: "OS_ERRNO_TSK_YIELD_INVALID_TASK" redefined
+  750 | #define OS_ERRNO_TSK_YIELD_INVALID_TASK OS_ERRNO_BUILD_ERROR(OS_MID_TSK, 0x0f)
+      | 
+common_test.h:30: note: this is the location of the previous definition
+   30 | #define OS_ERRNO_TSK_YIELD_INVALID_TASK 0x02000081
+      | 
+auto_stub.h:751: warning: "OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK" redefined
+  751 | #define OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK OS_ERRNO_BUILD_ERROR(OS_MID_TSK, 0x10)
+      | 
+common_test.h:29: note: this is the location of the previous definition
+   29 | #define OS_ERRNO_TSK_YIELD_NOT_ENOUGH_TASK 0x02000080
+      | 
+auto_stub.h:1298:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1298 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1297:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1297 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1296:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1296 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1295:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1295 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1294:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1294 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1293:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1293 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1292:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1292 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1286:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1286 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1285:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1285 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

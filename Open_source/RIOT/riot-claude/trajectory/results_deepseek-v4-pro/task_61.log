@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the algorithm used in `color_rgb2hsv`:
+
+1. **Normalize** RGB uint8 values to [0, 1] float range by dividing by 255
+2. **Compute V** (value) as the maximum of R, G, B
+3. **Edge case**: If max is 0 (black), S=0, H=0
+4. **Compute S** (saturation) as `delta / max` where `delta = max - min`
+5. **Edge case**: If delta is 0 (achromatic/gray), H=0
+6. **Compute H** (hue 0-360) based on which component is max:
+   - R is max: `H = 60 * (G - B) / delta`, adjusted to [0, 360) if negative
+   - G is max: `H = 60 * ((B - R) / delta + 2)`
+   - B is max: `H = 60 * ((R - G) / delta + 4)`
+
+The implementation mirrors the style of the existing `color_hsv2rgb` function at line 33 — same float literal conventions, min/max comparison patterns, and local variable naming.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/color/color.c
++++ sys/color/color.c
+@@ -27,7 +27,45 @@
+ 
+ void color_rgb2hsv(color_rgb_t *rgb, color_hsv_t *hsv)
+ {
+-    /* MASKED - implement this function */
++    float r = rgb->r / 255.0f;
++    float g = rgb->g / 255.0f;
++    float b = rgb->b / 255.0f;
++
++    float max = (r > g) ? r : g;
++    max = (b > max) ? b : max;
++
++    float min = (r < g) ? r : g;
++    min = (b < min) ? b : min;
++
++    float delta = max - min;
++
++    hsv->v = max;
++
++    if (max == 0.0f) {
++        hsv->s = 0.0f;
++        hsv->h = 0.0f;
++        return;
++    }
++
++    hsv->s = delta / max;
++
++    if (delta == 0.0f) {
++        hsv->h = 0.0f;
++    }
++    else {
++        if (max == r) {
++            hsv->h = 60.0f * ((g - b) / delta);
++            if (hsv->h < 0.0f) {
++                hsv->h += 360.0f;
++            }
++        }
++        else if (max == g) {
++            hsv->h = 60.0f * (((b - r) / delta) + 2.0f);
++        }
++        else {
++            hsv->h = 60.0f * (((r - g) / delta) + 4.0f);
++        }
++    }
+ }
+ 
+ void color_hsv2rgb(color_hsv_t *hsv, color_rgb_t *rgb)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-color
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/color
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  97831	  32408	  78120	 208359	  32de7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffd1885000; bottom 0x000000431000; size: 0x7fffd1454000 (140736704364544)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

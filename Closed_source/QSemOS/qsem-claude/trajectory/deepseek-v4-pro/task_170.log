@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what it does:
+
+- **In interrupt context** (`OS_INT_ACTIVE`): returns `OS_HWI_HANDLE` (0xFFFF), a sentinel indicating the message was sent from a hardware interrupt handler rather than a task.
+- **In task context**: returns `RUNNING_TASK->taskPid`, the PID of the currently executing task.
+
+This matches the pattern used in real-time operating systems — when a message is written to a queue (in `OsQueueCpData2Node`), the `srcPid` field records which entity sent it, so readers can inspect the origin of each message.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -22,7 +22,10 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsGetSrcPid(void)
+ {
+-    /* MASKED - implement this function */
++    if (OS_INT_ACTIVE) {
++        return OS_HWI_HANDLE;
++    }
++    return RUNNING_TASK->taskPid;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (OS_INT_ACTIVE) {
+        return OS_HWI_HANDLE;
+    }
+    return RUNNING_TASK->taskPid;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -O0 -I../../include -I.  -o test_OsGetSrcPid test_OsGetSrcPid.c notifier_test_stubs.c
+rm -f test; ln -sf test_OsGetSrcPid test
+[CASE] OsGetSrcPid task ctx
+  Expect: 42
+  Actual: 42
+[CASE] OsGetSrcPid HWI ctx
+  Expect: 65535
+  Actual: 42
+[CASE] OsGetSrcPid task ctx 2
+  Expect: 7
+  Actual: 7
+[CASE] OsGetSrcPid HWI overrides
+  Expect: 65535
+  Actual: 1234
+[CASE] OsGetSrcPid final task
+  Expect: 1
+  Actual: 1
+Pass-Rate: 60.00%
+
+--- stderr ---
+In file included from test_support.h:5,
+                 from test_OsGetSrcPid.c:1:
+common.h:215: warning: "OS_QUEUE_INNER_ID" redefined
+  215 | #define OS_QUEUE_INNER_ID(queueId) ((queueId) & 0xFFFFU)
+      | 
+common.h:142: note: this is the location of the previous definition
+  142 | #define OS_QUEUE_INNER_ID(queueId) ((queueId) - 1)
+      | 
+common.h:221: warning: "GET_QUEUE_HANDLE" redefined
+  221 | #define GET_QUEUE_HANDLE(innerId) ((innerId) < g_maxQueue ? &g_queue_cbs[(innerId)] : NULL)
+      | 
+common.h:145: note: this is the location of the previous definition
+  145 | #define GET_QUEUE_HANDLE(innerId) (&g_allQueue[(innerId)])
+      | 
+common.h:225: warning: "LIST_COMPONENT" redefined
+  225 | #define LIST_COMPONENT(ptr, type, field) ((type *)((char *)(ptr) - offsetof(type, field)))
+      | 
+common.h:148: note: this is the location of the previous definition
+  148 | #define LIST_COMPONENT(ptr, type, member) ((type *)(((char *)(ptr)) - offsetof(type, member)))
+      | 
+In file included from test_support.h:5,
+                 from notifier_test_stubs.c:4:
+common.h:215: warning: "OS_QUEUE_INNER_ID" redefined
+  215 | #define OS_QUEUE_INNER_ID(queueId) ((queueId) & 0xFFFFU)
+      | 
+common.h:142: note: this is the location of the previous definition
+  142 | #define OS_QUEUE_INNER_ID(queueId) ((queueId) - 1)
+      | 
+common.h:221: warning: "GET_QUEUE_HANDLE" redefined
+  221 | #define GET_QUEUE_HANDLE(innerId) ((innerId) < g_maxQueue ? &g_queue_cbs[(innerId)] : NULL)
+      | 
+common.h:145: note: this is the location of the previous definition
+  145 | #define GET_QUEUE_HANDLE(innerId) (&g_allQueue[(innerId)])
+      | 
+common.h:225: warning: "LIST_COMPONENT" redefined
+  225 | #define LIST_COMPONENT(ptr, type, field) ((type *)((char *)(ptr) - offsetof(type, field)))
+      | 
+common.h:148: note: this is the location of the previous definition
+  148 | #define LIST_COMPONENT(ptr, type, member) ((type *)(((char *)(ptr)) - offsetof(type, member)))
+      | 
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:43:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   43 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:43:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   43 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:69:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   69 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:75:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   75 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:75:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   75 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+test_support.h: At top level:
+test_support.h:13:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   13 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:7:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    7 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

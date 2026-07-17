@@ -1,0 +1,60 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `OsQueueRegister` now:
+
+- Rejects `maxQueue == 0` by returning `OS_ERRNO_QUEUE_MAXNUM_ZERO`
+- Stores the valid `maxQueue` value in `g_maxQueue` and returns `OS_OK`
+
+This mirrors the same pattern used by `OsSemRegister` in `prt_sem_init.c`, and aligns with what the test suite expects (test cases for 0, 1, 100, 0xFFFF, and re-registration with 10).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -9,7 +9,14 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueRegister(U16 maxQueue)
+ {
+-    /* MASKED - implement this function */
++    if (maxQueue == 0)
++    {
++        return OS_ERRNO_QUEUE_MAXNUM_ZERO;
++    }
++
++    g_maxQueue = maxQueue;
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueConfigInit(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (maxQueue == 0)
+    {
+        return OS_ERRNO_QUEUE_MAXNUM_ZERO;
+    }
+
+    g_maxQueue = maxQueue;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueRegister.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 9 / total 9)
+
+--- stderr ---
+
+
+

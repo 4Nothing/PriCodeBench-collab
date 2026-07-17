@@ -1,0 +1,95 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The `PRT_SplIrqWriteUnlock` function now performs the reverse operations of `PRT_SplIrqWriteLock` in the correct order:
+
+1. **`OsSplWriteUnlock(addr)`** — releases the write spinlock (mirrors `OsSplWriteLock`)
+2. **`OsTskUnlock()`** — re-enables task preemption (mirrors `OS_TSK_LOCK()`)
+3. **`PRT_IntRestore(intSave)`** — restores the interrupt state (mirrors `PRT_IntLock()`)
+
+This matches the pattern used by the existing `PRT_SplIrqReadUnlock` at line 109, just with the write-specific lock/unlock primitives.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/spinlock/prt_spinlock.c
++++ src/core/kernel/spinlock/prt_spinlock.c
+@@ -127,8 +127,12 @@
+ 
+ OS_SEC_L2_TEXT void PRT_SplIrqWriteUnlock(struct PrtSpinLock *spinLock, uintptr_t intSave)
+ {
+-    /* MASKED - implement this function */
+-}#endif
++    volatile uintptr_t *addr = &spinLock->rawLock;
++    OsSplWriteUnlock(addr);
++    OsTskUnlock();
++    PRT_IntRestore(intSave);
++}
++#endif
+ #else
+ /* 应用使用的spinlock，禁止调度，类似spin_unlock_irqrestore */
+ OS_SEC_L0_TEXT void PRT_SplLock(struct PrtSpinLock *spinLock)
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    volatile uintptr_t *addr = &spinLock->rawLock;
+    OsSplWriteUnlock(addr);
+    OsTskUnlock();
+    PRT_IntRestore(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SplIrqWriteUnlock.c notifier_test_stubs.c
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_PRT_SplIrqWriteUnlock.c:13:
+auto_stub.h:1679:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1679 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1678:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1678 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1677:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1677 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1675:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1675 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1674:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1674 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1673:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1673 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1672:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1672 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1669:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1669 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1668:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1668 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1667:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1667 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1666:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1666 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

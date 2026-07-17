@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation is a single call to `coap_opt_add_opaque` (defined at `nanocoap.c:1250`) with option number `COAP_OPT_PROXY_URI` (35, defined in `coap.h`), the URI string, and its length.
+
+This matches the existing pattern in the codebase — the buffer-based counterpart `coap_opt_put_proxy_uri` in the header does the same thing with `coap_opt_put_string(buf, lastonum, COAP_OPT_PROXY_URI, uri, '\0')`, treating the proxy URI as a single opaque value with no separator-based splitting.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -1269,7 +1269,7 @@
+ 
+ ssize_t coap_opt_add_proxy_uri(coap_pkt_t *pkt, const char *uri)
+ {
+-    /* MASKED - implement this function */
++    return coap_opt_add_opaque(pkt, COAP_OPT_PROXY_URI, uri, strlen(uri));
+ }
+ 
+ ssize_t coap_opt_finish(coap_pkt_t *pkt, uint16_t flags)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 147832	  36040	  78120	 261992	  3ff68	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe1be8a000; bottom 0x00000043f000; size: 0x7ffe1ba4b000 (140729362198528)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2021 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# This file was auto-generated from ST ProductsList.xlsx sheet using the
+# script in cpu/stm32/dist/kconfig/gen_kconfig.py
+# See cpu/stm32/dist/kconfig/README.md for details
+
+# CPU lines
+config CPU_LINE_STM32WB10XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB15XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB30XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB35XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB50XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB55XX
+    bool
+    select CPU_FAM_WB
+
+config CPU_LINE_STM32WB5MXX
+    bool
+    select CPU_FAM_WB

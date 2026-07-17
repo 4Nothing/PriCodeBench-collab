@@ -1,0 +1,93 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **`_unmix(data, len)`** — reverses the matrix transpose applied by `coding_xor_generate`, restoring data to its original byte order so that parity XOR relationships are valid again.
+- **`_recover_blocks(...)`** — iterates over missing data blocks and attempts to reconstruct each lost byte by XORing the corresponding parity byte with all available neighbor bytes in the same check group. Returns `true` only if every missing data block was recovered.
+- **Recover parity block** — when `recover_parity` is true, regenerates all parity via `_gen_parity` (a deterministic function of the unmixed data) and marks every parity block as present in the bitfield.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/coding/xor.c
++++ sys/coding/xor.c
+@@ -173,7 +173,23 @@
+ bool coding_xor_recover(void *data, size_t len, uint8_t *parity,
+                         uint8_t *bitfield, size_t block_size, bool recover_parity)
+ {
+-    /* MASKED - implement this function */
++    _unmix(data, len);
++
++    bool success = _recover_blocks(data, len, parity, bitfield, block_size);
++
++    if (recover_parity) {
++        _gen_parity(data, len, parity);
++
++        size_t num_data_blocks = len / block_size;
++        size_t parity_len = CODING_XOR_PARITY_LEN(len);
++        size_t num_parity_blocks = (parity_len + block_size - 1) / block_size;
++
++        for (size_t i = 0; i < num_parity_blocks; i++) {
++            bf_set(bitfield, num_data_blocks + i);
++        }
++    }
++
++    return success;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-coding
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/sys/coding
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  83243	  31696	  78120	 193059	  2f223	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+coding_xor_tests.test_coding_xor_recovery (tests/unittests/tests-coding/tests-coding-xor.c 69) exp "0123456789AB" was "0"
+...
+coding_xor_tests.test_coding_xor_recovery_large (tests/unittests/tests-coding/tests-coding-xor.c 170) exp 192 was 67
+
+run 5 failures 2
+
+native: exiting
+
+--- stderr ---
+==333==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff6743a000; bottom 0x00000042e000; size: 0x7fff6700c000 (140734921490432)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

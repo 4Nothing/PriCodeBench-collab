@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `nanocoap_cache_init` does:
+
+1. **`memset(_cache_entries, 0, sizeof(_cache_entries))`** — Zeros all cache entries, consistent with how `nanocoap_cache_del` cleans up entries before returning them to the free list.
+
+2. **Reset both list heads** — Sets `_cache_list_head.next` and `_empty_list_head.next` to `NULL` (effectively clearing both lists).
+
+3. **Populate the free list** — Iterates over all `CONFIG_NANOCOAP_CACHE_ENTRIES` entries in `_cache_entries` and pushes each one's `node` onto `_empty_list_head`. This makes them available for `_nanocoap_cache_pop()` to pop off when a new cache entry is needed.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/cache.c
++++ sys/net/application_layer/nanocoap/cache.c
+@@ -64,7 +64,13 @@
+ 
+ void nanocoap_cache_init(void)
+ {
+-    /* MASKED - implement this function */
++    memset(_cache_entries, 0, sizeof(_cache_entries));
++    _cache_list_head.next = NULL;
++    _empty_list_head.next = NULL;
++
++    for (unsigned i = 0; i < CONFIG_NANOCOAP_CACHE_ENTRIES; i++) {
++        clist_rpush(&_empty_list_head, &_cache_entries[i].node);
++    }
+ }
+ 
+ size_t nanocoap_cache_used_count(void)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap_cache
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 141121	  36080	  81288	 258489	  3f1b9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==448==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdb1a62000; bottom 0x00000043e000; size: 0x7ffdb1624000 (140727579459584)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

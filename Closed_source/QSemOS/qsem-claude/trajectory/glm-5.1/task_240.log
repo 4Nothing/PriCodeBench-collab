@@ -1,0 +1,151 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. Here's the logic:
+
+- **Returns `true`** (SP/PC info is reliable from `taskCB->stackPointer`) when:
+  - The task is **not** currently running (`OS_TSK_RUNNING` bit not set), OR
+  - We're in an interrupt context (`OS_INT_ACTIVE`), OR
+  - The task is running on a different core (`taskCB->coreID != THIS_CORE()`)
+  - AND the task's stack has been saved (`OsTaskStackIsSave(taskCB)`)
+
+- **Returns `false`** when the task is running on the current core and we're not in an interrupt — in that case `stackPointer` in the TCB is stale and can't be used to read SP/PC.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_info.c
++++ src/core/kernel/task/smp/prt_task_info.c
+@@ -17,7 +17,8 @@
+ #if defined(OS_OPTION_TASK_INFO)
+ OS_SEC_ALW_INLINE INLINE bool OsTaskSpPcInfoReady(struct TagTskCb *taskCB)
+ {
+-    /* MASKED - implement this function */
++    return ((((taskCB->taskStatus & OS_TSK_RUNNING) == 0) || (OS_INT_ACTIVE) ||
++        (taskCB->coreID != THIS_CORE())) && OsTaskStackIsSave(taskCB));
+ }
+ 
+ OS_SEC_L2_TEXT uintptr_t OsTaskSpInfoGet(struct TagTskCb *taskCb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return ((((taskCB->taskStatus & OS_TSK_RUNNING) == 0) || (OS_INT_ACTIVE) ||
+        (taskCB->coreID != THIS_CORE())) && OsTaskStackIsSave(taskCB));
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskSpPcInfoReady.c notifier_test_stubs.c
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsTaskSpPcInfoReady.c:4:
+func_under_test.c: In function ‘OsTaskSpPcInfoReady’:
+func_under_test.c:4:45: warning: implicit declaration of function ‘OsTaskStackIsSave’ [-Wimplicit-function-declaration]
+    4 |         (taskCB->coreID != THIS_CORE())) && OsTaskStackIsSave(taskCB));
+      |                                             ^~~~~~~~~~~~~~~~~
+In file included from test_OsTaskSpPcInfoReady.c:1:
+test_common.h: At top level:
+test_common.h:33:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   33 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:22:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   22 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1390:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1390 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1389:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1389 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1388:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1388 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1387:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1387 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1386:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1386 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1385:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1385 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1384:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1384 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1383:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1383 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1382:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1382 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1381:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1381 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1380:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1380 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1379:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1379 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1378:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1378 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1377:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1377 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_task_internal.h:2,
+                 from notifier_test_stubs.c:3:
+auto_stub.h:1390:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1390 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1389:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1389 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1388:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1388 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1387:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1387 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1386:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1386 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1385:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1385 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1384:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1384 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1383:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1383 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1382:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1382 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1381:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1381 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1380:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1380 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1379:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1379 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1378:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1378 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1377:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1377 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

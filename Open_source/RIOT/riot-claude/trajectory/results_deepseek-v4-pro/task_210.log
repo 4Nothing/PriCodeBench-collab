@@ -1,0 +1,194 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what was done:
+
+**Function**: `ipv6_addr_to_str` in `sys/net/network_layer/ipv6/addr/ipv6_addr_to_str.c:42`
+
+The implementation, based on Paul Vixie's `inet_ntop6`, converts an IPv6 address to its RFC 5952 string representation:
+
+1. **Input validation** — returns `NULL` if `result`/`addr` is NULL or `result_len` is too small
+2. **Byte order conversion** — converts 16-bit words from network to host byte order via `byteorder_ntohs()`
+3. **Zero-run detection** — finds the longest (leftmost on ties) contiguous sequence of zero words for `::` compression; only compresses runs of 2+ zeros per RFC 5952
+4. **IPv4-mapped/compatible** (guarded by `#ifdef MODULE_IPV4_ADDR`) — detects `::ffff:x.x.x.x` and `::x.x.x.x` patterns, formatting the trailing 4 bytes as dotted decimal via `ipv4_addr_to_str()`
+5. **Main formatting loop** — inserts `::` at the compression point, formats each word in lowercase hex without leading zeros using the existing `HEX_L` lookup table
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr_to_str.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr_to_str.c
+@@ -41,7 +41,117 @@
+ /* based on inet_ntop6() by Paul Vixie */
+ char *ipv6_addr_to_str(char *result, const ipv6_addr_t *addr, uint8_t result_len)
+ {
+-    /* MASKED - implement this function */
++    if ((result == NULL) || (addr == NULL) || (result_len < IPV6_ADDR_MAX_STR_LEN)) {
++        return NULL;
++    }
++
++    char *tp = result;
++    uint16_t words[IPV6_ADDR_WORD_LEN];
++    int8_t best_base = -1, best_len = 0;
++    int8_t cur_base = -1, cur_len = 0;
++    uint8_t i;
++
++    for (i = 0; i < IPV6_ADDR_WORD_LEN; i++) {
++        words[i] = byteorder_ntohs(addr->u16[i]);
++    }
++
++    for (i = 0; i < IPV6_ADDR_WORD_LEN; i++) {
++        if (words[i] == 0) {
++            if (cur_base == -1) {
++                cur_base = i;
++                cur_len = 1;
++            }
++            else {
++                cur_len++;
++            }
++        }
++        else {
++            if (cur_len > best_len) {
++                best_base = cur_base;
++                best_len = cur_len;
++            }
++
++            cur_base = -1;
++            cur_len = 0;
++        }
++    }
++
++    if (cur_len > best_len) {
++        best_base = cur_base;
++        best_len = cur_len;
++    }
++
++    if (best_len < 2) {
++        best_base = -1;
++        best_len = 0;
++    }
++
++#ifdef MODULE_IPV4_ADDR
++    if (words[0] == 0 && words[1] == 0 && words[2] == 0 &&
++        words[3] == 0 && words[4] == 0 &&
++        ((words[5] == 0 && (words[6] != 0 || words[7] != 0)) ||
++         words[5] == 0xffff)) {
++        if (words[5] == 0xffff) {
++            *tp++ = ':';
++            *tp++ = ':';
++            *tp++ = 'f';
++            *tp++ = 'f';
++            *tp++ = 'f';
++            *tp++ = 'f';
++            *tp++ = ':';
++        }
++        else {
++            *tp++ = ':';
++            *tp++ = ':';
++        }
++
++        ipv4_addr_t v4addr;
++        memcpy(&v4addr, &addr->u8[12], sizeof(ipv4_addr_t));
++        ipv4_addr_to_str(tp, &v4addr,
++                         (uint8_t)(result_len - (size_t)(tp - result)));
++        return result;
++    }
++#endif
++
++    for (i = 0; i < IPV6_ADDR_WORD_LEN; i++) {
++        if (best_base >= 0 && i == best_base) {
++            if (i == 0) {
++                *tp++ = ':';
++            }
++
++            *tp++ = ':';
++            i += best_len - 1;
++            continue;
++        }
++
++        if (i > 0) {
++            *tp++ = ':';
++        }
++
++        uint16_t val = words[i];
++
++        if (val >= 0x1000) {
++            *tp++ = HEX_L[(val >> 12) & 0xf];
++            *tp++ = HEX_L[(val >> 8) & 0xf];
++            *tp++ = HEX_L[(val >> 4) & 0xf];
++            *tp++ = HEX_L[val & 0xf];
++        }
++        else if (val >= 0x100) {
++            *tp++ = HEX_L[(val >> 8) & 0xf];
++            *tp++ = HEX_L[(val >> 4) & 0xf];
++            *tp++ = HEX_L[val & 0xf];
++        }
++        else if (val >= 0x10) {
++            *tp++ = HEX_L[(val >> 4) & 0xf];
++            *tp++ = HEX_L[val & 0xf];
++        }
++        else {
++            *tp++ = HEX_L[val & 0xf];
++        }
++    }
++
++    *tp = '\0';
++    return result;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193813	  41920	  78152	 313885	  4ca1d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......................................................................
+ipv6_addr_tests.test_ipv6_addr_to_str__success3 (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 874) exp "::" was "null"
+.
+ipv6_addr_tests.test_ipv6_addr_to_str__success4 (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 882) exp "::1" was "null"
+.
+ipv6_addr_tests.test_ipv6_addr_to_str__success5 (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 897) exp "::ffff:c0a8:1" was ":::ffff:c0a8:1"
+....................
+run 92 failures 3
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff7c89c000; bottom 0x00000044c000; size: 0x7fff7c450000 (140735278284800)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

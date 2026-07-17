@@ -1,0 +1,78 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now checks:
+
+1. **Unicast link-local**: The first 10 bits of the address are `1111 1110 10` (FE80::/10). This is done by masking `u16[0]` with `0xffc0` and comparing to `0xfe80`, following the same pattern as `ipv6_addr_is_site_local`.
+
+2. **Multicast link-local**: The address is a multicast address (`ffxx::`) whose scope field (lower 4 bits of `u8[1]`) equals `IPV6_ADDR_MCAST_SCP_LINK_LOCAL` (0x2), e.g. `ff02::1`.
+
+This matches the RFC references listed in the docstring (RFC 4291 §2.5.6 for unicast, §2.7 for multicast).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -360,7 +360,9 @@
+  */
+ static inline bool ipv6_addr_is_link_local(const ipv6_addr_t *addr)
+ {
+-    /* MASKED - implement this function */
++    return (((byteorder_ntohs(addr->u16[0]) & 0xffc0) == 0xfe80) ||
++            (ipv6_addr_is_multicast(addr) &&
++             (addr->u8[1] & 0x0f) == IPV6_ADDR_MCAST_SCP_LINK_LOCAL));
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 193891	  41928	  78152	 313971	  4ca73	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................
+ipv6_addr_tests.test_ipv6_addr_is_link_local_nearly_link_local (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 322) exp 0 was 1
+................................................................
+run 92 failures 1
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeb23cf000; bottom 0x00000044c000; size: 0x7ffeb1f83000 (140731884253184)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

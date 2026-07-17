@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pointer-to-pointer pattern as `NotifierChainRegister`. It walks the list via `nl = &((*nl)->next)`, and when it finds the target node (`*nl == n`), it unlinks it by pointing the previous node's `next` (or the head pointer) to `n->next`. It returns 0 on success and -1 if the node isn't found in the chain. The `n->next` is cleared on removal as a safety measure.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -41,7 +41,15 @@
+ static int NotifierChainUnregister(struct NotifierBlock **nl,
+         struct NotifierBlock *n)
+ {
+-    /* MASKED - implement this function */
++    while ((*nl) != NULL) {
++        if (*nl == n) {
++            *nl = n->next;
++            n->next = NULL;
++            return 0;
++        }
++        nl = &((*nl)->next);
++    }
++    return -1;
+ }
+ 
+ static int NotifierCallChain(struct NotifierBlock **nl,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    while ((*nl) != NULL) {
+        if (*nl == n) {
+            *nl = n->next;
+            n->next = NULL;
+            return 0;
+        }
+        nl = &((*nl)->next);
+    }
+    return -1;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_NotifierChainUnregister.c notifier_test_stubs.c
+[CASE 1] remove head returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 2] new head is c
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 3] remove tail returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 4] list ends at c
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 5] remove last returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 6] list empty
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 7] remove from empty returns -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

@@ -1,0 +1,125 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsPerfOutPutFlush` now does:
+
+- Checks if a flush hook (`g_perfBufFlushHook`) has been registered via `OsPerfFlushHookReg`
+- If so, invokes it with the ring buffer's FIFO address and total size — matching the hook signature `void (*)(void *addr, U32 size)` from `prt_perf.h`
+
+This follows the same pattern as the notify hook check in `OsPerfOutPutEnd` (line 88-90), and is consistent with the two call sites: `OsPerfOutPutRead` (pre-read flush) and `OsPerfOutPutEnd` (post-write flush).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -62,7 +62,9 @@
+ 
+ void OsPerfOutPutFlush(void)
+ {
+-    /* MASKED - implement this function */
++    if (g_perfBufFlushHook != NULL) {
++        g_perfBufFlushHook((void *)g_perfOutputCb.ringbuf.fifo, g_perfOutputCb.ringbuf.size);
++    }
+ }
+ 
+ U32 OsPerfOutPutRead(char *dest, U32 size)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (g_perfBufFlushHook != NULL) {
+        g_perfBufFlushHook((void *)g_perfOutputCb.ringbuf.fifo, g_perfOutputCb.ringbuf.size);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfOutPutFlush.c
+[用例] Flush without hook
+  期望输出: 
+  实际输出: 
+  结果    : PASS
+
+[用例] Flush with hook size=8
+  期望输出: flush called size=8 first=0
+
+  实际输出: flush called size=8 first=0
+
+  结果    : PASS
+
+[用例] Flush with hook size=16
+  期望输出: flush called size=16 first=0
+
+  实际输出: flush called size=16 first=0
+
+  结果    : PASS
+
+[用例] Flush after unregister
+  期望输出: 
+  实际输出: 
+  结果    : PASS
+
+[用例] Flush re-register
+  期望输出: flush called size=16 first=0
+
+  实际输出: flush called size=16 first=0
+
+  结果    : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfOutPutFlush.c:2:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function traverses the linked list using the pointer-to-pointer pattern (matching the unregister function's style), finds the correct insertion point based on descending priority order, and links the new node into the list. It returns 0 on success, consistent with the `NotifierChainUnregister` convention.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -23,7 +23,15 @@
+ static int NotifierChainRegister(struct NotifierBlock **nl,
+         struct NotifierBlock *n)
+ {
+-    /* MASKED - implement this function */
++    while (*nl != NULL) {
++        if (n->priority > (*nl)->priority) {
++            break;
++        }
++        nl = &((*nl)->next);
++    }
++    n->next = *nl;
++    *nl = n;
++    return 0;
+ }
+ 
+ static int NotifierChainUnregister(struct NotifierBlock **nl,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    while (*nl != NULL) {
+        if (n->priority > (*nl)->priority) {
+            break;
+        }
+        nl = &((*nl)->next);
+    }
+    n->next = *nl;
+    *nl = n;
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_NotifierChainRegister.c notifier_test_stubs.c
+After insert a(10): [10] 
+[CASE 1] insert first returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 2] head is a
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert b(5): [10] [5] 
+[CASE 3] insert low prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 4] order a->b
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert c(7): [10] [7] [5] 
+[CASE 5] insert mid prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 6] order a->c->b
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+After insert d(20): [20] [10] [7] [5] 
+[CASE 7] insert highest prio returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 8] head is d
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 9] double register returns -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. Here's what it does:
+
+1. **`snip == pkt` (including both NULL)**: Returns `NULL` — the head of the list has no predecessor, and an empty packet has no last snip.
+2. **`snip == NULL` (non-empty list)**: Traverses to the last snip (the one with `next == NULL`) and returns it. This is how `gnrc_pkt_append` uses it.
+3. **`snip` is the head**: Caught by the first check, returns `NULL`.
+4. **`snip` not found in list**: Returns `NULL` after traversing the whole list.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/pkt.h
++++ sys/include/net/gnrc/pkt.h
+@@ -136,7 +136,16 @@
+ static inline gnrc_pktsnip_t *gnrc_pkt_prev_snip(gnrc_pktsnip_t *pkt,
+                                                  gnrc_pktsnip_t *snip)
+ {
+-    /* MASKED - implement this function */
++    if (snip == pkt) {
++        return NULL;
++    }
++    while (pkt != NULL) {
++        if (pkt->next == snip) {
++            return pkt;
++        }
++        pkt = pkt->next;
++    }
++    return NULL;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pkt
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 152581	  43216	 103784	 299581	  4923d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......................
+OK (23 tests)
+
+native: exiting
+
+--- stderr ---
+==585==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffccbdb3000; bottom 0x000000442000; size: 0x7ffccb971000 (140723724161024)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

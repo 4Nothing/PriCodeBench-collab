@@ -1,0 +1,87 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same traversal pattern as `clist_find_before` (lines 270-286):
+
+1. Start from the last element (`list->next`)
+2. Walk forward (`pos = pos->next`) checking each node against the target
+3. Return the node if found, or `NULL` after a full loop (or on empty list)
+
+This matches the documented O(n) complexity and the described contract: return the node if it's a member of the list, or NULL otherwise.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -300,7 +300,19 @@
+ static inline clist_node_t *clist_find(const clist_node_t *list,
+                                        const clist_node_t *node)
+ {
+-    /* MASKED - implement this function */
++    clist_node_t *pos = list->next;
++
++    if (!pos) {
++        return NULL;
++    }
++    do {
++        pos = pos->next;
++        if (pos == node) {
++            return pos;
++        }
++    } while (pos != list->next);
++
++    return NULL;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 134912	  51816	  96776	 283504	  45370	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==358==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff7e2cd000; bottom 0x000000440000; size: 0x7fff7de8d000 (140735305797632)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==358==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

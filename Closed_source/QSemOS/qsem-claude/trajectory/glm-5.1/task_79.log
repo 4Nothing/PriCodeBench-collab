@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what the function does:
+
+- **`(void)signum`** — suppresses the unused parameter warning; the signal number is known from the calling context and all signals get the same default treatment
+- **`PRT_TaskDelete(RUNNING_TASK->taskPid)`** — deletes the current task, which is the RTOS equivalent of the POSIX default signal action (terminate the process)
+
+This mirrors the behavior of the codebase: `OsInitSigVectors` initializes every signal vector to `OsSigDefaultHandler`, and `PRT_SignalAction` resets handlers to this function when the user passes `SIG_DFL`. Since `PRT_TaskDelete` for self-deletion triggers a context switch and the task never returns, the calling code in `OsHandleOneSignal`/`OsHandleUnBlockSignal` that would normally clean up the pending signal is unreachable for the terminated task — which is intentional.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -21,7 +21,8 @@
+ 
+ OS_SEC_L4_TEXT void OsSigDefaultHandler(int signum)
+ {
+-    /* MASKED - implement this function */
++    (void)signum;
++    PRT_TaskDelete(RUNNING_TASK->taskPid);
+ }
+ 
+ OS_SEC_L4_TEXT void OsInitSigVectors(struct TagTskCb *taskCb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)signum;
+    PRT_TaskDelete(RUNNING_TASK->taskPid);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSigDefaultHandler.c stub_prt_signal_env.c
+
+--- stderr ---
+In file included from test_OsSigDefaultHandler.c:3:
+func_under_test.c: In function ‘OsSigDefaultHandler’:
+func_under_test.c:4:5: warning: implicit declaration of function ‘PRT_TaskDelete’ [-Wimplicit-function-declaration]
+    4 |     PRT_TaskDelete(RUNNING_TASK->taskPid);
+      |     ^~~~~~~~~~~~~~
+In file included from test_OsSigDefaultHandler.c:1:
+test_common.h: At top level:
+test_common.h:55:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   55 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:38:13: warning: ‘print_result_int’ defined but not used [-Wunused-function]
+   38 | static void print_result_int(const char *case_name, int expected, int actual)
+      |             ^~~~~~~~~~~~~~~~
+test_common.h:16:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   16 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:8:
+auto_stub.h:1269:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1269 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1268:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1268 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1267:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1267 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1265:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1265 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1264:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1264 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1263:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1263 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1262:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1262 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1261:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1261 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1260:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1260 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1259:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1259 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1258:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1258 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1257:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1257 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1256:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1256 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+/usr/bin/ld: /tmp/cctN9hhn.o: in function `OsSigDefaultHandler':
+test_OsSigDefaultHandler.c:(.text+0x6f0): undefined reference to `PRT_TaskDelete'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

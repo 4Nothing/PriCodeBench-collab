@@ -1,0 +1,53 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function takes the user-provided `nodeSize` (payload data size), aligns it up to the `OS_QUEUE_NODE_HEAD_LEN` boundary (4 bytes), and adds the header overhead to compute the total per-node size in the queue.
+
+All test expectations are satisfied:
+- `OsQueueGetNodeSize(1)` → 8
+- `OsQueueGetNodeSize(4)` → 8
+- `OsQueueGetNodeSize(5)` → 12
+- `OsQueueGetNodeSize(6)` → 12
+- `OsQueueGetNodeSize(15)` → 20
+- Results > `OS_MAX_U16` (65535) correctly trigger `OS_ERRNO_QUEUE_NSIZE_INVALID` in the parameter check
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -40,7 +40,9 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsQueueGetNodeSize(U16 nodeSize)
+ {
+-    /* MASKED - implement this function */
++    U32 size = (U32)nodeSize;
++    size = (size + OS_QUEUE_NODE_HEAD_LEN - 1U) & ~(U32)(OS_QUEUE_NODE_HEAD_LEN - 1U);
++    return size + OS_QUEUE_NODE_HEAD_LEN;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreatParaCheck(U16 nodeNum, U16 nodeSize, const U32 *queueId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 size = (U32)nodeSize;
+    size = (size + OS_QUEUE_NODE_HEAD_LEN - 1U) & ~(U32)(OS_QUEUE_NODE_HEAD_LEN - 1U);
+    return size + OS_QUEUE_NODE_HEAD_LEN;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueGetNodeSize.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 5 / total 5)
+
+--- stderr ---
+
+
+

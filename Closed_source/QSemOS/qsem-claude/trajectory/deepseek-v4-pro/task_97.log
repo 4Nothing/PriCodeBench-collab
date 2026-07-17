@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function:
+
+1. **Validates inputs** — returns 0 for NULL ringbuf or uninitialized status
+2. **Acquires the spinlock** — matches the pattern used by `PRT_RingbufWrite` and `PRT_RingbufRead` for thread safety
+3. **Computes used size** — `ringbuf->size - ringbuf->remain` (total capacity minus free space)
+4. **Releases the lock** and returns the result
+
+This is consistent with the ring buffer invariant: `remain` tracks free bytes (initialized to `size`, decremented on write, incremented on read), so used bytes = `size - remain`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_ringbuf.c
++++ src/extended/perf/prt_perf_ringbuf.c
+@@ -18,7 +18,18 @@
+ 
+ U32 PRT_RingbufUsedSize(Ringbuf *ringbuf)
+ {
+-    /* MASKED - implement this function */
++    U32 size;
++    uintptr_t intSave;
++
++    if ((ringbuf == NULL) || (ringbuf->status != RBUF_INITED)) {
++        return 0;
++    }
++
++    intSave = PRT_SplIrqLock(&ringbuf->lock);
++    size = ringbuf->size - ringbuf->remain;
++    PRT_SplIrqUnlock(&ringbuf->lock, intSave);
++
++    return size;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 size;
+    uintptr_t intSave;
+
+    if ((ringbuf == NULL) || (ringbuf->status != RBUF_INITED)) {
+        return 0;
+    }
+
+    intSave = PRT_SplIrqLock(&ringbuf->lock);
+    size = ringbuf->size - ringbuf->remain;
+    PRT_SplIrqUnlock(&ringbuf->lock, intSave);
+
+    return size;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_RingbufUsedSize.c notifier_test_stubs.c
+Case 1 (NULL) -> Expected: 0, Actual: 0
+Case 2 (not inited) -> Expected: 0, Actual: 0
+Case 3 (empty) -> Expected: 0, Actual: 0
+Case 4 (after write 5) -> Expected: 5, Actual: 5
+Case 5 (after wraps) -> Expected: 7, Actual: 7
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_PRT_RingbufUsedSize.c:4:
+auto_stub.h:583:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  583 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:582:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  582 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:581:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  581 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:580:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  580 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:579:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  579 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:578:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  578 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:577:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  577 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:576:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  576 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:575:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  575 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:574:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  574 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:573:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  573 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:572:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  572 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:571:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  571 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:570:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  570 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

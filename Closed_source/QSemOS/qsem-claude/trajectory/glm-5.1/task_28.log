@@ -1,0 +1,97 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what the function does:
+
+**`OsSwtmrTargetCheck`** — non-SMP tickless version (line 322).
+
+It determines whether any software timer on this core has reached or passed its expected expiration tick. The logic mirrors the SMP counterpart (line 271) but adapted for the single-core case:
+
+1. **`(void)coreId`** — parameter is unused in non-SMP (same pattern as `OsSwtmrNearestTickGet` above it at line 294).
+2. **`OsIntLock()` / `OsIntRestore()`** — uses the non-SMP synchronization primitive (no spinlock available on the single `g_tmrSortLink`).
+3. **`g_tmrSortLink.nearestTicks`** — checks the globally tracked nearest expiration tick, which is maintained by `OsSwtmrNearestTicksRefresh(&g_tmrSortLink)` called whenever timers are started, stopped, deleted, or restarted.
+4. Returns `TRUE` if `nearestTicks` is not `OS_TICKLESS_FOREVER` (meaning at least one timer is running) and `nearestTicks <= g_uniTicks` (the timer has expired). Otherwise `FALSE`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -321,7 +321,18 @@
+ 
+ OS_SEC_TEXT bool OsSwtmrTargetCheck(U32 coreId)
+ {
+-    /* MASKED - implement this function */
++    (void)coreId;
++    bool target = FALSE;
++    uintptr_t intSave = OsIntLock();
++
++    if (g_tmrSortLink.nearestTicks != OS_TICKLESS_FOREVER) {
++        if (g_tmrSortLink.nearestTicks <= g_uniTicks) {
++            target = TRUE;
++        }
++    }
++
++    OsIntRestore(intSave);
++    return target;
+ }
+ #endif
+ #endif
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)coreId;
+    bool target = FALSE;
+    uintptr_t intSave = OsIntLock();
+
+    if (g_tmrSortLink.nearestTicks != OS_TICKLESS_FOREVER) {
+        if (g_tmrSortLink.nearestTicks <= g_uniTicks) {
+            target = TRUE;
+        }
+    }
+
+    OsIntRestore(intSave);
+    return target;
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsSwtmrTargetCheck test
+[CASE] none active -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+[CASE] one running -> true
+  expected=true
+  actual  =true
+  result  =PASS
+
+[CASE] expired -> true
+  expected=true
+  actual  =true
+  result  =PASS
+
+[CASE] all free -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+[CASE] created ignored -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

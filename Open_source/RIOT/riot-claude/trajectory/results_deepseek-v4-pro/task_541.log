@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented at `sys/include/net/ipv6/ext/frag.h:65`. It reads the `offset_flags` field from network byte order (symmetrically with `ipv6_ext_frag_set_offset`) and masks off the lower 3 bits (Reserved + M flag) with `IPV6_EXT_FRAG_OFFSET_MASK`, returning the fragment offset in bytes.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/ext/frag.h
++++ sys/include/net/ipv6/ext/frag.h
+@@ -61,7 +61,7 @@
+  */
+ static inline unsigned ipv6_ext_frag_get_offset(const ipv6_ext_frag_t *frag)
+ {
+-    /* MASKED - implement this function */
++    return (byteorder_ntohs(frag->offset_flags) & IPV6_EXT_FRAG_OFFSET_MASK);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-ipv6_hdr
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  85998	  34256	  78152	 198406	  30706	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==343==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcc2f1e000; bottom 0x000000430000; size: 0x7ffcc2aee000 (140723574726656)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

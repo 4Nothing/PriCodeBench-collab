@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function now:
+
+1. **Locks interrupts** (`OsIntLock`) to safely read timer state
+2. **Returns `idxRollNum`** if the timer is in `OS_TIMER_CREATED` state (the remaining ticks were saved there when the timer was stopped)
+3. **Returns 0** if the timer is in `OS_TIMER_EXPIRED` state
+4. **Delegates to `OsSwTmrGetRemain`** for the `OS_TIMER_RUNNING` case, which walks the timer wheel to sum the actual remaining ticks
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -94,7 +94,25 @@
+  */
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemainTick(struct TagSwTmrCtrl *swtmr)
+ {
+-    /* MASKED - implement this function */
++    U32 temp;
++    uintptr_t intSave;
++
++    intSave = OsIntLock();
++    switch (swtmr->state & OS_SWTMR_STATUS_MASK) {
++        case OS_TIMER_CREATED:
++            OsIntRestore(intSave);
++            return (swtmr->idxRollNum);
++        case OS_TIMER_EXPIRED:
++            OsIntRestore(intSave);
++            return 0;
++        default:
++            break;
++    }
++
++    temp = OsSwTmrGetRemain(swtmr);
++
++    OsIntRestore(intSave);
++    return temp;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 temp;
+    uintptr_t intSave;
+
+    intSave = OsIntLock();
+    switch (swtmr->state & OS_SWTMR_STATUS_MASK) {
+        case OS_TIMER_CREATED:
+            OsIntRestore(intSave);
+            return (swtmr->idxRollNum);
+        case OS_TIMER_EXPIRED:
+            OsIntRestore(intSave);
+            return 0;
+        default:
+            break;
+    }
+
+    temp = OsSwTmrGetRemain(swtmr);
+
+    OsIntRestore(intSave);
+    return temp;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrGetRemainTick.c test_support.c notifier_test_stubs.c
+[CREATED returns idx     ] expect=123, actual=123 => PASS
+[EXPIRED returns 0       ] expect=0, actual=0 => PASS
+[RUNNING cur0 t50        ] expect=50, actual=50 => PASS
+[RUN wrap 200->10        ] expect=2, actual=2 => PASS
+[RUN roll+10             ] expect=74, actual=74 => PASS
+
+OsSwTmrGetRemainTick Pass-Rate: 100.00% (5/5)
+
+
+--- stderr ---
+
+
+

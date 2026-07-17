@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation is one line: `return ipv6_addr_split_str(addr_str, '%');`. This delegates to the existing `ipv6_addr_split_str` helper (line 706), which finds the first `%` in the string, replaces it with `\0`, and returns the remainder — matching the documented behavior exactly.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -743,7 +743,7 @@
+  */
+ static inline char *ipv6_addr_split_iface(char *addr_str)
+ {
+-    /* MASKED - implement this function */
++    return ipv6_addr_split_str(addr_str, '%');
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193826	  41928	  78152	 313906	  4ca32	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff2d18f000; bottom 0x00000044c000; size: 0x7fff2cd43000 (140733945491456)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

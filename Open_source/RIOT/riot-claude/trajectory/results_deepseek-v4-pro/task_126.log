@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. The logic mirrors `fletcher16_update`:
+
+- **Block size**: 360 16-bit words (vs. 20 bytes for fletcher16) — keeps sums from overflowing before reduction
+- **Data access**: Uses `unaligned_get_u16()` for safe reads from potentially unaligned memory
+- **Core loop**: `ctx->sum2 += ctx->sum1 += word` — the standard Fletcher accumulation
+- **Reduction**: Calls the existing `_reduce()` after each block to fold the upper 16 bits back into the lower 16 bits (mod 65535)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/fletcher32.c
++++ sys/checksum/fletcher32.c
+@@ -42,7 +42,15 @@
+ 
+ void fletcher32_update(fletcher32_ctx_t *ctx, const void *data, size_t words)
+ {
+-    /* MASKED - implement this function */
++    const uint16_t *buf = (const uint16_t *)data;
++    while (words) {
++        size_t tlen = words > 360 ? 360 : words;
++        words -= tlen;
++        do {
++            ctx->sum2 += ctx->sum1 += unaligned_get_u16(buf++);
++        } while (--tlen);
++        _reduce(ctx);
++    }
+ }
+ 
+ uint32_t fletcher32(const uint16_t *data, size_t words)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123091	  42464	  78120	 243675	  3b7db	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc806e6000; bottom 0x00000043a000; size: 0x7ffc802ac000 (140722458771456)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

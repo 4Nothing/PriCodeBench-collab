@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+## CPU Models
+config CPU_MODEL_ATMEGA128RFA1
+    bool
+    select CPU_FAM_ATMEGA128
+
+## Common CPU symbols
+config CPU_MODEL
+    default "atmega128rfa1" if CPU_MODEL_ATMEGA128RFA1
+
+config CPU
+    default "atmega128rfa1" if CPU_MODEL_ATMEGA128RFA1
+
+source "$(RIOTCPU)/atmega_common/Kconfig"

@@ -1,0 +1,201 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_HwiSetAttr` does:
+
+1. **Validates parameters** via `OsHwiSetAttrParaCheck` — checks hwiNum, priority, and mode validity
+2. **Converts** the HWI handle to an IRQ number via `OS_HWI2IRQ`
+3. **Acquires the IRQ lock** for thread safety
+4. **Checks for attribute conflicts** (when `OS_OPTION_HWI_ATTRIBUTE` is defined) — prevents changing already-set attributes without first deleting the interrupt
+5. **Configures hardware priority** (when `OS_OPTION_HWI_PRIORITY` is defined and using GICv3 or PLIC) — only touches the hardware register if the priority actually changed
+6. **Stores the attributes** via `OsHwiAttrSet` into the mode form table
+7. **Releases the lock** and returns `OS_OK`
+
+The pattern follows the existing conventions in the file, matching the lock/unlock bracketing used by `PRT_HwiCreate` and `PRT_HwiDelete`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -207,7 +207,37 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_HwiSetAttr(HwiHandle hwiNum, HwiPrior hwiPrio, HwiMode mode)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 irqNum;
++    U32 ret;
++
++    ret = OsHwiSetAttrParaCheck(hwiNum, hwiPrio, mode);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    irqNum = OS_HWI2IRQ(hwiNum);
++
++    OS_HWI_IRQ_LOCK(intSave);
++
++#if defined(OS_OPTION_HWI_ATTRIBUTE)
++    ret = OsHwiSetAttrConflictErrCheck(irqNum, hwiPrio, mode);
++    if (ret != OS_OK) {
++        OS_HWI_IRQ_UNLOCK(intSave);
++        return ret;
++    }
++#endif
++
++#if (defined(OS_OPTION_HWI_PRIORITY) && ((OS_GIC_VER == 3) || defined(OS_PLIC_VER)))
++    if (OsHwiPriorityGet(hwiNum) != hwiPrio) {
++        OsHwiPrioritySet(hwiNum, hwiPrio);
++    }
++#endif
++
++    OsHwiAttrSet(irqNum, hwiPrio, mode);
++
++    OS_HWI_IRQ_UNLOCK(intSave);
++    return OS_OK;
+ }
+ 
+ #if defined(OS_OPTION_HWI_COMBINE)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 irqNum;
+    U32 ret;
+
+    ret = OsHwiSetAttrParaCheck(hwiNum, hwiPrio, mode);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    irqNum = OS_HWI2IRQ(hwiNum);
+
+    OS_HWI_IRQ_LOCK(intSave);
+
+#if defined(OS_OPTION_HWI_ATTRIBUTE)
+    ret = OsHwiSetAttrConflictErrCheck(irqNum, hwiPrio, mode);
+    if (ret != OS_OK) {
+        OS_HWI_IRQ_UNLOCK(intSave);
+        return ret;
+    }
+#endif
+
+#if (defined(OS_OPTION_HWI_PRIORITY) && ((OS_GIC_VER == 3) || defined(OS_PLIC_VER)))
+    if (OsHwiPriorityGet(hwiNum) != hwiPrio) {
+        OsHwiPrioritySet(hwiNum, hwiPrio);
+    }
+#endif
+
+    OsHwiAttrSet(irqNum, hwiPrio, mode);
+
+    OS_HWI_IRQ_UNLOCK(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test_PRT_HwiSetAttr test_PRT_HwiSetAttr.c test_stubs.c notifier_test_stubs.c
+ln -sf test_PRT_HwiSetAttr test
+[CASE] invalid hwi num
+  Expected: 33556481
+  Actual: 33556481
+  Result: PASS
+[CASE] invalid priority
+  Expected: 33556482
+  Actual: 33556482
+  Result: PASS
+[CASE] invalid mode
+  Expected: 33556489
+  Actual: 33556489
+  Result: PASS
+[CASE] set attr ok
+  Expected: 0
+  Actual: 0
+  Result: PASS
+[CASE] check prior
+  Expected: 7
+  Actual: 7
+  Result: PASS
+[CASE] check mode
+  Expected: 1
+  Actual: 1
+  Result: PASS
+[CASE] set attr edge
+  Expected: 0
+  Actual: 0
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_PRT_HwiSetAttr.c:3:
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_PRT_HwiSetAttr.c:1:
+test_support.h:54:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   54 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:48:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   48 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+In file included from test_stubs.c:1:
+test_support.h:60:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   60 | static void print_case_result(const char *name, long long expected, long long actual, int passed)
+      |             ^~~~~~~~~~~~~~~~~
+test_support.h:54:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   54 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:48:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+   48 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

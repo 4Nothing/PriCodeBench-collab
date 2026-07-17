@@ -1,0 +1,79 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation follows the exact same pattern as `rtc_get_time_ms` (lines 141-156) — it disables IRQs, atomically reads the RTT counter, converts to an RTC timestamp via `_rtc_now()`, re-enables IRQs, then fills the `struct tm` using `rtc_localtime()`. The only difference is it skips the millisecond calculation that `rtc_get_time_ms` also does.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- drivers/rtt_rtc/rtt_rtc.c
++++ drivers/rtt_rtc/rtt_rtc.c
+@@ -157,7 +157,16 @@
+ 
+ int rtc_get_time(struct tm *time)
+ {
+-    /* MASKED - implement this function */
++    uint32_t now, tmp;
++    unsigned state = irq_disable();
++
++    now = rtt_get_counter();
++    tmp = _rtc_now(now);
++
++    irq_restore(state);
++    rtc_localtime(tmp, time);
++
++    return 0;
+ }
+ 
+ int rtc_get_alarm(struct tm *time)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-rtt_rtc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/rtt_rtc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/rtc_utils
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  89096	  32224	  78728	 200048	  30d70	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+==346==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe00ab7000; bottom 0x00000042f000; size: 0x7ffe00688000 (140728905269248)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

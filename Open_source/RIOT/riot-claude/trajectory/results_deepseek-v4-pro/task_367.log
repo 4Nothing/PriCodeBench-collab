@@ -1,0 +1,130 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `vfs_rename` now does:
+
+1. **NULL validation** — both `from_path` and `to_path` must be non-NULL, returning `-EINVAL` otherwise
+2. **Mount resolution** — resolves both paths to mount points via `_find_mount()` (which increments each mount's `open_files` counter)
+3. **Cross-filesystem check** — if paths are on different mounts, returns `-EXDEV` (POSIX error for cross-device rename) after cleaning up both open-file counts
+4. **Capability check** — if the filesystem doesn't implement `rename` in its `fs_op` table, returns `-EROFS` with proper cleanup
+5. **Delegation** — calls `mountp->fs->fs_op->rename()` with the mount-relative paths for both source and destination
+6. **Cleanup** — always decrements `open_files` twice (once per `_find_mount` call) on every exit path
+
+The implementation follows the established patterns from `vfs_unlink`, `vfs_mkdir`, and `vfs_rmdir` in the same file, including the DEBUG logging style and the `atomic_fetch_sub_u16` + `assume` pattern.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -652,7 +652,57 @@
+ 
+ int vfs_rename(const char *from_path, const char *to_path)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_rename: \"%s\" -> \"%s\"\n", from_path, to_path);
++    if ((from_path == NULL) || (to_path == NULL)) {
++        return -EINVAL;
++    }
++    const char *from_rel, *to_rel;
++    vfs_mount_t *from_mp, *to_mp;
++    int res;
++    res = _find_mount(&from_mp, from_path, &from_rel);
++    if (res < 0) {
++        DEBUG("vfs_rename: no matching mount for from_path\n");
++        return res;
++    }
++    res = _find_mount(&to_mp, to_path, &to_rel);
++    if (res < 0) {
++        DEBUG("vfs_rename: no matching mount for to_path\n");
++        uint16_t before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++        assume(before > 0);
++        return res;
++    }
++    if (from_mp != to_mp) {
++        DEBUG("vfs_rename: cannot rename across file systems\n");
++        uint16_t before;
++        before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++        assume(before > 0);
++        before = atomic_fetch_sub_u16(&to_mp->open_files, 1);
++        assume(before > 0);
++        return -EXDEV;
++    }
++    if ((from_mp->fs->fs_op == NULL) || (from_mp->fs->fs_op->rename == NULL)) {
++        DEBUG("vfs_rename: rename not supported by fs!\n");
++        uint16_t before;
++        before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++        assume(before > 0);
++        before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++        assume(before > 0);
++        return -EROFS;
++    }
++    res = from_mp->fs->fs_op->rename(from_mp, from_rel, to_rel);
++    DEBUG("vfs_rename: rename %p, \"%s\", \"%s\"", (void *)from_mp, from_rel, to_rel);
++    if (res < 0) {
++        DEBUG(": ERR %d!\n", res);
++    }
++    else {
++        DEBUG("\n");
++    }
++    uint16_t before;
++    before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++    assume(before > 0);
++    before = atomic_fetch_sub_u16(&from_mp->open_files, 1);
++    assume(before > 0);
++    return res;
+ }
+ 
+ /* TODO: Share code between vfs_unlink, vfs_mkdir, vfs_rmdir since they are almost identical */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 123285	  45128	  79328	 247741	  3c7bd	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcae695000; bottom 0x00000043b000; size: 0x7ffcae25a000 (140723230187520)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

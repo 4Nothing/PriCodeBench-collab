@@ -1,0 +1,134 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function has been implemented with three checks, matching the reference:
+
+1. **Self-owned write lock** → returns `EINVAL` (a task holding the write lock cannot demote to a read lock)
+2. **Higher-priority writer pending while lock is free/read-locked** → returns `EBUSY` (POSIX requires `tryrdlock` to fail when a blocked writer has priority)
+3. **Write-locked by another task** → returns `EBUSY` (can't read while another writes)
+4. **Otherwise** → returns `OS_OK` (lock can be immediately acquired for reading)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -128,7 +128,23 @@
+ 
+ U32 OsRwLockTryRdCheck(struct TagTskCb *runTask, pthread_rwlock_t *rwl)
+ {
+-    /* MASKED - implement this function */
++    if ((struct TagTskCb *)(rwl->rw_owner) == runTask) {
++        return EINVAL;
++    }
++
++    /* 读写锁为读模式或者初始化模式，并且当前读锁任务的优先级比第一个写锁pend任务的优先级低，
++     * 当前读锁任务不能获取锁
++     */
++    if ((rwl->rw_count >= 0) && !OsRwlockPriCompare(runTask, &(rwl->rw_write))) {
++        return EBUSY;
++    }
++
++    /* 读写锁被写锁获得，当前读锁任务不能获取锁 */
++    if (rwl->rw_count < 0) {
++        return EBUSY;
++    }
++
++    return OS_OK;
+ }
+ 
+ U32 OsRwlockTryWrCheck(struct TagTskCb *runTask, pthread_rwlock_t *rwl)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if ((struct TagTskCb *)(rwl->rw_owner) == runTask) {
+        return EINVAL;
+    }
+
+    /* 读写锁为读模式或者初始化模式，并且当前读锁任务的优先级比第一个写锁pend任务的优先级低，
+     * 当前读锁任务不能获取锁
+     */
+    if ((rwl->rw_count >= 0) && !OsRwlockPriCompare(runTask, &(rwl->rw_write))) {
+        return EBUSY;
+    }
+
+    /* 读写锁被写锁获得，当前读锁任务不能获取锁 */
+    if (rwl->rw_count < 0) {
+        return EBUSY;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockTryRdCheck.c
+[Case 1] Expected: 22, Actual: 22
+  Result  : PASS
+
+[Case 2] Expected: 16, Actual: 16
+  Result  : PASS
+
+[Case 3] Expected: 16, Actual: 16
+  Result  : PASS
+
+[Case 4] Expected: 0, Actual: 0
+  Result  : PASS
+
+[Case 5] Expected: 0, Actual: 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwLockTryRdCheck.c:1:
+test_common.h:24:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   24 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:13:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   13 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1487:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1487 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1486:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1486 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1485:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1485 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1483:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1483 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1481:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1481 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1480:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1480 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1479:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1479 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1477:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1477 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1476:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1476 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1475:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1475 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1474:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1474 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

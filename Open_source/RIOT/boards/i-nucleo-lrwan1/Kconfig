@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "i-nucleo-lrwan1" if BOARD_I_NUCLEO_LRWAN1
+
+config BOARD_I_NUCLEO_LRWAN1
+    bool
+    default y
+    select CPU_MODEL_STM32L052T8
+
+    # Clock configuration
+    select BOARD_HAS_LSE
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

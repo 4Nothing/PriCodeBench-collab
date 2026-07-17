@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what the function does:
+
+- **Clamps** `bits` to 128 if larger (matching the header's documented behavior)
+- **Copies full bytes** from `prefix` to `out` via `memcpy` for all complete top bytes (`bits / 8`)
+- **Handles the partial byte** when `bits` isn't byte-aligned: builds a mask that selects the upper `unaligned_bits` bits from `prefix->u8[bytes]` while preserving the lower bits that were already in `out->u8[bytes]`
+- **Leaves untouched** any remaining bits below the prefix (matching the documented contract and the SLAAC usage pattern where the IID is set first, then the prefix is overlaid)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr.c
+@@ -71,7 +71,23 @@
+ void ipv6_addr_init_prefix(ipv6_addr_t *out, const ipv6_addr_t *prefix,
+                            uint8_t bits)
+ {
+-    /* MASKED - implement this function */
++    uint8_t unaligned_bits, bytes;
++
++    if (bits > 128) {
++        bits = 128;
++    }
++
++    unaligned_bits = bits % 8;
++    bytes = bits / 8;
++
++    if (bytes) {
++        memcpy(out->u8, prefix->u8, bytes);
++    }
++
++    if (unaligned_bits) {
++        uint8_t mask = 0xff << (8 - unaligned_bits);
++        out->u8[bytes] = (out->u8[bytes] & ~mask) | (prefix->u8[bytes] & mask);
++    }
+ }
+ 
+ void ipv6_addr_init_iid(ipv6_addr_t *out, const uint8_t *iid, uint8_t bits)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193843	  41928	  78152	 313923	  4ca43	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffca4d1b000; bottom 0x00000044c000; size: 0x7ffca48cf000 (140723069186048)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,96 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `coap_reply_simple` does at `nanocoap.c:702`:
+
+1. **Delegates to `coap_build_reply_header`** — which determines the response type (ACK for CON requests, NON otherwise), writes the UDP header, adds a Content-Format option (if `ct != COAP_FORMAT_NONE`), writes the payload marker (`0xFF`), and returns pointers to the payload area within `buf`.
+
+2. **Passes through errors** — `-ECANCELED` (no-reply option set), `-ENOBUFS` (buffer too small for header), or other negatives from `coap_build_reply_header`.
+
+3. **When no payload** (`payload_len == 0`) — skips the payload pointer setup entirely (passes `NULL` to `coap_build_reply_header`), so no Content-Format option or payload marker is written. Returns just the header size.
+
+4. **When payload present** — checks it fits in the remaining buffer space, copies it with `memcpy`, and returns the total message size (`hdr_len + payload_len`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -705,7 +705,27 @@
+                           uint16_t ct,
+                           const void *payload, size_t payload_len)
+ {
+-    /* MASKED - implement this function */
++    void *payload_buf = NULL;
++    size_t payload_len_max = 0;
++
++    ssize_t hdr_len = coap_build_reply_header(pkt, code, buf, len, ct,
++                                               payload_len ? &payload_buf : NULL,
++                                               payload_len ? &payload_len_max : NULL);
++    if (hdr_len < 0) {
++        return hdr_len;
++    }
++
++    if (!payload_len) {
++        return hdr_len;
++    }
++
++    if (payload_len > payload_len_max) {
++        return -ENOSPC;
++    }
++
++    memcpy(payload_buf, payload, payload_len);
++
++    return hdr_len + payload_len;
+ }
+ 
+ ssize_t coap_build_empty_ack(const coap_pkt_t *pkt, coap_udp_hdr_t *ack)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 147873	  36040	  78120	 262033	  3ff91	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcbac08000; bottom 0x00000043f000; size: 0x7ffcba7c9000 (140723437211648)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_ARCH_XTENSA
+    bool
+    help
+        Xtensa based architecture is used for the ESP8266 or the ESP32x SoC variant
+
+config CPU_ARCH_RISCV
+    bool
+    help
+        RISC-V based architecture is used for the ESP32x SoC variant.
+
+config CPU_COMMON_ESP
+    bool
+
+## Common CPU symbols
+config CPU_ARCH
+    default "xtensa" if CPU_ARCH_XTENSA
+    default "rv32" if CPU_ARCH_RISCV

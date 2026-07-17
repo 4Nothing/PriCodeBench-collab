@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. Here's what the implementation does:
+
+**`bf_get_unset`** — atomically finds the first unset bit, sets it, and returns its index:
+
+1. **`irq_disable()`** — disables interrupts to make the find-and-set operation atomic (matching the doc contract "Atomically get the number of an unset bit and set it").
+2. **`_skip_bytes(field, nbytes, 0xff)`** — quickly skips over full bytes that are all-ones (0xFF), advancing 8 bits at a time. This is the same optimization used by `bf_find_first_unset`.
+3. **Bit-by-bit scan** — for the remaining bits, checks each with `bf_isset`. On the first unset bit found, sets it with `bf_set`, restores IRQs, and returns the bit index.
+4. **Returns -1** if all bits are set (no unset bit found), after restoring IRQs.
+
+The implementation mirrors the structure of `bf_find_first_unset` (lines 55–67) with the addition of `bf_set` to mark the found bit and `irq_disable`/`irq_restore` for atomicity — consistent with the pattern used by other `_atomic` operations in `bitfield.h`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bitfield/bitfield.c
++++ sys/bitfield/bitfield.c
+@@ -35,7 +35,20 @@
+ 
+ int bf_get_unset(uint8_t field[], size_t size)
+ {
+-    /* MASKED - implement this function */
++    unsigned state = irq_disable();
++    unsigned nbytes = (size + 7) / 8;
++    unsigned i = _skip_bytes(field, nbytes, 0xff);
++
++    for (; i < size; i++) {
++        if (!bf_isset(field, i)) {
++            bf_set(field, i);
++            irq_restore(state);
++            return (int)i;
++        }
++    }
++
++    irq_restore(state);
++    return -1;
+ }
+ 
+ int bf_find_first_set(const uint8_t field[], size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bitfield
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  85997	  32024	  78120	 196141	  2fe2d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+OK (14 tests)
+
+native: exiting
+
+--- stderr ---
+==322==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc39ade000; bottom 0x00000042f000; size: 0x7ffc396af000 (140721271795712)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

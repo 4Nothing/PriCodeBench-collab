@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `crc8` function is now implemented. It mirrors the structure of `crc8_lsb` but processes bits MSB-first — checking the top bit (`0x80`), shifting left, and conditionally XORing with the generator polynomial.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/crc8.c
++++ sys/checksum/crc8.c
+@@ -23,7 +23,19 @@
+ 
+ uint8_t crc8(const uint8_t *data, size_t len, uint8_t g_polynom, uint8_t crc)
+ {
+-    /* MASKED - implement this function */
++    for (size_t i = 0; i < len; i++)
++    {
++        crc ^= data[i];
++
++        for (int bit = 0; bit < 8; bit++)
++        {
++            bool xor = crc & 0x80;
++            crc = crc << 1;
++            crc = xor ? crc ^ g_polynom : crc;
++        }
++    }
++
++    return crc;
+ }
+ 
+ uint8_t crc8_lsb(const uint8_t *data, size_t len, uint8_t g_polynom, uint8_t crc)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123095	  42464	  78120	 243679	  3b7df	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd0273a000; bottom 0x00000043a000; size: 0x7ffd02300000 (140724640153600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

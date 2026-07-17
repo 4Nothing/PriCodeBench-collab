@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The `bit_set8` function in the `#else` (no bitbanding) branch now reads:
+
+```c
+static inline void bit_set8(volatile uint8_t *ptr, uint8_t bit)
+{
+    *ptr |= (1 << (bit));
+}
+```
+
+This matches the implementations of `bit_set32` and `bit_set16` in the same branch, and aligns with the documented behavior of `*ptr |= (1 << bit)`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/bit.h
++++ sys/include/bit.h
+@@ -264,7 +264,7 @@
+ 
+ static inline void bit_set8(volatile uint8_t *ptr, uint8_t bit)
+ {
+-    /* MASKED - implement this function */
++    *ptr |= (1 << (bit));
+ }
+ 
+ static inline void bit_clear32(volatile uint32_t *ptr, uint8_t bit)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bit
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  75130	  31144	  78120	 184394	  2d04a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeee207000; bottom 0x00000042d000; size: 0x7ffeeddda000 (140732889145344)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

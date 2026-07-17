@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation now reads:
+
+```c
+static inline bool bf_isset(const uint8_t field[], size_t idx)
+{
+    return (field[idx / 8] & (1u << (7 - (idx % 8)))) != 0;
+}
+```
+
+It uses the same MSB-first bit indexing as `bf_set`, `bf_unset`, and `bf_toggle` — `field` is `const` so the bit is read without modification, and the result is returned as a `bool`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/bitfield.h
++++ sys/include/bitfield.h
+@@ -126,7 +126,7 @@
+  */
+ static inline bool bf_isset(const uint8_t field[], size_t idx)
+ {
+-    /* MASKED - implement this function */
++    return (field[idx / 8] & (1u << (7 - (idx % 8)))) != 0;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/tests/unittests/tests-bitfield
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/drivers/periph_common
+   text	   data	    bss	    dec	    hex	filename
+  85979	  32024	  78120	 196123	  2fe1b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+OK (14 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff1a382000; bottom 0x00000042f000; size: 0x7fff19f53000 (140733628887040)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors the MSB-first `crc8` algorithm, but processes bits LSB-first:
+
+- XOR the current CRC with the next data byte
+- For each of the 8 bits: check bit 0 (LSB) instead of bit 7, shift right instead of left, and XOR with the generator polynomial when the LSB is set
+
+This is the reflected CRC-8 algorithm, used by protocols like OneWire/Dallas where the data is processed least-significant-bit first. The caller passes the polynomial in the orientation matching this direction (e.g., 0x31 for the Dallas CRC-8, which is the bit-reflection of 0x8C).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/checksum/crc8.c
++++ sys/checksum/crc8.c
+@@ -41,7 +41,19 @@
+ 
+ uint8_t crc8_lsb(const uint8_t *data, size_t len, uint8_t g_polynom, uint8_t crc)
+ {
+-    /* MASKED - implement this function */
++    for (size_t i = 0; i < len; i++)
++    {
++        crc ^= data[i];
++
++        for (int b = 0; b < 8; b++)
++        {
++            bool xor = crc & 0x01;
++            crc = crc >> 1;
++            crc = xor ? crc ^ g_polynom : crc;
++        }
++    }
++
++    return crc;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-checksum
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 123095	  42464	  78120	 243679	  3b7df	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........................................................
+OK (58 tests)
+
+native: exiting
+
+--- stderr ---
+==371==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff282e2000; bottom 0x00000043a000; size: 0x7fff27ea8000 (140733863067648)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

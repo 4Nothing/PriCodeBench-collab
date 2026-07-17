@@ -1,0 +1,83 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsGetPendTskMaxPriority` now does:
+
+1. **Starts with the caller's initial priority** — reads `*maxPriority` which callers set to `taskCb->origPriority`
+2. **Iterates over all mutexes held by the task** — traverses `taskCb->semBList` using `LIST_FOR_EACH`
+3. **For each held mutex with pending waiters** — checks if `curSem->semList` is non-empty, then gets the first (highest-priority) waiter via `GET_TCB_PEND(OS_LIST_FIRST(...))`
+4. **Tracks the highest priority found** — updates `curMaxPrior` whenever a lower numeric priority value is found
+5. **Writes back the result** — sets `*maxPriority` to the highest priority among all pending waiters (at least the original priority)
+
+The two call sites (`OsCheckPrioritySet` at line 129 and `OsPriorityRestore` at line 240) use this to determine whether a task's priority can be lowered, enforcing priority inheritance semantics.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -77,7 +77,19 @@
+ /* 遍历任务持有的互斥信号量，获取阻塞中任务的最高优先级，需要semPrio锁保护 */
+ OS_SEC_ALW_INLINE INLINE void OsGetPendTskMaxPriority(struct TagTskCb *taskCb, TskPrior *maxPriority)
+ {
+-    /* MASKED - implement this function */
++    TskPrior curMaxPrior = *maxPriority;
++    struct TagSemCb *curSem = NULL;
++    struct TagTskCb *pendTask = NULL;
++
++    LIST_FOR_EACH(curSem, &taskCb->semBList, struct TagSemCb, semBList) {
++        if (!ListEmpty(&curSem->semList)) {
++            pendTask = GET_TCB_PEND(OS_LIST_FIRST(&curSem->semList));
++            if (pendTask->priority < curMaxPrior) {
++                curMaxPrior = pendTask->priority;
++            }
++        }
++    }
++    *maxPriority = curMaxPrior;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    TskPrior curMaxPrior = *maxPriority;
+    struct TagSemCb *curSem = NULL;
+    struct TagTskCb *pendTask = NULL;
+
+    LIST_FOR_EACH(curSem, &taskCb->semBList, struct TagSemCb, semBList) {
+        if (!ListEmpty(&curSem->semList)) {
+            pendTask = GET_TCB_PEND(OS_LIST_FIRST(&curSem->semList));
+            if (pendTask->priority < curMaxPrior) {
+                curMaxPrior = pendTask->priority;
+            }
+        }
+    }
+    *maxPriority = curMaxPrior;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test_OsGetPendTskMaxPriority test_OsGetPendTskMaxPriority.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsGetPendTskMaxPriority test
+[Case 1] Empty semBList unchanged
+  Expected: 5, Actual: 5
+  Result: PASS
+[Case 2] One waiter priority 3
+  Expected: 3, Actual: 3
+  Result: PASS
+[Case 3] Multiple waiters, min priority 5
+  Expected: 5, Actual: 5
+  Result: PASS
+Pass-Rate: 100.00% (3/3)
+
+--- stderr ---
+
+
+

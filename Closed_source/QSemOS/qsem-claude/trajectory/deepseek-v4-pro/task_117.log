@@ -1,0 +1,128 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_PerfConfig` now does:
+
+1. **Null guard** — returns `OS_ERRNO_PERF_CONFIG_NULL` if `attr` is NULL (before taking the lock)
+2. **Status validation** — returns `OS_ERRNO_PERF_STATUS_INVALID` if perf is not in `PERF_STOPED` state (the only valid state for configuration)
+3. **PMU setup** — calls the existing `OsPerfConfig` to find and configure the PMU with the user's event type, event IDs, and periods
+4. **Config copy** — copies all fields from `attr` into the global `g_perfCb`: `sampleType`, `taskIds` (capped to `PERF_MAX_FILTER_TSKS`), `taskIdsNr`, `needStoreToBuffer`, and `taskFilterEnable`
+
+The function follows the same locking pattern (take spinlock, validate state, do work, goto error label to unlock) used by `PRT_PerfInit`, `PRT_PerfStart`, and `PRT_PerfStop`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -380,7 +380,40 @@
+ 
+ U32 PRT_PerfConfig(PerfConfigAttr *attr)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 intSave;
++    U32 i;
++    U32 taskNum;
++
++    if (attr == NULL) {
++        return OS_ERRNO_PERF_CONFIG_NULL;
++    }
++
++    PERF_LOCK(intSave);
++    if (g_perfCb.status != PERF_STOPED) {
++        ret = OS_ERRNO_PERF_STATUS_INVALID;
++        goto PERF_CONFIG_ERROR;
++    }
++
++    ret = OsPerfConfig(&attr->eventsCfg);
++    if (ret != OS_OK) {
++        goto PERF_CONFIG_ERROR;
++    }
++
++    g_perfCb.sampleType = attr->sampleType;
++    taskNum = MIN(attr->taskIdsNr, PERF_MAX_FILTER_TSKS);
++    g_perfCb.taskIdsNr = (U8)taskNum;
++    for (i = 0; i < taskNum; i++) {
++        g_perfCb.taskIds[i] = attr->taskIds[i];
++    }
++    g_perfCb.needStoreToBuffer = attr->needStoreToBuffer;
++    g_perfCb.taskFilterEnable = attr->taskFilterEnable;
++
++    ret = OS_OK;
++PERF_CONFIG_ERROR:
++    PERF_UNLOCK(intSave);
++
++    return ret;
+ }
+ 
+ void PRT_PerfStart(U32 sectionId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 intSave;
+    U32 i;
+    U32 taskNum;
+
+    if (attr == NULL) {
+        return OS_ERRNO_PERF_CONFIG_NULL;
+    }
+
+    PERF_LOCK(intSave);
+    if (g_perfCb.status != PERF_STOPED) {
+        ret = OS_ERRNO_PERF_STATUS_INVALID;
+        goto PERF_CONFIG_ERROR;
+    }
+
+    ret = OsPerfConfig(&attr->eventsCfg);
+    if (ret != OS_OK) {
+        goto PERF_CONFIG_ERROR;
+    }
+
+    g_perfCb.sampleType = attr->sampleType;
+    taskNum = MIN(attr->taskIdsNr, PERF_MAX_FILTER_TSKS);
+    g_perfCb.taskIdsNr = (U8)taskNum;
+    for (i = 0; i < taskNum; i++) {
+        g_perfCb.taskIds[i] = attr->taskIds[i];
+    }
+    g_perfCb.needStoreToBuffer = attr->needStoreToBuffer;
+    g_perfCb.taskFilterEnable = attr->taskFilterEnable;
+
+    ret = OS_OK;
+PERF_CONFIG_ERROR:
+    PERF_UNLOCK(intSave);
+
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfConfig.c test_stubs.c
+[Null attr] expect=4102 actual=4102 -> PASS
+[Status invalid] expect=4103 actual=4103 -> PASS
+[Config OK] expect=0 actual=0 -> PASS
+[Task count copied] expect=3 actual=3 -> PASS
+[Task id[0] copied] expect=11 actual=11 -> PASS
+[Buffer flag copied] -> PASS
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+test_PRT_PerfConfig.c:17:21: warning: missing braces around initializer [-Wmissing-braces]
+   17 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_PRT_PerfConfig.c:17:21: warning: missing braces around initializer [-Wmissing-braces]
+   17 | static Pmu g_pmux = {.events = {{0}}, .type = 0, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+
+
+

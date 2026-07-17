@@ -1,0 +1,236 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsPerfTimedConfig` does:
+
+1. **Iterates** through all configured PMU events in `g_perfTimed.pmu.events`
+2. **Finds the `PERF_COUNT_CPU_CLOCK` event** — this is the only event type the timed PMU supports (as confirmed by `OsPerfGetEventName` returning `"unknown"` for anything else)
+3. **Validates the period**: returns `OS_ERRNO_TIMER_INTERVAL_INVALID` if the period is 0
+4. **Creates a software timer** via `PRT_TimerCreate` with:
+   - Type: `OS_TIMER_SOFTWARE`
+   - Mode: `OS_TIMER_LOOP` (periodic)
+   - Interval: the event's period (in ms)
+   - Callback: `OsPerfSwtimer`, which triggers `OsPerfTimedHandle` on all CPUs via `SMP_CALL_PERF_FUNC`
+5. **Stores the timer handle** in `g_swtPmuId`, which is then used by `OsPerfTimedStart` (to start the timer) and `OsPerfTimedStop` (to delete the timer)
+6. **Returns `OS_ERROR`** if no `PERF_COUNT_CPU_CLOCK` event is found
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/pmu/prt_perf_timed_pmu.c
++++ src/extended/perf/pmu/prt_perf_timed_pmu.c
+@@ -75,7 +75,41 @@
+ 
+ static U32 OsPerfTimedConfig()
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    U32 ret;
++    U32 period;
++    Event *event = NULL;
++    PerfEvent *events = &g_perfTimed.pmu.events;
++    U32 eventNum = events->nr;
++
++    for (i = 0; i < eventNum; i++) {
++        event = &(events->per[i]);
++        period = event->period;
++        if (event->eventId == PERF_COUNT_CPU_CLOCK) {
++            if (period == 0) {
++                printf("config period invalid, period:%u ms\n", period);
++                return OS_ERRNO_TIMER_INTERVAL_INVALID;
++            }
++
++            struct TimerCreatePara timer = {
++                .type = OS_TIMER_SOFTWARE,
++                .mode = OS_TIMER_LOOP,
++                .interval = period,
++                .timerGroupId = 0,
++                .callBackFunc = OsPerfSwtimer,
++            };
++
++            ret = PRT_TimerCreate(&timer, &g_swtPmuId);
++            if (ret != OS_OK) {
++                printf("perf timer create failed, ret = 0x%x\n", ret);
++                return ret;
++            }
++
++            return OS_OK;
++        }
++    }
++
++    return OS_ERROR;
+ }
+ 
+ static U32 OsPerfTimedStop()
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    U32 ret;
+    U32 period;
+    Event *event = NULL;
+    PerfEvent *events = &g_perfTimed.pmu.events;
+    U32 eventNum = events->nr;
+
+    for (i = 0; i < eventNum; i++) {
+        event = &(events->per[i]);
+        period = event->period;
+        if (event->eventId == PERF_COUNT_CPU_CLOCK) {
+            if (period == 0) {
+                printf("config period invalid, period:%u ms\n", period);
+                return OS_ERRNO_TIMER_INTERVAL_INVALID;
+            }
+
+            struct TimerCreatePara timer = {
+                .type = OS_TIMER_SOFTWARE,
+                .mode = OS_TIMER_LOOP,
+                .interval = period,
+                .timerGroupId = 0,
+                .callBackFunc = OsPerfSwtimer,
+            };
+
+            ret = PRT_TimerCreate(&timer, &g_swtPmuId);
+            if (ret != OS_OK) {
+                printf("perf timer create failed, ret = 0x%x\n", ret);
+                return ret;
+            }
+
+            return OS_OK;
+        }
+    }
+
+    return OS_ERROR;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsPerfTimedConfig.c notifier_test_stubs.c stubs.c
+[create ok] expect=0 actual=0 -> PASS
+perf timer create failed, ret = 0xbeef
+[create fails] expect=48879 actual=48879 -> PASS
+config period invalid, period:0 ms
+[period invalid] expect=33557764 actual=33557764 -> PASS
+[no cpu clock] expect=4294967295 actual=4294967295 -> PASS
+[timer type ok] expect=1 actual=1 -> PASS
+[timer mode ok] expect=0 actual=0 -> PASS
+[timer interval ok] expect=25 actual=25 -> PASS
+Pass-Rate: 100.00% (7/7)
+
+--- stderr ---
+In file included from test_OsPerfTimedConfig.c:51:
+func_under_test.c: In function ‘OsPerfTimedConfig’:
+func_under_test.c:27:19: warning: implicit declaration of function ‘PRT_TimerCreate’ [-Wimplicit-function-declaration]
+   27 |             ret = PRT_TimerCreate(&timer, &g_swtPmuId);
+      |                   ^~~~~~~~~~~~~~~
+test_OsPerfTimedConfig.c: At top level:
+test_OsPerfTimedConfig.c:24:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   24 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_OsPerfTimedConfig.c:4:
+auto_stub.h:2038:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 2038 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:2037:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 2037 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:2036:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 2036 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:2035:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 2035 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:2034:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 2034 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:2033:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 2033 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:2032:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 2032 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:2031:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 2031 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:2030:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 2030 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:2029:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 2029 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:2028:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 2028 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:2027:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 2027 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:2026:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 2026 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:2025:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 2025 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+stubs.c:9:1: warning: missing initializer for field ‘enable’ of ‘SwPmu’ [-Wmissing-field-initializers]
+    9 | SwPmu g_perfTimed = {{0}};
+      | ^~~~~
+In file included from prt_timer.h:2,
+                 from stubs.c:5:
+auto_stub.h:929:10: note: ‘enable’ declared here
+  929 |     bool enable;
+      |          ^~~~~~
+stubs.c: In function ‘OsPerfPmuRegister’:
+stubs.c:96:28: warning: unused parameter ‘pmu’ [-Wunused-parameter]
+   96 | U32 OsPerfPmuRegister(Pmu *pmu)
+      |                       ~~~~~^~~
+auto_stub.h: At top level:
+auto_stub.h:2038:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 2038 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:2037:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 2037 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:2036:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 2036 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:2035:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 2035 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:2034:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 2034 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:2033:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 2033 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:2032:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 2032 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:2031:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 2031 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:2030:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 2030 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:2029:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 2029 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:2028:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 2028 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:2027:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 2027 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:2026:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 2026 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:2025:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 2025 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

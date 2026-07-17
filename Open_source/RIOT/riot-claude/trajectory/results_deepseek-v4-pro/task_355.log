@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established patterns in this file:
+
+- **Input validation**: NULL check matching `vfs_readdir` and `vfs_opendir` style
+- **Driver dispatch**: Calls `dirp->d_op->closedir(dirp)` if available, same pattern as `vfs_close` checking `filp->f_op->close`
+- **open_files cleanup**: Decrements the mount's `open_files` counter using `atomic_fetch_sub_u16` + `assume(before > 0)`, matching the pattern in `_free_fd` (line 1098-1100) and the error paths in `vfs_opendir`
+- **Return value**: Returns the driver's result (or 0 if no driver `closedir`), mirroring `vfs_close`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -505,7 +505,19 @@
+ 
+ int vfs_closedir(vfs_DIR *dirp)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_closedir: %p\n", (void *)dirp);
++    if (dirp == NULL) {
++        return -EINVAL;
++    }
++    int res = 0;
++    if ((dirp->d_op != NULL) && (dirp->d_op->closedir != NULL)) {
++        res = dirp->d_op->closedir(dirp);
++    }
++    if (dirp->mp != NULL) {
++        uint16_t before = atomic_fetch_sub_u16(&dirp->mp->open_files, 1);
++        assume(before > 0);
++    }
++    return res;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123253	  45128	  79328	 247709	  3c79d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......................................
+vfs_dir_op_tests.test_vfs_null_dir_ops_closedir (tests/unittests/tests-vfs/tests-vfs-dir-ops.c 97) exp -9 was 0
+.
+vfs_dir_op_tests.test_vfs_null_dir_ops_readdir (tests/unittests/tests-vfs/tests-vfs-dir-ops.c 102) exp 0 was -1
+
+run 40 failures 2
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc078fa000; bottom 0x00000043b000; size: 0x7ffc074bf000 (140720430903296)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

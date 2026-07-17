@@ -1,0 +1,132 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsTskStackInit` now does:
+
+1. **Writes `OS_TSK_STACK_TOP_MAGIC`** (`0xAAAAAAAA`) at the very lowest address of the stack (`topStack`) — this serves as an overflow sentinel. If the stack overflows, this value gets overwritten, which is detected by `OsTaskStackPeakCal` in `prt_task_info.c:93`.
+
+2. **Fills the rest of the stack** with `OS_TSK_STACK_MAGIC` (`g_tskModInfo.magicWord` = `0xCACACACA`) — this enables peak stack usage measurement. `OsTaskStackPeakCal` scans upward from `topStack + sizeof(U32)` counting contiguous magic words to determine how much of the stack was never touched.
+
+This follows the same pattern as `InitSystemStack` in `src/arch/cpu/armv8/common/prt_port.c:61-71` and satisfies the contract expected by the stack info infrastructure in `prt_task_info.c`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -272,7 +272,12 @@
+ 
+ OS_SEC_L4_TEXT void OsTskStackInit(U32 stackSize, uintptr_t topStack)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++
++    *(U32 *)topStack = OS_TSK_STACK_TOP_MAGIC;
++    for (i = 1; i < (stackSize / sizeof(U32)); i++) {
++        *(U32 *)(topStack + i * sizeof(U32)) = OS_TSK_STACK_MAGIC;
++    }
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsTaskCreateRsrcInit(U32 taskId, struct TskInitParam *initParam, struct TagTskCb *taskCb,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+
+    *(U32 *)topStack = OS_TSK_STACK_TOP_MAGIC;
+    for (i = 1; i < (stackSize / sizeof(U32)); i++) {
+        *(U32 *)(topStack + i * sizeof(U32)) = OS_TSK_STACK_MAGIC;
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskStackInit.c
+[CASE] top magic at [0]
+  Expected: 3735928559
+  Actual  : 3735928559
+  Result  : PASS
+
+[CASE] rest magic
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] works for small
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] no write expected unspecified
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] index 0 top magic
+  Expected: 3735928559
+  Actual  : 3735928559
+  Result  : PASS
+
+[CASE] words filled count
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] both top magic
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTskStackInit.c:4:
+auto_stub.h:1281:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1281 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1277:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1276:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1275:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1275 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

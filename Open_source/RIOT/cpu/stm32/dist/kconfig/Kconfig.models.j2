@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: {{ year }} Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# This file was auto-generated from ST ProductsList.xlsx sheet using the
+# script in cpu/stm32/dist/kconfig/gen_kconfig.py
+# See cpu/stm32/dist/kconfig/README.md for details
+
+# CPU models
+{%- for item in models %}
+config CPU_MODEL_{{ item.model }}
+    bool
+    select {{ item.line | upper }}
+{% endfor %}
+
+# Configure CPU model
+config CPU_MODEL
+{%- for item in models %}
+    default "{{ item.model | lower }}" if CPU_MODEL_{{ item.model }}
+{%- endfor %}

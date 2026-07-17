@@ -1,0 +1,79 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **`gnrc_sixlowpan_frag_rb_base_rm(&vrb->super)`** — cleans up the fragment interval linked list and resets `datagram_size` to 0. This is the same function called by `gnrc_sixlowpan_frag_rb_remove()` for non-virtual reassembly buffer entries.
+- **`vrb->super.src_len = 0`** — marks the VRB entry as empty, matching the check in `gnrc_sixlowpan_frag_vrb_entry_empty()` (line 164). This mirrors how `gnrc_sixlowpan_frag_rb_remove` sets `rbuf->pkt = NULL` after calling the base cleanup.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/sixlowpan/frag/vrb.h
++++ sys/include/net/gnrc/sixlowpan/frag/vrb.h
+@@ -148,7 +148,8 @@
+  */
+ static inline void gnrc_sixlowpan_frag_vrb_rm(gnrc_sixlowpan_frag_vrb_t *vrb)
+ {
+-    /* MASKED - implement this function */
++    gnrc_sixlowpan_frag_rb_base_rm(&vrb->super);
++    vrb->super.src_len = 0;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_sixlowpan_frag_vrb
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/fb
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/vrb
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+
+--- stderr ---
+/usr/bin/ld: /tmp/build/bin/native64/gnrc_sixlowpan_frag_vrb/gnrc_sixlowpan_frag_vrb.o: in function `gnrc_sixlowpan_frag_vrb_rm':
+/workspace/sys/include/net/gnrc/sixlowpan/frag/vrb.h:151:(.text.gnrc_sixlowpan_frag_vrb_gc+0x11c): undefined reference to `gnrc_sixlowpan_frag_rb_base_rm'
+/usr/bin/ld: /tmp/build/bin/native64/tests-gnrc_sixlowpan_frag_vrb/tests-gnrc_sixlowpan_frag_vrb.o: in function `gnrc_sixlowpan_frag_vrb_rm':
+/workspace/sys/include/net/gnrc/sixlowpan/frag/vrb.h:151:(.text.test_vrb_rm+0x38): undefined reference to `gnrc_sixlowpan_frag_rb_base_rm'
+collect2: error: ld returned 1 exit status
+make: *** [/workspace/tests/unittests/../../Makefile.include:734: /tmp/build/bin/native64/tests_unittests.elf] Error 1
+
+
+

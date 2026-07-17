@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "feather-m0-lora" if BOARD_FEATHER_M0_LORA
+
+config BOARD_FEATHER_M0_LORA
+    bool
+    default y
+    select BOARD_FEATHER_M0_BASE
+
+source "$(RIOTBOARD)/feather-m0/Kconfig.feather-m0-base"

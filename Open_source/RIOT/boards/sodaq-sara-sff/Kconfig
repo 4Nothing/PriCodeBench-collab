@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "sodaq-sara-sff" if BOARD_SODAQ_SARA_SFF
+
+config BOARD_SODAQ_SARA_SFF
+    bool
+    default y
+    select BOARD_COMMON_SODAQ
+    select CPU_MODEL_SAMD21G18A
+
+source "$(RIOTBOARD)/common/sodaq/Kconfig"

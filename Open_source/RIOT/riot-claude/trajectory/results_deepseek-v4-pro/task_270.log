@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Bounds check**: If `element_index >= chain_length`, the element can't be part of the chain (its claimed position is past the tail), so it returns 1 immediately.
+
+2. **Compute forward**: Copies the candidate element into a temporary buffer, then applies `sha256_inplace` for `(chain_length - 1) - element_index` iterations — i.e., the number of hash steps needed to reach the tail position from the claimed index.
+
+3. **Compare**: If the computed result matches `tail_element`, returns 0 (verified). Otherwise returns 1 (not verified).
+
+This mirrors the chain construction in `sha256_chain`, where element 0 = SHA256(seed) and each subsequent element is SHA256(previous). The verification simply re-derives the tail from the claimed element and checks for a match.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/sha256.c
++++ sys/hashes/sha256.c
+@@ -265,5 +265,20 @@
+                                 void *tail_element,
+                                 size_t chain_length)
+ {
+-    /* MASKED - implement this function */
+-}
++    if (element_index >= chain_length) {
++        return 1;
++    }
++
++    unsigned char tmp[SHA256_DIGEST_LENGTH];
++    memcpy(tmp, element, SHA256_DIGEST_LENGTH);
++
++    size_t iterations = (chain_length - 1) - element_index;
++    for (size_t i = 0; i < iterations; i++) {
++        sha256_inplace(tmp);
++    }
++
++    if (memcmp(tmp, tail_element, SHA256_DIGEST_LENGTH) == 0) {
++        return 0;
++    }
++    return 1;
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221546	  74296	  82656	 378498	  5c682	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd4a140000; bottom 0x00000045a000; size: 0x7ffd49ce6000 (140725841715200)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

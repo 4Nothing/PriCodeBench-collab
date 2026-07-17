@@ -1,0 +1,235 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `credman_add` does:
+
+1. **Input validation** (no lock needed):
+   - `assert(credential)` — matches the convention in other functions
+   - Returns `CREDMAN_INVALID` if tag is `CREDMAN_TAG_EMPTY` (0)
+   - Returns `CREDMAN_INVALID` if type is `CREDMAN_TYPE_EMPTY` (0)
+   - For PSK: returns `CREDMAN_INVALID` if the key pointer is NULL or key length is 0
+   - For ECDSA: returns `CREDMAN_INVALID` if `private_key` is NULL
+   - Returns `CREDMAN_TYPE_UNKNOWN` for any other type
+
+2. **Thread-safe add** (under mutex):
+   - Checks if a credential with the same tag and type already exists → `CREDMAN_EXIST`
+   - Finds an empty slot (tag=0, type=0) → if none available, `CREDMAN_NO_SPACE`
+   - Copies the credential into the empty slot, increments `used`, returns `CREDMAN_OK`
+
+The implementation follows the exact same patterns as `credman_get` and `credman_delete` (mutex locking, use of `_find_credential_pos`, and the empty-slot detection via `CREDMAN_TAG_EMPTY`/`CREDMAN_TYPE_EMPTY`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -52,7 +52,52 @@
+ 
+ int credman_add(const credman_credential_t *credential)
+ {
+-    /* MASKED - implement this function */
++    assert(credential);
++
++    if (credential->tag == CREDMAN_TAG_EMPTY) {
++        return CREDMAN_INVALID;
++    }
++
++    if (credential->type == CREDMAN_TYPE_EMPTY) {
++        return CREDMAN_INVALID;
++    }
++
++    switch (credential->type) {
++    case CREDMAN_TYPE_PSK:
++        if (!credential->params.psk.key.s ||
++            credential->params.psk.key.len == 0) {
++            return CREDMAN_INVALID;
++        }
++        break;
++    case CREDMAN_TYPE_ECDSA:
++        if (!credential->params.ecdsa.private_key) {
++            return CREDMAN_INVALID;
++        }
++        break;
++    default:
++        return CREDMAN_TYPE_UNKNOWN;
++    }
++
++    mutex_lock(&_mutex);
++
++    credman_credential_t *empty = NULL;
++    int pos = _find_credential_pos(credential->tag, credential->type, &empty);
++
++    if (pos >= 0) {
++        mutex_unlock(&_mutex);
++        return CREDMAN_EXIST;
++    }
++
++    if (!empty) {
++        mutex_unlock(&_mutex);
++        return CREDMAN_NO_SPACE;
++    }
++
++    memcpy(empty, credential, sizeof(credman_credential_t));
++    used++;
++
++    mutex_unlock(&_mutex);
++    return CREDMAN_OK;
+ }
+ 
+ #if IS_USED(MODULE_CREDMAN_LOAD)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/pkg/tiny-asn1/ 
+
+--- stderr ---
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+make[1]: *** [/workspace/pkg/pkg.mk:176: /tmp/build/pkg/tiny-asn1/.git] Error 128
+make: [/workspace/tests/unittests/../../Makefile.include:802: pkg-prepare] Error 2 (ignored)
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+fatal: unable to access 'https://gitlab.com/mtausig/tiny-asn1.git/': Could not resolve host: gitlab.com
+make[1]: *** [/workspace/pkg/pkg.mk:133: /tmp/build/pkg/tiny-asn1/.pkg-state.git-downloaded] Error 128
+make: *** [/workspace/tests/unittests/../../Makefile.include:807: pkg-build] Error 2
+
+
+
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what `credman_add` does:
+
+1. **Input validation** (before taking the lock):
+   - Asserts the `credential` pointer is non-NULL
+   - Returns `CREDMAN_INVALID` if tag is `CREDMAN_TAG_EMPTY` or type is `CREDMAN_TYPE_EMPTY`
+   - For PSK: validates that `key.s`, `key.len`, `id.s`, and `id.len` are all non-zero/NULL
+   - For ECDSA: validates that `private_key` is non-NULL
+   - Returns `CREDMAN_TYPE_UNKNOWN` for unrecognized types
+
+2. **Duplicate check** (under mutex): Uses `_find_credential_pos` with an `empty` out-parameter to scan for both an existing entry and the first empty slot in one pass. Returns `CREDMAN_EXIST` if the tag+type pair already exists.
+
+3. **Space check**: Returns `CREDMAN_NO_SPACE` if no empty slot was found.
+
+4. **Insertion**: Copies the credential into the empty slot with `memcpy`, increments `used`, and returns `CREDMAN_OK`.
+
+The implementation follows the same patterns as the existing `credman_get` and `credman_delete` functions (assert, mutex lock/unlock, `_find_credential_pos` usage, `memcpy`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -52,7 +52,51 @@
+ 
+ int credman_add(const credman_credential_t *credential)
+ {
+-    /* MASKED - implement this function */
++    assert(credential);
++
++    if ((credential->tag == CREDMAN_TAG_EMPTY) ||
++        (credential->type == CREDMAN_TYPE_EMPTY)) {
++        return CREDMAN_INVALID;
++    }
++
++    switch (credential->type) {
++    case CREDMAN_TYPE_PSK:
++        if ((credential->params.psk.key.s == NULL) ||
++            (credential->params.psk.key.len == 0)) {
++            return CREDMAN_INVALID;
++        }
++        if ((credential->params.psk.id.s == NULL) ||
++            (credential->params.psk.id.len == 0)) {
++            return CREDMAN_INVALID;
++        }
++        break;
++    case CREDMAN_TYPE_ECDSA:
++        if (credential->params.ecdsa.private_key == NULL) {
++            return CREDMAN_INVALID;
++        }
++        break;
++    default:
++        return CREDMAN_TYPE_UNKNOWN;
++    }
++
++    mutex_lock(&_mutex);
++
++    credman_credential_t *empty = NULL;
++    int pos = _find_credential_pos(credential->tag, credential->type, &empty);
++    if (pos >= 0) {
++        mutex_unlock(&_mutex);
++        return CREDMAN_EXIST;
++    }
++    if (!empty) {
++        mutex_unlock(&_mutex);
++        return CREDMAN_NO_SPACE;
++    }
++
++    memcpy(empty, credential, sizeof(credman_credential_t));
++    used++;
++
++    mutex_unlock(&_mutex);
++    return CREDMAN_OK;
+ }
+ 
+ #if IS_USED(MODULE_CREDMAN_LOAD)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+rm -Rf /tmp/build/pkg/tiny-asn1
+mkdir -p $(dirname /tmp/build/pkg/tiny-asn1)
+cp -a /workspace/build/pkg/tiny-asn1/ /tmp/build/pkg/tiny-asn1
+touch /tmp/build/pkg/tiny-asn1/.prepared
+"make" -C /workspace/pkg/tiny-asn1/ 
+"make" -C /tmp/build/pkg/tiny-asn1/src -f /workspace/Makefile.base MODULE=tiny-asn1
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-credman
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/net/credman
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  94505	  32840	  78440	 205785	  323d9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==380==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc02d6f000; bottom 0x000000431000; size: 0x7ffc0293e000 (140720351731712)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

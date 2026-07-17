@@ -1,0 +1,264 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function initializes all necessary TCB fields for a newly created task:
+
+- **Stack**: `stackPointer`, `topOfStack`, `stackSize`
+- **Entry point**: `taskEntry`, `args[0..3]`
+- **Scheduling**: `priority`, `origPriority`, `policy`, `timeSlice` (from `g_timeSliceCycle`), `startTime`, plus `irqUsedTime` when IRQ time discount is configured
+- **Pending**: `taskPend = NULL`
+- **Events** (when `OS_OPTION_EVENT`): `event`, `eventMask`
+- **Lists**: `semBList`, `pendList`, `timerList` initialized as empty circular lists via `OS_LIST_INIT`
+- **POSIX** (when `OS_OPTION_POSIX`): thread-specific data, cancellation state, join count/semaphore, signal masks, signal vectors (via `OsInitSigVectors`), and locale (when `OS_OPTION_LOCALE`)
+- **SMP**: delegates core-specific init to `OsTskSMPTcbInit`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -331,7 +331,64 @@
+ OS_SEC_L4_TEXT void OsTskCreateTcbInit(uintptr_t stackPtr, struct TskInitParam *initParam,
+                                        uintptr_t topStackAddr, uintptr_t curStackSize, struct TagTskCb *taskCb)
+ {
+-    /* MASKED - implement this function */
++    /* Initialize the task's stack */
++    taskCb->stackPointer = (void *)stackPtr;
++    taskCb->args[OS_TSK_PARA_0] = (uintptr_t)initParam->args[OS_TSK_PARA_0];
++    taskCb->args[OS_TSK_PARA_1] = (uintptr_t)initParam->args[OS_TSK_PARA_1];
++    taskCb->args[OS_TSK_PARA_2] = (uintptr_t)initParam->args[OS_TSK_PARA_2];
++    taskCb->args[OS_TSK_PARA_3] = (uintptr_t)initParam->args[OS_TSK_PARA_3];
++    taskCb->topOfStack = topStackAddr;
++    taskCb->stackSize = curStackSize;
++    taskCb->taskPend = NULL;
++    taskCb->priority = initParam->taskPrio;
++    taskCb->origPriority = initParam->taskPrio;
++    taskCb->taskEntry = initParam->taskEntry;
++#if defined(OS_OPTION_EVENT)
++    taskCb->event = 0;
++    taskCb->eventMask = 0;
++#endif
++    taskCb->lastErr = 0;
++#if defined(OS_OPTION_RR_SCHED)
++    if (initParam->policy == OS_TSK_SCHED_RR) {
++        taskCb->policy = OS_TSK_SCHED_RR;
++    } else {
++        taskCb->policy = OS_TSK_SCHED_FIFO;
++    }
++    taskCb->startTime = 0;
++    taskCb->timeSlice = g_timeSliceCycle;
++#if defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
++    taskCb->irqUsedTime = 0;
++#endif
++#endif
++
++    OS_LIST_INIT(&taskCb->semBList);
++    OS_LIST_INIT(&taskCb->pendList);
++    OS_LIST_INIT(&taskCb->timerList);
++
++#if defined(OS_OPTION_POSIX)
++    taskCb->tsdUsed = 0;
++    taskCb->state = PTHREAD_CREATE_JOINABLE;
++    taskCb->cancelState = PTHREAD_CANCEL_ENABLE;
++    taskCb->cancelType = PTHREAD_CANCEL_DEFERRED;
++    taskCb->cancelPending = 0;
++    taskCb->cancelBuf = NULL;
++    taskCb->retval = NULL;
++    taskCb->joinCount = 0;
++    taskCb->joinableSem = 0;
++#if defined(OS_OPTION_POSIX_SIGNAL)
++    taskCb->sigMask = 0;
++    taskCb->sigWaitMask = 0;
++    taskCb->sigPending = 0;
++    taskCb->itimer = 0;
++    INIT_LIST_OBJECT(&taskCb->sigInfoList);
++    OsInitSigVectors(taskCb);
++#endif
++#if defined(OS_OPTION_LOCALE)
++    taskCb->locale = (locale_t)libc_global_locale;
++#endif
++#endif
++    OsTskSMPTcbInit(initParam, taskCb);
++    return;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsTskCreateTcbStatusSet(struct TagTskCb *taskCB, const struct TskInitParam *initParam)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    /* Initialize the task's stack */
+    taskCb->stackPointer = (void *)stackPtr;
+    taskCb->args[OS_TSK_PARA_0] = (uintptr_t)initParam->args[OS_TSK_PARA_0];
+    taskCb->args[OS_TSK_PARA_1] = (uintptr_t)initParam->args[OS_TSK_PARA_1];
+    taskCb->args[OS_TSK_PARA_2] = (uintptr_t)initParam->args[OS_TSK_PARA_2];
+    taskCb->args[OS_TSK_PARA_3] = (uintptr_t)initParam->args[OS_TSK_PARA_3];
+    taskCb->topOfStack = topStackAddr;
+    taskCb->stackSize = curStackSize;
+    taskCb->taskPend = NULL;
+    taskCb->priority = initParam->taskPrio;
+    taskCb->origPriority = initParam->taskPrio;
+    taskCb->taskEntry = initParam->taskEntry;
+#if defined(OS_OPTION_EVENT)
+    taskCb->event = 0;
+    taskCb->eventMask = 0;
+#endif
+    taskCb->lastErr = 0;
+#if defined(OS_OPTION_RR_SCHED)
+    if (initParam->policy == OS_TSK_SCHED_RR) {
+        taskCb->policy = OS_TSK_SCHED_RR;
+    } else {
+        taskCb->policy = OS_TSK_SCHED_FIFO;
+    }
+    taskCb->startTime = 0;
+    taskCb->timeSlice = g_timeSliceCycle;
+#if defined(OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT)
+    taskCb->irqUsedTime = 0;
+#endif
+#endif
+
+    OS_LIST_INIT(&taskCb->semBList);
+    OS_LIST_INIT(&taskCb->pendList);
+    OS_LIST_INIT(&taskCb->timerList);
+
+#if defined(OS_OPTION_POSIX)
+    taskCb->tsdUsed = 0;
+    taskCb->state = PTHREAD_CREATE_JOINABLE;
+    taskCb->cancelState = PTHREAD_CANCEL_ENABLE;
+    taskCb->cancelType = PTHREAD_CANCEL_DEFERRED;
+    taskCb->cancelPending = 0;
+    taskCb->cancelBuf = NULL;
+    taskCb->retval = NULL;
+    taskCb->joinCount = 0;
+    taskCb->joinableSem = 0;
+#if defined(OS_OPTION_POSIX_SIGNAL)
+    taskCb->sigMask = 0;
+    taskCb->sigWaitMask = 0;
+    taskCb->sigPending = 0;
+    taskCb->itimer = 0;
+    INIT_LIST_OBJECT(&taskCb->sigInfoList);
+    OsInitSigVectors(taskCb);
+#endif
+#if defined(OS_OPTION_LOCALE)
+    taskCb->locale = (locale_t)libc_global_locale;
+#endif
+#endif
+    OsTskSMPTcbInit(initParam, taskCb);
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskCreateTcbInit.c
+[CASE] stackPointer set
+  Expected: 57005
+  Actual  : 57005
+  Result  : PASS
+
+[CASE] topOfStack
+  Expected: 4096
+  Actual  : 4096
+  Result  : PASS
+
+[CASE] stackSize
+  Expected: 256
+  Actual  : 256
+  Result  : PASS
+
+[CASE] priority
+  Expected: 3
+  Actual  : 3
+  Result  : PASS
+
+[CASE] timeSlice from global
+  Expected: 1234
+  Actual  : 1234
+  Result  : PASS
+
+[CASE] policy RR
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] semBList init
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] pendList init
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] timerList init
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] arg0
+  Expected: 10
+  Actual  : 10
+  Result  : PASS
+
+[CASE] arg3
+  Expected: 40
+  Actual  : 40
+  Result  : PASS
+
+[CASE] locale copied
+  Expected: 65261
+  Actual  : 65261
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTskCreateTcbInit.c:4:
+auto_stub.h:1282:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1282 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1278:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1278 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1277:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1276:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1276 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

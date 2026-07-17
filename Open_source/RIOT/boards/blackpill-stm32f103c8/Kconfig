@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "blackpill-stm32f103c8" if BOARD_BLACKPILL_STM32F103C8
+
+config BOARD_BLACKPILL_STM32F103C8
+    bool
+    default y
+    select BOARD_COMMON_BLXXXPILL
+    select CPU_MODEL_STM32F103C8
+
+source "$(RIOTBOARD)/common/blxxxpill/Kconfig"

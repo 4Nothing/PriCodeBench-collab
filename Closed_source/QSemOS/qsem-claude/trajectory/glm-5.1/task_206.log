@@ -1,0 +1,118 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `OsLogUpdateTail` does:
+
+1. **Reads head** (reader position) and **tail** (writer position) from shared memory at `g_logMemBase + HEAD_PTR_OFFSET` / `TAIL_PTR_OFFSET`
+2. **Computes next tail**: `(currTail + 1) % (2 * BUFFER_BLOCK_NUM)` — wraps at 0x8000 (32768), consistent with the double-buffered valid-flag scheme
+3. **Checks buffer full**: computes the circular distance between `nextTail` and `head`. If the distance reaches `BUFFER_BLOCK_NUM` (16384), all physical slots are occupied and the buffer is full — returns `(U32)(-1)`
+4. **Advances the tail** in shared memory with a store fence, writes the new position through `*tail`, and returns 0
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -169,7 +169,29 @@
+ 
+ static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
+ {
+-    /* MASKED - implement this function */
++    U32 head, currTail, nextTail, diff;
++    volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
++    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
++
++    head = OsAtomicReadU32(headPtr);
++    LOAD_FENCE();
++    currTail = OsAtomicReadU32(tailPtr);
++
++    nextTail = (currTail + 1) % (2 * BUFFER_BLOCK_NUM);
++    if (nextTail >= head) {
++        diff = nextTail - head;
++    } else {
++        diff = (nextTail + 2 * BUFFER_BLOCK_NUM) - head;
++    }
++    if (diff >= BUFFER_BLOCK_NUM) {
++        return (U32)(-1);
++    }
++
++    OsAtomicSetU32(tailPtr, nextTail);
++    STORE_FENCE();
++
++    *tail = nextTail;
++    return 0;
+ }
+ 
+ static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 head, currTail, nextTail, diff;
+    volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
+    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
+
+    head = OsAtomicReadU32(headPtr);
+    LOAD_FENCE();
+    currTail = OsAtomicReadU32(tailPtr);
+
+    nextTail = (currTail + 1) % (2 * BUFFER_BLOCK_NUM);
+    if (nextTail >= head) {
+        diff = nextTail - head;
+    } else {
+        diff = (nextTail + 2 * BUFFER_BLOCK_NUM) - head;
+    }
+    if (diff >= BUFFER_BLOCK_NUM) {
+        return (U32)(-1);
+    }
+
+    OsAtomicSetU32(tailPtr, nextTail);
+    STORE_FENCE();
+
+    *tail = nextTail;
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsLogUpdateTail.c
+
+--- stderr ---
+In file included from test_OsLogUpdateTail.c:36:
+func_under_test.c: In function ‘OsLogUpdateTail’:
+func_under_test.c:8:5: warning: implicit declaration of function ‘LOAD_FENCE’; did you mean ‘M_FENCE’? [-Wimplicit-function-declaration]
+    8 |     LOAD_FENCE();
+      |     ^~~~~~~~~~
+      |     M_FENCE
+func_under_test.c:22:5: warning: implicit declaration of function ‘STORE_FENCE’ [-Wimplicit-function-declaration]
+   22 |     STORE_FENCE();
+      |     ^~~~~~~~~~~
+test_OsLogUpdateTail.c: In function ‘print_result’:
+test_OsLogUpdateTail.c:41:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   41 |     printf("  Expected: 0x%lX\n", (long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+test_OsLogUpdateTail.c:42:29: warning: format ‘%lX’ expects argument of type ‘long unsigned int’, but argument 2 has type ‘long long int’ [-Wformat=]
+   42 |     printf("  Actual  : 0x%lX\n", (long long)((U32)actual));
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+/usr/bin/ld: /tmp/ccRvPcBS.o: in function `OsLogUpdateTail':
+test_OsLogUpdateTail.c:(.text+0xfb): undefined reference to `LOAD_FENCE'
+/usr/bin/ld: test_OsLogUpdateTail.c:(.text+0x15d): undefined reference to `STORE_FENCE'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:13: test] Error 1
+
+
+

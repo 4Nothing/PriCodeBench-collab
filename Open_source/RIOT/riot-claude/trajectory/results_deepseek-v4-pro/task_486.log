@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place at `sys/include/div.h:69-72`.
+
+The logic: `_div_mulhi64(val, DIV_H_INV_15625_64)` computes the upper 64 bits of `val * DIV_H_INV_15625_64`, which is effectively `(val * 2^76 / 15625) >> 64`. Shifting that result right by `DIV_H_INV_15625_SHIFT` (12) yields `(val * 2^76 / 15625) >> 76 = val / 15625`. This follows the same multiplicative inverse pattern used by every other function in the file and avoids pulling in compiler-generated 64-bit division routines.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/div.h
++++ sys/include/div.h
+@@ -68,7 +68,7 @@
+  */
+ static inline uint64_t div_u64_by_15625(uint64_t val)
+ {
+-    /* MASKED - implement this function */
++    return _div_mulhi64(val, DIV_H_INV_15625_64) >> DIV_H_INV_15625_SHIFT;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-div
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  75651	  31472	  78120	 185243	  2d39b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff723ef000; bottom 0x00000042d000; size: 0x7fff71fc2000 (140735105736704)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

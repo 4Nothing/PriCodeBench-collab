@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_CORE_XTENSA_L106
+    bool
+    select CPU_ARCH_XTENSA
+
+config CPU_FAM_ESP8266
+    bool
+    select CPU_COMMON_ESP
+    select CPU_CORE_XTENSA_L106
+
+## CPU Models
+config CPU_MODEL_ESP8266EX
+    bool
+    select CPU_FAM_ESP8266
+
+config CPU_MODEL_ESP8266_ESP_12X
+    bool
+    select CPU_FAM_ESP8266
+
+## Common CPU symbols
+config CPU_CORE
+    default "xtensa-l106" if CPU_CORE_XTENSA_L106
+
+config CPU_FAM
+    default "esp8266" if CPU_FAM_ESP8266
+
+config CPU_MODEL
+    default "esp8266ex" if CPU_MODEL_ESP8266EX
+    default "esp8266-esp-12x" if CPU_MODEL_ESP8266_ESP_12X
+
+config CPU
+    default "esp8266" if CPU_FAM_ESP8266
+
+menu "ESP8266 specific configurations"
+    depends on HAS_ARCH_ESP8266
+
+    choice
+        bool "CPU clock frequency"
+        default ESP8266_CPU_FREQUENCY_80
+
+        config ESP8266_CPU_FREQUENCY_80
+            bool "80 MHz"
+        config ESP8266_CPU_FREQUENCY_160
+            bool "160 MHz"
+    endchoice
+
+endmenu
+
+source "$(RIOTCPU)/esp_common/Kconfig"

@@ -1,0 +1,70 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `adc_util_map` with the same mapping logic as the existing `adc_util_mapf` function, using integer arithmetic. The function maps an ADC sample value proportionally from the ADC's resolution range to the target integer range [min, max].
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/analog_util/adc_util.c
++++ sys/analog_util/adc_util.c
+@@ -59,7 +59,7 @@
+ 
+ int32_t adc_util_map(int sample, adc_res_t res, int32_t min, int32_t max)
+ {
+-    /* MASKED - implement this function */
++    return ((sample * (max - min)) / (1L << _adc_res_bits(res))) + min;
+ }
+ 
+ float adc_util_mapf(int sample, adc_res_t res, float min, float max)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-analog_util
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/analog_util
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  74786	  31096	  78120	 184002	  2cec2	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+adc_util_tests.test_adc_util_map (tests/unittests/tests-analog_util/tests-analog_util.c 51) exp 65535 was -1
+
+run 1 failures 1
+
+native: exiting
+
+--- stderr ---
+==326==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdb5f84000; bottom 0x00000042c000; size: 0x7ffdb5b58000 (140727652024320)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

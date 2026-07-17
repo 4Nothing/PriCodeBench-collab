@@ -1,0 +1,153 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSignalWaitSche` does:
+
+1. **`OsTskReadyDel`** — removes the current task from the ready queue (takes it off CPU)
+2. **`TSK_STATUS_SET(OS_TSK_WAIT_SIGNAL)`** + **`sigWaitMask = *set`** — marks the task as blocked waiting for signals in the given set
+3. **`OsSignalTimeOutSet`** — sets up the timeout timer (or clears TIMEOUT for `OS_SIGNAL_WAIT_FOREVER`)
+4. **Unlock → `OsTskSchedule` → Re-lock** — releases the task RQ lock, yields the CPU, and re-acquires the lock when re-awakened
+5. **Timeout detection** — if `OS_TSK_TIMEOUT` is still set after waking, the timer expired (not a signal delivery), so it cleans up the wait state and returns `OS_ERRNO_SIGNAL_TIMEOUT`. Otherwise, the task was woken by `PRT_SignalDeliver` (which already cleared `OS_TSK_WAIT_SIGNAL` via `OsSignalWaitReSche`), so it returns `OS_OK`.
+
+The implementation follows the same patterns used by `PRT_TaskDelay` (`prt_task_lock.c:111`), `PRT_SemPend` (`prt_sem.c:460`), and `OsRwLockPendSchedule` (`prt_rwlock.c:195`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -49,7 +49,23 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSignalWaitSche(struct TagTskCb *runTsk, const signalSet *set, U32 timeOutTick)
+ {
+-    /* MASKED - implement this function */
++    OsTskReadyDel(runTsk);
++    TSK_STATUS_SET(runTsk, OS_TSK_WAIT_SIGNAL);
++    runTsk->sigWaitMask = *set;
++    OsSignalTimeOutSet(runTsk, timeOutTick);
++
++    OsSpinUnlockTaskRq(runTsk);
++    OsTskSchedule();
++    OsSpinLockTaskRq(runTsk);
++
++    if (TSK_STATUS_TST(runTsk, OS_TSK_TIMEOUT)) {
++        TSK_STATUS_CLEAR(runTsk, OS_TSK_WAIT_SIGNAL);
++        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
++        runTsk->sigWaitMask = 0;
++        return OS_ERRNO_SIGNAL_TIMEOUT;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSigWaitProcPendingSignal(struct TagTskCb *runTsk, const signalSet *set, signalInfo *info)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsTskReadyDel(runTsk);
+    TSK_STATUS_SET(runTsk, OS_TSK_WAIT_SIGNAL);
+    runTsk->sigWaitMask = *set;
+    OsSignalTimeOutSet(runTsk, timeOutTick);
+
+    OsSpinUnlockTaskRq(runTsk);
+    OsTskSchedule();
+    OsSpinLockTaskRq(runTsk);
+
+    if (TSK_STATUS_TST(runTsk, OS_TSK_TIMEOUT)) {
+        TSK_STATUS_CLEAR(runTsk, OS_TSK_WAIT_SIGNAL);
+        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
+        runTsk->sigWaitMask = 0;
+        return OS_ERRNO_SIGNAL_TIMEOUT;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSignalWaitSche.c stub_prt_signal_env.c
+[CASE] timeout=0 invalid
+  Expected: 33558529
+  Actual  : 33558530
+  Result  : FAIL
+
+[CASE] lock active -> WAIT_IN_LOCK
+  Expected: 33558532
+  Actual  : 33558530
+  Result  : FAIL
+
+[CASE] forever under lock -> WAIT_IN_LOCK
+  Expected: 33558532
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] timeout branch present
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] sigWaitMask default
+  Expected: 0x00000000
+  Actual  : 0x00000006
+  Result  : FAIL
+
+Pass-Rate: 20.00% (1/5)
+
+--- stderr ---
+In file included from test_OsSignalWaitSche.c:1:
+test_common.h:56:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   56 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:16:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   16 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1300:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1300 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1299:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1299 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1298:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1298 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1296:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1296 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1295:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1295 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1294:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1294 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1293:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1293 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1292:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1292 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1291:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1291 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1290:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1290 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1289:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1289 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1288:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1288 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1287:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1287 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

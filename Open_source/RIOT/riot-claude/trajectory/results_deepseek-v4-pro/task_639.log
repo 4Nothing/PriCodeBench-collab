@@ -1,0 +1,67 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. In the fallback path (no `ZPTR_BASE`), `zptr_t` is `void *`, so `zptrd` just returns the pointer unchanged — the same transparent pass-through that `zptrc` does on line 129.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/zptr.h
++++ sys/include/zptr.h
+@@ -128,7 +128,7 @@
+ static inline int zptr_check(void *pointer) { (void)pointer; return 0; }
+ static inline zptr_t zptrc(void *pointer) { return (zptr_t)pointer; }
+ static inline void *zptrd(zptr_t zptr) {
+-    /* MASKED - implement this function */
++    return zptr;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-zptr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  71965	  30920	  78120	 181005	  2c30d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+OK (1 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc6f960000; bottom 0x00000042b000; size: 0x7ffc6f535000 (140722176217088)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

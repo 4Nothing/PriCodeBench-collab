@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "sensebox_samd21" if BOARD_SENSEBOX_SAMD21
+
+config BOARD_SENSEBOX_SAMD21
+    bool
+    default y
+    select CPU_MODEL_SAMD21G18A

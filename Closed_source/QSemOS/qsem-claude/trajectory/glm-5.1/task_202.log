@@ -1,0 +1,177 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the `OsLog` function does:
+
+1. **Sequence number**: Acquires the log lock, atomically increments `g_sequenceNum`, releases the lock.
+2. **Buffer slot**: Calls `OsLogUpdateTail()` to reserve the next tail slot in the ring buffer. Returns `-1` if the range check fails.
+3. **Valid flag toggling**: Uses a two-cycle scheme — the valid flag alternates between 1 and 0 on each full pass through the buffer, so readers can distinguish fresh entries from stale data.
+4. **Timestamp**: Gets the current realtime clock via `clock_gettime(CLOCK_REALTIME)`.
+5. **Task PID**: Retrieves the current task handle via `PRT_TaskSelf()`.
+6. **Write**: Copies the `struct logHeader` then the log string into the buffer block at `g_logMemBase + logIndex * BUFFER_BLOCK_SIZE`.
+7. **Valid flag**: Sets the per-block valid flag byte after a store fence to ensure write ordering.
+8. **Return**: `-1` if `memcpy_s` failed, `0` on success with a final store fence.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -205,7 +205,58 @@
+ 
+ static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 currTail, logIndex, sequenceNum, ret;
++    U8 validFlag;
++    U8 *targetMem;
++    struct logHeader header;
++    TskHandle taskPid = -1;
++    struct timespec ts = {0, 0};
++    volatile U8 *const validPtr = (U8 *)(g_logMemBase + VALID_FLAGS_OFFSET);
++
++    intSave = OsLogLockOn();
++    /* 多核可以用原子自增替换 */
++    sequenceNum = g_sequenceNum;
++    g_sequenceNum++;
++    OsLogLockRestore(intSave);
++
++    if (OsLogUpdateTail(&currTail)) {
++        return -1;
++    }
++
++    /* 计算当前的有效标记位, 奇数圈1, 偶数圈0 */
++    logIndex = currTail % (2 * BUFFER_BLOCK_NUM);
++    if (logIndex < BUFFER_BLOCK_NUM) {
++        validFlag = 1;
++    } else {
++        validFlag = 0;
++    }
++    logIndex = logIndex % (BUFFER_BLOCK_NUM);
++
++    clock_gettime(CLOCK_REALTIME, &ts);
++    header.sec = ts.tv_sec;
++    header.nanoSec = ts.tv_nsec;
++    header.sequenceNum = sequenceNum;
++    PRT_TaskSelf(&taskPid);
++    header.taskPid = taskPid;
++    header.len = strLen;
++    header.facility = facility;
++    header.level = level;
++
++    targetMem = (U8 *)g_logMemBase + (logIndex * BUFFER_BLOCK_SIZE);
++    (void)memcpy_s(targetMem, sizeof(struct logHeader), &header, sizeof(struct logHeader));
++    ret = memcpy_s(targetMem + sizeof(struct logHeader), LOG_MAX_SIZE, str, strLen);
++
++    STORE_FENCE();
++
++    /* 设置有效标记位 */
++    *(volatile U8 *)(validPtr + logIndex) = validFlag;
++    if (ret != EOK) {
++        return -1;
++    }
++    /* 保证有效标记位及时更新，不然最后一个日志可能获取较慢 */
++    STORE_FENCE();
++    return 0;
+ }
+ 
+ OS_SEC_L2_TEXT U32 PRT_Log(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 currTail, logIndex, sequenceNum, ret;
+    U8 validFlag;
+    U8 *targetMem;
+    struct logHeader header;
+    TskHandle taskPid = -1;
+    struct timespec ts = {0, 0};
+    volatile U8 *const validPtr = (U8 *)(g_logMemBase + VALID_FLAGS_OFFSET);
+
+    intSave = OsLogLockOn();
+    /* 多核可以用原子自增替换 */
+    sequenceNum = g_sequenceNum;
+    g_sequenceNum++;
+    OsLogLockRestore(intSave);
+
+    if (OsLogUpdateTail(&currTail)) {
+        return -1;
+    }
+
+    /* 计算当前的有效标记位, 奇数圈1, 偶数圈0 */
+    logIndex = currTail % (2 * BUFFER_BLOCK_NUM);
+    if (logIndex < BUFFER_BLOCK_NUM) {
+        validFlag = 1;
+    } else {
+        validFlag = 0;
+    }
+    logIndex = logIndex % (BUFFER_BLOCK_NUM);
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    header.sec = ts.tv_sec;
+    header.nanoSec = ts.tv_nsec;
+    header.sequenceNum = sequenceNum;
+    PRT_TaskSelf(&taskPid);
+    header.taskPid = taskPid;
+    header.len = strLen;
+    header.facility = facility;
+    header.level = level;
+
+    targetMem = (U8 *)g_logMemBase + (logIndex * BUFFER_BLOCK_SIZE);
+    (void)memcpy_s(targetMem, sizeof(struct logHeader), &header, sizeof(struct logHeader));
+    ret = memcpy_s(targetMem + sizeof(struct logHeader), LOG_MAX_SIZE, str, strLen);
+
+    STORE_FENCE();
+
+    /* 设置有效标记位 */
+    *(volatile U8 *)(validPtr + logIndex) = validFlag;
+    if (ret != EOK) {
+        return -1;
+    }
+    /* 保证有效标记位及时更新，不然最后一个日志可能获取较慢 */
+    STORE_FENCE();
+    return 0;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -D_GNU_SOURCE  -o test test_OsLog.c
+[CASE] normal write returns 0
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] oversize returns -1
+  Expected: 0xFFFFFFFF
+  Actual  : 0xFFFFFFFF
+  Result  : PASS
+
+[CASE] valid flags update
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] tail advanced by 1
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] header len sane
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

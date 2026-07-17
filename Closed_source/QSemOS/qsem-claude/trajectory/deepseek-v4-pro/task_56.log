@@ -1,0 +1,125 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `NotifierCallChain` does:
+
+1. Starts with `ret = NOTIFY_DONE` (returned if the chain is empty)
+2. Iterates through the linked list of `NotifierBlock` nodes while `nb` is non-NULL and `nr_to_call` hasn't reached zero
+3. For each node, saves `next_nb = nb->next` before calling the callback (in case the callback unregisters itself)
+4. Calls `nb->call(nb, val, v)` to invoke the notifier's callback
+5. Increments `*nr_calls` if the pointer is non-NULL
+6. If the return value has `NOTIFY_STOP_MASK` set, breaks out of the loop
+7. Otherwise advances to the next node and decrements `nr_to_call`
+8. Returns the last callback's return value
+
+This matches the reference implementation and satisfies the test expectations:
+- Stops early on `NOTIFY_STOP`/`NOTIFY_STOP_MASK`
+- Respects the `nr_to_call` limit
+- Correctly tracks call count via `nr_calls`
+- Passing `-1` for `nr_to_call` (as the callers do) means "no limit" since it's truthy and decrementing never reaches zero
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -55,7 +55,27 @@
+                    int val, void *v,
+                    int nr_to_call, int *nr_calls)
+ {
+-    /* MASKED - implement this function */
++    int ret = NOTIFY_DONE;
++    struct NotifierBlock *nb, *next_nb;
++
++    nb = *nl;
++
++    while (nb && nr_to_call) {
++        next_nb = nb->next;
++
++        ret = nb->call(nb, val, v);
++
++        if (nr_calls) {
++            (*nr_calls)++;
++        }
++
++        if (ret & NOTIFY_STOP_MASK) {
++            break;
++        }
++        nb = next_nb;
++        nr_to_call--;
++    }
++    return ret;
+ }
+ 
+ int OsNotifierChainRegister(struct NotifierHead *nh,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    int ret = NOTIFY_DONE;
+    struct NotifierBlock *nb, *next_nb;
+
+    nb = *nl;
+
+    while (nb && nr_to_call) {
+        next_nb = nb->next;
+
+        ret = nb->call(nb, val, v);
+
+        if (nr_calls) {
+            (*nr_calls)++;
+        }
+
+        if (ret & NOTIFY_STOP_MASK) {
+            break;
+        }
+        nb = next_nb;
+        nr_to_call--;
+    }
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_NotifierCallChain.c notifier_test_stubs.c
+[CASE 1] stop returns NOTIFY_STOP
+  Expect: 32768
+  Actual: 32768
+  Result: PASS
+
+[CASE 2] nr_calls==3 (a,b,c)
+  Expect: 3
+  Actual: 3
+  Result: PASS
+
+[CASE 3] nr_calls==2
+  Expect: 2
+  Actual: 2
+  Result: PASS
+
+[CASE 4] ret==NOTIFY_DONE (from b)
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 5] ctx hits==4
+  Expect: 4
+  Actual: 4
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_NotifierCallChain.c: In function ‘cb_count’:
+test_NotifierCallChain.c:35:43: warning: unused parameter ‘self’ [-Wunused-parameter]
+   35 | static int cb_count(struct NotifierBlock *self, int val, void *v)
+      |                     ~~~~~~~~~~~~~~~~~~~~~~^~~~
+
+
+

@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_FE310
+    bool
+    select CPU_CORE_RV32IMAC
+
+config CPU_MODEL_FE310_G000
+    bool
+    select CPU_FAM_FE310
+
+config CPU_MODEL_FE310_G002
+    bool
+    select CPU_FAM_FE310
+
+config CPU_FAM
+    default "fe310" if CPU_FAM_FE310
+
+config CPU_MODEL
+    default "fe310_g000"  if CPU_MODEL_FE310_G000
+    default "fe310_g002"  if CPU_MODEL_FE310_G002
+
+config CPU
+    default "fe310" if CPU_FAM_FE310
+
+config CPU_CORE
+    default "rv32imac" if CPU_CORE_RV32IMAC
+
+rsource "Kconfig.clk"
+
+source "$(RIOTCPU)/riscv_common/Kconfig"

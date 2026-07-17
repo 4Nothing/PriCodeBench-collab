@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "lobaro-lorabox" if BOARD_LOBARO_LORABOX
+
+config BOARD_LOBARO_LORABOX
+    bool
+    default y
+    select CPU_MODEL_STM32L151CB_A
+
+    # Clock configuration
+    select BOARD_HAS_LSE
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

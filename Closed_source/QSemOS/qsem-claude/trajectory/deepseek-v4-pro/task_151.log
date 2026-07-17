@@ -1,0 +1,91 @@
+============================================================
+=== Claude Session ===
+============================================================
+The non-SMP `PRT_SplLock` now matches the pattern of `PRT_SplUnlock` on line 143-146: it's a no-op that suppresses the unused parameter warning. On a single core, there's no concurrent core to contend with, so no actual lock acquisition is needed.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/spinlock/prt_spinlock.c
++++ src/core/kernel/spinlock/prt_spinlock.c
+@@ -136,7 +136,7 @@
+ /* 应用使用的spinlock，禁止调度，类似spin_unlock_irqrestore */
+ OS_SEC_L0_TEXT void PRT_SplLock(struct PrtSpinLock *spinLock)
+ {
+-    /* MASKED - implement this function */
++    (void)spinLock;
+ }
+ 
+ /* 应用使用的spinlock，禁止调度，类似spin_unlock_irqrestore */
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)spinLock;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_PRT_SplLock test_PRT_SplLock.c notifier_test_stubs.c
+ln -sf test_PRT_SplLock test
+Pass-Rate: 20.00%
+
+--- stderr ---
+In file included from test_PRT_SplLock.c:30:
+auto_stub.h:1526: warning: "OS_ERRNO_SPL_ALLOC_ADDR_INVALID" redefined
+ 1526 | #define OS_ERRNO_SPL_ALLOC_ADDR_INVALID 1u
+      | 
+auto_stub.h:909: note: this is the location of the previous definition
+  909 | #define OS_ERRNO_SPL_ALLOC_ADDR_INVALID OS_ERRNO_BUILD_ERROR(OS_MID_SPL, 0x04)
+      | 
+auto_stub.h:1515:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1515 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1514:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1514 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1513:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1513 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1512:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1512 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1511:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1511 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1510:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1510 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1509:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1509 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1508:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1508 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1504:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1504 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1503:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1503 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1502:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1502 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

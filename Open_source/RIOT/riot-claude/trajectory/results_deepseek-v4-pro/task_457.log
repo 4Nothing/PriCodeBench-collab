@@ -1,0 +1,397 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what it does:
+
+1. **Empty or single-element list**: returns immediately (already sorted).
+2. **Multi-element list**: extracts the first node (`list->next->next`), passes it to `_clist_sort` (the bottom-up merge sort in `clist.c`), and sets the anchor's `next` to the returned last node of the sorted list.
+
+`_clist_sort` handles the actual sorting — it treats the circular list as linear by using the original head as a sentinel, performs an iterative O(N log N) stable merge sort, re-closes the circle, and returns the new tail.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -438,7 +438,11 @@
+  */
+ static inline void clist_sort(clist_node_t *list, clist_cmp_func_t cmp)
+ {
+-    /* MASKED - implement this function */
++    if (clist_is_empty(list) || !clist_more_than_one(list)) {
++        return;
++    }
++    clist_node_t *first = list->next->next;
++    list->next = _clist_sort(first, cmp);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+
+--- stderr ---
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/core/include/cond.h:141[m[K,
+                 from [01m[K/workspace/core/cond.c:19[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/cpu/native/include/sched.h:25[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:24[m[K,
+                 from [01m[K/workspace/core/lib/assert.c:18[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/assert.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/core/mutex.c:25[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/core/include/msg.h:178[m[K,
+                 from [01m[K/workspace/core/include/mbox.h:23[m[K,
+                 from [01m[K/workspace/core/mbox.c:20[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/lib/clist.c:22[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/cond.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/cpu/native/include/sched.h:25[m[K,
+                 from [01m[K/workspace/core/msg.c:25[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/core/thread.c:26[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/mutex.o] Error 1
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/clist.o] Error 1
+In file included from [01m[K/workspace/core/sched.c:25[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/mbox.o] Error 1
+In file included from [01m[K/workspace/tests/unittests/tests-core/tests-core-clist.c:12[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/thread.o] Error 1
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/cpu/native/periph/uart.c:21[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/cpu/native/include/sched.h:25[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:24[m[K,
+                 from [01m[K/workspace/drivers/periph_common/pm.c:25[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/msg.o] Error 1
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core/sched.o] Error 1
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph_common/pm.o] Error 1
+make[3]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/core] Error 2
+make[1]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/sys/test_utils/print_stack_usage/print_stack_usage.c:20[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/tests/unittests/tests-core/tests-core-ringbuffer.c:6[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-clist.o] Error 1
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/cpu/native/include/sched.h:25[m[K,
+                 from [01m[K/workspace/core/lib/include/debug.h:24[m[K,
+                 from [01m[K/workspace/core/lib/priority_queue.c:23[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+make[2]: *** Waiting for unfinished jobs....
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/core/include/mutex.h:27[m[K,
+                 from [01m[K/workspace/sys/include/isrpipe.h:26[m[K,
+                 from [01m[K/workspace/sys/stdio/stdio.c:22[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/core/lib/init.c:28[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/periph/pm.c:19[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/periph/gpio_linux.c:22[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K/workspace/core/include/thread.h:121[m[K,
+                 from [01m[K/workspace/cpu/native/include/native_internal.h:51[m[K,
+                 from [01m[K/workspace/cpu/native/stdio_native/stdio_native.c:14[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/priority_queue.o] Error 1
+In file included from [01m[K/workspace/core/include/sched.h:84[m[K,
+                 from [01m[K/workspace/core/include/msg.h:178[m[K,
+                 from [01m[K/workspace/core/include/mbox.h:23[m[K,
+                 from [01m[K/workspace/tests/unittests/tests-core/tests-core-mbox.c:12[m[K:
+[01m[K/workspace/core/lib/include/clist.h:[m[K In function '[01m[Kclist_sort[m[K':
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/gpio_linux.o] Error 1
+make[3]: *** Waiting for unfinished jobs....
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/pm.o] Error 1
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/test_utils_print_stack_usage/print_stack_usage.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/test_utils/print_stack_usage] Error 2
+make[2]: *** Waiting for unfinished jobs....
+cc1: all warnings being treated as errors
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[Kclist_more_than_one[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  441 |     if (clist_is_empty(list) || ![01;31m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:[m[K At top level:
+[01m[K/workspace/core/lib/include/clist.h:493:20:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[Kclist_more_than_one[m[K'; have '[01m[K_Bool(clist_node_t *)[m[K' {aka '[01m[K_Bool(struct list_node *)[m[K'}
+  493 | static inline bool [01;31m[Kclist_more_than_one[m[K(clist_node_t *list)
+      |                    [01;31m[K^~~~~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/core/lib/include/clist.h:441:34:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[Kclist_more_than_one[m[K' with type '[01m[Kint()[m[K'
+  441 |     if (clist_is_empty(list) || ![01;36m[Kclist_more_than_one[m[K(list)) {
+      |                                  [01;36m[K^~~~~~~~~~~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-mbox.o] Error 1
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/stdio/stdio.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/stdio] Error 2
+cc1: all warnings being treated as errors
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/core_lib/init.o] Error 1
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/stdio_native/stdio_native.o] Error 1
+make[2]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/tests-core/tests-core-ringbuffer.o] Error 1
+cc1: all warnings being treated as errors
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native/stdio_native] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/drivers/periph_common] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/drivers] Error 2
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/periph/uart.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native/periph] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/cpu/native] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/tests/unittests/tests-core] Error 2
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/core/lib] Error 2
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

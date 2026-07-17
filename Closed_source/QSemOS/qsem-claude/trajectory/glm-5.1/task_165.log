@@ -1,0 +1,200 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the `PRT_SemPend` function flow:
+
+| Step | Action |
+|------|--------|
+| **Interrupt guard** | Rejects calls from interrupt context (`OS_ERRNO_SEM_PEND_INTERR`) |
+| **Handle check** | Validates the semaphore handle against `g_maxSem` |
+| **CB lock & unused** | Locks the semaphore CB, checks `semStat != OS_SEM_UNUSED` |
+| **Param validation** | `OsSemPendParaCheck` — rejects `timeout==0` and task-locked contexts |
+| **Fast path** | `OsSemPendNotNeedSche` — recursive mutex re-entry or `semCount > 0` succeeds without blocking |
+| **Blocking path** | `OsSemPendListPut` removes the task from ready, adds to sem pend list, sets timeout timer, and triggers priority inheritance |
+| **Post-schedule** | After `OsTskSchedule()` returns, checks `OS_TSK_PEND`: if still set, it was a timeout — cleans up from pend list and returns `OS_ERRNO_SEM_TIMEOUT`; otherwise returns `OS_OK` |
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -406,7 +406,58 @@
+  */
+ OS_SEC_L0_TEXT U32 PRT_SemPend(SemHandle semHandle, U32 timeout)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 ret;
++    struct TagSemCb *semPended = NULL;
++
++    if (OS_INT_ACTIVE) {
++        return OS_ERRNO_SEM_PEND_INTERR;
++    }
++
++    if (semHandle >= (SemHandle)g_maxSem) {
++        return OS_ERRNO_SEM_INVALID;
++    }
++
++    semPended = GET_SEM(semHandle);
++    SEM_CB_IRQ_LOCK(semPended, intSave);
++
++    if (semPended->semStat == OS_SEM_UNUSED) {
++        SEM_CB_IRQ_UNLOCK(semPended, intSave);
++        return OS_ERRNO_SEM_INVALID;
++    }
++
++    ret = OsSemPendParaCheck(timeout);
++    if (ret != OS_OK) {
++        SEM_CB_IRQ_UNLOCK(semPended, intSave);
++        return ret;
++    }
++
++    ret = OsSemPendNotNeedSche(semPended, RUNNING_TASK);
++    if (ret == TRUE) {
++        SEM_CB_IRQ_UNLOCK(semPended, intSave);
++        return OS_OK;
++    }
++
++    OsSemIfPrioLock(semPended);
++    OsSemPendListPut(semPended, timeout);
++    OsSemIfPrioUnLock(semPended);
++    SEM_CB_UNLOCK(semPended);
++
++    OsTskSchedule();
++
++    OsIntRestore(intSave);
++
++    if (TSK_STATUS_TST(RUNNING_TASK, OS_TSK_PEND)) {
++        OsSemIfPrioLock(semPended);
++        ListDelete(&RUNNING_TASK->pendList);
++        OsSemIfPrioUnLock(semPended);
++        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_PEND);
++        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_TIMEOUT);
++        RUNNING_TASK->taskPend = NULL;
++        return OS_ERRNO_SEM_TIMEOUT;
++    }
++
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 ret;
+    struct TagSemCb *semPended = NULL;
+
+    if (OS_INT_ACTIVE) {
+        return OS_ERRNO_SEM_PEND_INTERR;
+    }
+
+    if (semHandle >= (SemHandle)g_maxSem) {
+        return OS_ERRNO_SEM_INVALID;
+    }
+
+    semPended = GET_SEM(semHandle);
+    SEM_CB_IRQ_LOCK(semPended, intSave);
+
+    if (semPended->semStat == OS_SEM_UNUSED) {
+        SEM_CB_IRQ_UNLOCK(semPended, intSave);
+        return OS_ERRNO_SEM_INVALID;
+    }
+
+    ret = OsSemPendParaCheck(timeout);
+    if (ret != OS_OK) {
+        SEM_CB_IRQ_UNLOCK(semPended, intSave);
+        return ret;
+    }
+
+    ret = OsSemPendNotNeedSche(semPended, RUNNING_TASK);
+    if (ret == TRUE) {
+        SEM_CB_IRQ_UNLOCK(semPended, intSave);
+        return OS_OK;
+    }
+
+    OsSemIfPrioLock(semPended);
+    OsSemPendListPut(semPended, timeout);
+    OsSemIfPrioUnLock(semPended);
+    SEM_CB_UNLOCK(semPended);
+
+    OsTskSchedule();
+
+    OsIntRestore(intSave);
+
+    if (TSK_STATUS_TST(RUNNING_TASK, OS_TSK_PEND)) {
+        OsSemIfPrioLock(semPended);
+        ListDelete(&RUNNING_TASK->pendList);
+        OsSemIfPrioUnLock(semPended);
+        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_PEND);
+        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_TIMEOUT);
+        RUNNING_TASK->taskPend = NULL;
+        return OS_ERRNO_SEM_TIMEOUT;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_PRT_SemPend.c test_stubs.c notifier_test_stubs.c
+invalid handle => expected=1, actual=1
+interrupt active => expected=11, actual=11
+fast acquire => expected=0, actual=0
+timeout zero unavailable => expected=9, actual=9
+finite timeout returns timeout => expected=12, actual=0
+Pass-Rate: 80.00%
+
+--- stderr ---
+In file included from test_PRT_SemPend.c:2:
+test_helpers.h:14:28: warning: ‘struct TagTskCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   14 | void test_init_task(struct TagTskCb *tcb, U32 pid, U32 prio);
+      |                            ^~~~~~~~
+test_helpers.h:15:27: warning: ‘struct TagSemCb’ declared inside parameter list will not be visible outside of this definition or declaration
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                           ^~~~~~~~
+In file included from test_PRT_SemPend.c:4:
+func_under_test.c: In function ‘PRT_SemPend’:
+func_under_test.c:23:11: warning: implicit declaration of function ‘OsSemPendParaCheck’ [-Wimplicit-function-declaration]
+   23 |     ret = OsSemPendParaCheck(timeout);
+      |           ^~~~~~~~~~~~~~~~~~
+func_under_test.c:29:11: warning: implicit declaration of function ‘OsSemPendNotNeedSche’ [-Wimplicit-function-declaration]
+   29 |     ret = OsSemPendNotNeedSche(semPended, RUNNING_TASK);
+      |           ^~~~~~~~~~~~~~~~~~~~
+func_under_test.c:36:5: warning: implicit declaration of function ‘OsSemPendListPut’ [-Wimplicit-function-declaration]
+   36 |     OsSemPendListPut(semPended, timeout);
+      |     ^~~~~~~~~~~~~~~~
+In file included from test_PRT_SemPend.c:3:
+test_PRT_SemPend.c: In function ‘main’:
+os_stub.h:92:69: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   92 | #define GET_SEM(handle) ((handle) < g_maxSem ? &g_semPool[(handle)] : NULL)
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+      |                                                                     |
+      |                                                                     TagSemCb *
+test_PRT_SemPend.c:21:19: note: in expansion of macro ‘GET_SEM’
+   21 |     test_init_sem(GET_SEM(0), OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 1, SEM_MODE_FIFO);
+      |                   ^~~~~~~
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+os_stub.h:92:69: warning: passing argument 1 of ‘test_init_sem’ from incompatible pointer type [-Wincompatible-pointer-types]
+   92 | #define GET_SEM(handle) ((handle) < g_maxSem ? &g_semPool[(handle)] : NULL)
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+      |                                                                     |
+      |                                                                     TagSemCb *
+test_PRT_SemPend.c:42:19: note: in expansion of macro ‘GET_SEM’
+   42 |     test_init_sem(GET_SEM(0), OS_SEM_USED, MAKE_SEM_TYPE(SEM_TYPE_COUNT, 0), 0, SEM_MODE_FIFO);
+      |                   ^~~~~~~
+test_helpers.h:15:37: note: expected ‘struct TagSemCb *’ but argument is of type ‘TagSemCb *’
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                    ~~~~~~~~~~~~~~~~~^~~
+
+
+

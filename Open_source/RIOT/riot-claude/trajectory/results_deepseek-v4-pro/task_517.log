@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `inet_csum` does:
+
+- **Accumulates** 16-bit words from the buffer in network byte order (high byte first: `*buf << 8 | *(buf+1)`)
+- **Handles odd length**: if the buffer has an odd number of bytes, the final byte is added as the top half of a 16-bit word
+- **Folds carry bits**: any overflow above 16 bits is folded back into the lower 16 bits (standard 1's complement carry wrapping per RFC 1071)
+- **Returns unnormalized**: the caller is responsible for taking the 1's complement to get the final checksum
+
+The key difference from `inet_csum_slice` is that this function doesn't track `accum_len` — it treats the buffer as a standalone checksum domain.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/inet_csum.h
++++ sys/include/net/inet_csum.h
+@@ -70,7 +70,22 @@
+  * @return  The unnormalized Internet Checksum of @p buf.
+  */
+ static inline uint16_t inet_csum(uint16_t sum, const uint8_t *buf, uint16_t len) {
+-    /* MASKED - implement this function */
++    uint32_t csum = sum;
++
++    for (unsigned i = 0; i < (len >> 1); buf += 2, i++) {
++        csum += (uint16_t)(*buf << 8) + *(buf + 1);
++    }
++
++    if (len & 1) {
++        csum += (uint16_t)(*buf << 8);
++    }
++
++    while (csum >> 16) {
++        uint16_t carry = csum >> 16;
++        csum = (csum & 0xffff) + carry;
++    }
++
++    return csum;
+ }
+ 
+ #ifdef __cplusplus
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-inet_csum
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79084	  31536	  78120	 188740	  2e144	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffd35e9000; bottom 0x00000042d000; size: 0x7fffd31bc000 (140736735199232)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

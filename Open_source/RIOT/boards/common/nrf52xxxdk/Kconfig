@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARDS_COMMON_NRF52XXXDK
+    bool
+    select BOARD_COMMON_NRF52
+
+source "$(RIOTBOARD)/common/nrf52/Kconfig"

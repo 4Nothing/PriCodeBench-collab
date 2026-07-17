@@ -1,0 +1,160 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors `OsTaskIrqUnlock` (the internal inline helper used by `PRT_TaskIrqUnlock`), but manages interrupt state internally like `PRT_TaskLock` does. The key behaviors:
+
+- **Lock depth = 1**: Clears the lock and checks if a reschedule is pending. If so, uses `SMP_MC_SCHEDULE_TRIGGER` when interrupts were enabled before the call, or `OsTskScheduleFast` when they were already disabled.
+- **Lock depth > 1**: Just decrements the counter (nested locks).
+- **Lock depth = 0**: Reports an error via `OS_REPORT_ERROR` (unlock without matching lock).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -244,7 +244,38 @@
+ }
+ OS_SEC_L0_TEXT void PRT_TaskUnlock(void)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    struct TagOsRunQue *rq = THIS_RUNQ();
++
++    intSave = OsIntLock();
++
++    if (LIKELY(rq->uniTaskLock == 1))
++    {
++        rq->uniTaskLock = 0;
++
++        if (UNLIKELY(rq->needReschedule) && UNLIKELY((rq->uniFlag & OS_HWI_ACTIVE_MASK) == 0))
++        {
++            if ((OS_DI_STATE_CHECK(intSave)) != 0)
++            {
++                SMP_MC_SCHEDULE_TRIGGER(THIS_CORE());
++                return;
++            }
++            else
++            {
++                OsTskScheduleFast();
++            }
++        }
++        OsIntRestore(intSave);
++        return;
++    }
++    if (rq->uniTaskLock > 1)
++    {
++        rq->uniTaskLock--;
++        OsIntRestore(intSave);
++        return;
++    }
++    OS_REPORT_ERROR(OS_ERRNO_TSK_UNLOCK_NO_LOCK);
++    OsIntRestore(intSave);
+ }
+ OS_SEC_L0_TEXT void PRT_TaskIrqUnlock(uintptr_t intSave)
+ {OsTaskIrqUnlock(intSave);
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    struct TagOsRunQue *rq = THIS_RUNQ();
+
+    intSave = OsIntLock();
+
+    if (LIKELY(rq->uniTaskLock == 1))
+    {
+        rq->uniTaskLock = 0;
+
+        if (UNLIKELY(rq->needReschedule) && UNLIKELY((rq->uniFlag & OS_HWI_ACTIVE_MASK) == 0))
+        {
+            if ((OS_DI_STATE_CHECK(intSave)) != 0)
+            {
+                SMP_MC_SCHEDULE_TRIGGER(THIS_CORE());
+                return;
+            }
+            else
+            {
+                OsTskScheduleFast();
+            }
+        }
+        OsIntRestore(intSave);
+        return;
+    }
+    if (rq->uniTaskLock > 1)
+    {
+        rq->uniTaskLock--;
+        OsIntRestore(intSave);
+        return;
+    }
+    OS_REPORT_ERROR(OS_ERRNO_TSK_UNLOCK_NO_LOCK);
+    OsIntRestore(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskUnlock.c common_test.c
+===== PRT_TaskUnlock =====
+[lock->0] expect=0 actual=0 -> PASS
+[int lock called] expect=1 actual=1 -> PASS
+[int restore called] expect=1 actual=1 -> PASS
+[lock->2] expect=2 actual=2 -> PASS
+[error set] expect=7 actual=7 -> PASS
+[restore inc] expect=3 actual=3 -> PASS
+[schedule called] expect=1 actual=1 -> PASS
+[smp trigger inc] expect=1 actual=1 -> PASS
+Pass-Rate: 100.00% (8/8)
+
+--- stderr ---
+In file included from prt_task_internal.h:2,
+                 from test_PRT_TaskUnlock.c:2:
+auto_stub.h:1266:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1266 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1265:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1265 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1264:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1264 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1263:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1263 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1262:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1262 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1261:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1261 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1260:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1260 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1259:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1259 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1258:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1258 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1257:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1257 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1256:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1256 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1255:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1255 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1254:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1254 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1253:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1253 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

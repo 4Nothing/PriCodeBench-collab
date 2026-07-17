@@ -1,0 +1,51 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It returns `true` only when both conditions are met:
+
+- `g_pmu != NULL` — a valid PMU was configured via `PRT_PerfConfig`
+- `g_pmu->events.nr > 0` — at least one event was specified in the config
+
+This matches the intent at the call site (line 413): if either check fails, `PRT_PerfStart` prints "forgot call `PRT_Config(...)` before instrumenting?" and bails out.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -273,7 +273,7 @@
+ 
+ static inline bool OsPerfParamValid(void)
+ {
+-    /* MASKED - implement this function */
++    return (g_pmu != NULL) && (g_pmu->events.nr > 0);
+ }
+ 
+ static U32 OsPerfHdrInit(U32 id)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return (g_pmu != NULL) && (g_pmu->events.nr > 0);
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsPerfParamValid test
+[PMU null invalid] -> PASS
+[No events invalid] -> PASS
+[Zero periods invalid] -> PASS
+[One non-zero valid] -> PASS
+[Multiple non-zero valid] -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

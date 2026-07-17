@@ -1,0 +1,68 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. It follows the same pattern as the small-value path in `div_u64_by_15625div512` (line 154): cast to 64-bit, multiply by the 32-bit modular inverse, and shift right by 35 (i.e., `DIV_H_INV_15625_SHIFT + 32 - 9`). No overflow guard is needed since a 32-bit `val` can't overflow a 64-bit product.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/div.h
++++ sys/include/div.h
+@@ -128,7 +128,7 @@
+  */
+ static inline uint32_t div_u32_by_15625div512(uint32_t val)
+ {
+-    /* MASKED - implement this function */
++    return ((uint64_t)val * DIV_H_INV_15625_32) >> (DIV_H_INV_15625_SHIFT + 32 - 9);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-div
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  75728	  31472	  78120	 185320	  2d3e8	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe4aa8e000; bottom 0x00000042d000; size: 0x7ffe4a661000 (140730146623488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

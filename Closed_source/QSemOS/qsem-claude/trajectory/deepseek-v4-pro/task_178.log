@@ -1,0 +1,76 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function performs three parameter checks that match the test expectations and the API documentation in `prt_queue.h`:
+
+1. **`queueId == NULL`** → returns `OS_ERRNO_QUEUE_CREAT_PTR_NULL` (0x0b) — the output pointer must not be null
+2. **`nodeNum == 0 || nodeSize == 0`** → returns `OS_ERRNO_QUEUE_PARA_ZERO` (0x0c) — neither queue length nor node size can be zero
+3. **`nodeSize > 0xFFFA`** → returns `OS_ERRNO_QUEUE_NSIZE_INVALID` (0x13) — node size must not exceed the documented maximum of 0xFFFA (ensures `OsQueueGetNodeSize` won't overflow `U16` after alignment and header addition)
+4. All checks pass → returns `OS_OK`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue_init.c
++++ src/core/ipc/queue/prt_queue_init.c
+@@ -45,7 +45,22 @@
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreatParaCheck(U16 nodeNum, U16 nodeSize, const U32 *queueId)
+ {
+-    /* MASKED - implement this function */
++    if (queueId == NULL)
++    {
++        return OS_ERRNO_QUEUE_CREAT_PTR_NULL;
++    }
++
++    if ((nodeNum == 0) || (nodeSize == 0))
++    {
++        return OS_ERRNO_QUEUE_PARA_ZERO;
++    }
++
++    if (nodeSize > 0xFFFA)
++    {
++        return OS_ERRNO_QUEUE_NSIZE_INVALID;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueCreate(U16 nodeNum, U16 maxNodeSize, U32 *queueId)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (queueId == NULL)
+    {
+        return OS_ERRNO_QUEUE_CREAT_PTR_NULL;
+    }
+
+    if ((nodeNum == 0) || (nodeSize == 0))
+    {
+        return OS_ERRNO_QUEUE_PARA_ZERO;
+    }
+
+    if (nodeSize > 0xFFFA)
+    {
+        return OS_ERRNO_QUEUE_NSIZE_INVALID;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueCreatParaCheck.c notifier_test_stubs.c
+Pass-Rate: 100.00% (passed 6 / total 6)
+
+--- stderr ---
+
+
+

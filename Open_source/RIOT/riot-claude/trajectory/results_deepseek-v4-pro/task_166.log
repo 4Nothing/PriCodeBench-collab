@@ -1,0 +1,91 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation checks two conditions that together mean "the entire buffer is one free chunk starting at the beginning":
+
+1. `_first_unused` points to the start of `_static_buf` — the head of the free list is at the very beginning of the buffer
+2. `_first_unused->size == sizeof(_static_buf)` — that single free chunk covers the entire buffer
+
+This matches the state established by `gnrc_pktbuf_init` and is the only way the buffer can be empty given the allocator's invariants. If `_first_unused` is `NULL` (buffer full), the first comparison short-circuits to `false`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -310,7 +310,8 @@
+ #ifdef TEST_SUITES
+ bool gnrc_pktbuf_is_empty(void)
+ {
+-    /* MASKED - implement this function */
++    return (_first_unused == (_unused_t *)(uintptr_t)_static_buf) &&
++           (_first_unused->size == sizeof(_static_buf));
+ }
+ 
+ bool gnrc_pktbuf_is_sane(void)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_hdr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+   text	   data	    bss	    dec	    hex	filename
+ 113076	  36984	  85320	 235380	  39774	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==487==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdf085e000; bottom 0x000000437000; size: 0x7ffdf0427000 (140728634339328)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

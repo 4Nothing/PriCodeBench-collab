@@ -1,0 +1,72 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsIdleTaskExe` now does:
+
+1. **`OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD)`** — Invokes all registered idle-period multi-hooks (e.g., power management, profiling callbacks).
+2. **`g_taskCoreSleep`** — Retrieves the CPU sleep function pointer. When non-NULL, it calls it to put the core into a low-power state during idle.
+
+This function is called in a tight loop from `OsTskIdleBgd()` (line 55), which runs whenever the scheduler has no ready tasks. The hook mechanism lets external modules register callbacks for idle-period processing without modifying the idle task itself.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task.c
++++ src/core/kernel/task/smp/prt_task.c
+@@ -39,7 +39,15 @@
+  */
+ OS_SEC_L2_TEXT void OsIdleTaskExe(void)
+ {
+-    /* MASKED - implement this function */
++    OsVoidFunc coreSleep;
++
++    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD);
++
++    coreSleep = g_taskCoreSleep;
++    if (coreSleep != NULL)
++    {
++        coreSleep();
++    }
+ }
+ OS_SEC_L2_TEXT void OsTskIdleBgd(void)
+ {
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsVoidFunc coreSleep;
+
+    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD);
+
+    coreSleep = g_taskCoreSleep;
+    if (coreSleep != NULL)
+    {
+        coreSleep();
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../common -I.  -o test_OsIdleTaskExe test_OsIdleTaskExe.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsIdleTaskExe test
+PASS: NULL coreSleep no call (expected 0, got 0)
+PASS: dummy called once (expected 1, got 1)
+PASS: dummy called twice (expected 2, got 2)
+PASS: no increment after NULL (expected 2, got 2)
+PASS: called after reassign (expected 3, got 3)
+
+=== Test Summary ===
+Passes: 5
+Failures: 0
+All tests passed!
+
+--- stderr ---
+
+
+

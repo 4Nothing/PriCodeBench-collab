@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation walks the buffer and returns a pointer to the first byte that differs from `c`, or `NULL` if they all match. This matches the documented contract and how both callers in `gnrc_pktbuf_static.c` use it (lines 427 and 479).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/libc/string.c
++++ sys/libc/string.c
+@@ -42,7 +42,17 @@
+ 
+ const void *memchk(const void *data, uint8_t c, size_t len)
+ {
+-    /* MASKED - implement this function */
++    const uint8_t *pos = data;
++    const uint8_t *end = pos + len;
++
++    while (pos < end) {
++        if (*pos != c) {
++            return pos;
++        }
++        pos++;
++    }
++
++    return NULL;
+ }
+ 
+ int __swprintf(string_writer_t *sw, FLASH_ATTR const char *restrict format, ...)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-libc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79407	  32272	  78120	 189799	  2e567	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......
+OK (6 tests)
+
+native: exiting
+
+--- stderr ---
+==316==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffde4a7b000; bottom 0x00000042d000; size: 0x7ffde464e000 (140728435269632)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

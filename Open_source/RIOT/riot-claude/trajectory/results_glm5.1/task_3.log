@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function:
+1. Calls `cipher_init` to initialize the AES cipher context with the provided key
+2. Returns early if cipher initialization fails (propagating the error code)
+3. Zeros out the `X` buffer using `memset`
+4. Initializes `M_n` to 0
+5. Returns `CIPHER_INIT_SUCCESS` on success
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/aes128_cmac.c
++++ sys/hashes/aes128_cmac.c
+@@ -44,7 +44,13 @@
+ int aes128_cmac_init(aes128_cmac_context_t *ctx,
+                      const uint8_t *key, uint8_t key_size)
+ {
+-    /* MASKED - implement this function */
++    int ret = cipher_init(&ctx->aes128_ctx, CIPHER_AES, key, key_size);
++    if (ret != CIPHER_INIT_SUCCESS) {
++        return ret;
++    }
++    memset(ctx->X, 0, AES128_CMAC_BLOCK_SIZE);
++    ctx->M_n = 0;
++    return CIPHER_INIT_SUCCESS;
+ }
+ 
+ void aes128_cmac_update(aes128_cmac_context_t *ctx,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221534	  74296	  82656	 378486	  5c676	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe2551a000; bottom 0x00000045a000; size: 0x7ffe250c0000 (140729519964160)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

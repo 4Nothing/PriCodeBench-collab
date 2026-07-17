@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+Replaced the TODO comment with `__atomic_store_2(dest, val, __ATOMIC_SEQ_CST);` — matching the pattern of the surrounding `atomic_store_u8` (uses `__atomic_store_1`) and `atomic_store_u32` (uses `__atomic_store_4`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- cpu/cortexm_common/include/atomic_utils_arch.h
++++ cpu/cortexm_common/include/atomic_utils_arch.h
+@@ -54,7 +54,7 @@
+ #define HAS_ATOMIC_STORE_U16
+ static inline void atomic_store_u16(volatile uint16_t *dest, uint16_t val)
+ {
+-    /* MASKED - implement this function */
++    __atomic_store_2(dest, val, __ATOMIC_SEQ_CST);
+ }
+ 
+ #define HAS_ATOMIC_STORE_U32
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123304	  45128	  79328	 247760	  3c7d0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe3845e000; bottom 0x00000043b000; size: 0x7ffe38023000 (140729838088192)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

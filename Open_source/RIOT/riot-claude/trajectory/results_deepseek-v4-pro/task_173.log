@@ -1,0 +1,94 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `gnrc_pktbuf_start_write` does:
+
+- **NULL guard**: Returns `NULL` if `pkt == NULL`
+- **Copy-on-write**: When `pkt->users > 1` (snip is shared), deep-copies both the snip descriptor and data buffer via the existing `_create_snip` helper, decrements the original's reference count, and returns the new private copy
+- **No-op**: When `pkt->users == 1` (sole owner), returns `pkt` unchanged — the caller can safely write
+- **Thread-safe**: Mutex-guarded, matching the pattern of every other function in this file
+- **OOM**: Returns `NULL` if `_create_snip` fails allocation, matching the contract in the header's Doxygen
+
+The implementation mirrors the canonical `gnrc_pktbuf_malloc` backend exactly, differing only in that `_create_snip` calls into `_pktbuf_alloc` (static arena) rather than `malloc`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -213,7 +213,22 @@
+ 
+ gnrc_pktsnip_t *gnrc_pktbuf_start_write(gnrc_pktsnip_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&gnrc_pktbuf_mutex);
++    if (pkt == NULL) {
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return NULL;
++    }
++    if (pkt->users > 1) {
++        gnrc_pktsnip_t *new;
++        new = _create_snip(pkt->next, pkt->data, pkt->size, pkt->type);
++        if (new != NULL) {
++            pkt->users--;
++        }
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return new;
++    }
++    mutex_unlock(&gnrc_pktbuf_mutex);
++    return pkt;
+ }
+ 
+ #ifdef DEVELHELP
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119918	  38864	  84456	 243238	  3b626	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............................................
+OK (45 tests)
+
+native: exiting
+
+--- stderr ---
+==341==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffda162a000; bottom 0x000000439000; size: 0x7ffda11f1000 (140727306620928)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

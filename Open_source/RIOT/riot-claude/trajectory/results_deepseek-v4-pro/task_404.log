@@ -1,0 +1,69 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward: `bhp_msg_claim_thread` sets the target thread's PID on the descriptor. This is the pattern used by `bhp_msg_init` (which sets `pid = KERNEL_PID_UNDEF` initially) and `bhp_msg_isr_cb` (which asserts `pid != KERNEL_PID_UNDEF` and sends the message to that PID). The message itself (`type` and `content.ptr`) is already set up during `bhp_msg_init`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/bhp/msg.h
++++ sys/include/bhp/msg.h
+@@ -79,7 +79,7 @@
+  */
+ static inline void bhp_msg_claim_thread(bhp_msg_t *bhp_msg, kernel_pid_t pid)
+ {
+-    /* MASKED - implement this function */
++    bhp_msg->pid = pid;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bhp_msg
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bhp
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  79058	  31808	  94720	 205586	  32312	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdfdd0b000; bottom 0x00000042d000; size: 0x7ffdfd8de000 (140728857387008)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==323==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

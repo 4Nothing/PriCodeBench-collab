@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function at `prt_swtmr_minor.c:361` now:
+
+1. **Validates the handle** — returns `OS_ERRNO_TIMER_HANDLE_INVALID` if the index exceeds `g_swTmrMaxNum`
+2. **Converts the handle** to the internal control block pointer
+3. **Acquires the SMP-safe lock** via `OsSwtmrIqrSplLock`
+4. **Reads `swtmr->overrun`** into the output parameter (cast to `U32`, stored as `U8` in the struct)
+5. **Releases the lock** and returns `OS_OK`
+
+The pattern mirrors `OsSwTmrQuery` (lines 322–356) and matches the reference implementation in the test suite. No state checking is performed — the `overrun` field is readable regardless of timer state, as confirmed by the test cases.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -360,5 +360,21 @@
+  */
+ OS_SEC_L2_TEXT U32 OsSwTmrGetOverrun(TimerHandle tmrHandle, U32 *overrun)
+ {
+-    /* MASKED - implement this function */
++    struct TagSwTmrCtrl *swtmr = NULL;
++    uintptr_t intSave;
++
++    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
++    {
++        return OS_ERRNO_TIMER_HANDLE_INVALID;
++    }
++
++    // 转化为软件定时器内部ID号
++    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
++    intSave = OsSwtmrIqrSplLock(swtmr);
++
++    *overrun = (U32)swtmr->overrun;
++
++    OsSwtmrIqrSplUnlock(swtmr, intSave);
++
++    return OS_OK;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSwTmrCtrl *swtmr = NULL;
+    uintptr_t intSave;
+
+    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum)
+    {
+        return OS_ERRNO_TIMER_HANDLE_INVALID;
+    }
+
+    // 转化为软件定时器内部ID号
+    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
+    intSave = OsSwtmrIqrSplLock(swtmr);
+
+    *overrun = (U32)swtmr->overrun;
+
+    OsSwtmrIqrSplUnlock(swtmr, intSave);
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrGetOverrun.c test_support.c notifier_test_stubs.c
+[invalid handle          ] expect=33557763, actual=33557763 => PASS
+[ok zero                 ] expect=0, actual=0 => PASS
+[ov=0                    ] expect=0, actual=0 => PASS
+[ok small                ] expect=0, actual=0 => PASS
+[ov=3                    ] expect=3, actual=3 => PASS
+[ok large                ] expect=0, actual=0 => PASS
+[ov=255                  ] expect=255, actual=255 => PASS
+[state ignored           ] expect=0, actual=0 => PASS
+[ov=7                    ] expect=7, actual=7 => PASS
+
+OsSwTmrGetOverrun Pass-Rate: 100.00% (9/9)
+
+
+--- stderr ---
+
+
+

@@ -1,0 +1,218 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_QueueWrite` does, mirroring the symmetric `PRT_QueueRead` pattern:
+
+1. **Parameter validation** via `OsQueueWriteParaCheck` (queue ID, pointer, buffer size, priority)
+2. **Queue state check** — returns `OS_ERRNO_QUEUE_NOT_CREATE` if the queue was never created
+3. **Buffer size check** — returns `OS_ERRNO_QUEUE_SIZE_TOO_BIG` if `bufferSize` exceeds the queue node's data area (`nodeSize - OS_QUEUE_NODE_HEAD_LEN`)
+4. **Pend on write space** via `OsInnerPend(&queueCb->writableCnt, &queueCb->writeList, ...)` — blocks the caller if no free slot is available, respecting timeout
+5. **Copy data to node** via `OsQueueCpData2Node` — handles both `OS_QUEUE_NORMAL` (tail) and `OS_QUEUE_URGENT` (head) insertion, updates peak count
+6. **Wake blocked readers** via `OsQueuePendNeedProc(&queueCb->readList)` — if a reader is waiting, wake it and schedule; otherwise increment `readableCnt`
+7. **IRQ unlock and return** on the `QUEUE_END` label
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -317,5 +317,50 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_QueueWrite(U32 queueId, void *bufferAddr, U32 bufferSize, U32 timeOut, U32 prio)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    U32 ret;
++    U32 innerId = OS_QUEUE_INNER_ID(queueId);
++    struct TagQueCb *queueCb = NULL;
++
++    ret = OsQueueWriteParaCheck(innerId, (uintptr_t)bufferAddr, bufferSize, prio);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    /* 获取指定队列控制块 */
++    queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
++
++    QUEUE_CB_IRQ_LOCK(queueCb, intSave);
++    if (queueCb->queueState == OS_QUEUE_UNUSED) {
++        ret = OS_ERRNO_QUEUE_NOT_CREATE;
++        goto QUEUE_END;
++    }
++
++    /* 检查buffer大小是否超过队列节点大小 */
++    if (bufferSize > (U32)(queueCb->nodeSize - OS_QUEUE_NODE_HEAD_LEN)) {
++        ret = OS_ERRNO_QUEUE_SIZE_TOO_BIG;
++        goto QUEUE_END;
++    }
++
++    /* 写队列PEND */
++    ret = OsInnerPend(&queueCb->writableCnt, &queueCb->writeList, timeOut, queueCb);
++    if (ret != OS_OK) {
++        goto QUEUE_END;
++    }
++
++    /* 将数据填充到队列节点 */
++    OsQueueCpData2Node(prio, (uintptr_t)bufferAddr, bufferSize, queueCb);
++
++    if (OsQueuePendNeedProc(&queueCb->readList)) {
++        QUEUE_CB_UNLOCK(queueCb);
++        OsTskSchedule();
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    queueCb->readableCnt++;
++
++QUEUE_END:
++    QUEUE_CB_IRQ_UNLOCK(queueCb, intSave);
++    return ret;
+ }
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    U32 ret;
+    U32 innerId = OS_QUEUE_INNER_ID(queueId);
+    struct TagQueCb *queueCb = NULL;
+
+    ret = OsQueueWriteParaCheck(innerId, (uintptr_t)bufferAddr, bufferSize, prio);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    /* 获取指定队列控制块 */
+    queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
+
+    QUEUE_CB_IRQ_LOCK(queueCb, intSave);
+    if (queueCb->queueState == OS_QUEUE_UNUSED) {
+        ret = OS_ERRNO_QUEUE_NOT_CREATE;
+        goto QUEUE_END;
+    }
+
+    /* 检查buffer大小是否超过队列节点大小 */
+    if (bufferSize > (U32)(queueCb->nodeSize - OS_QUEUE_NODE_HEAD_LEN)) {
+        ret = OS_ERRNO_QUEUE_SIZE_TOO_BIG;
+        goto QUEUE_END;
+    }
+
+    /* 写队列PEND */
+    ret = OsInnerPend(&queueCb->writableCnt, &queueCb->writeList, timeOut, queueCb);
+    if (ret != OS_OK) {
+        goto QUEUE_END;
+    }
+
+    /* 将数据填充到队列节点 */
+    OsQueueCpData2Node(prio, (uintptr_t)bufferAddr, bufferSize, queueCb);
+
+    if (OsQueuePendNeedProc(&queueCb->readList)) {
+        QUEUE_CB_UNLOCK(queueCb);
+        OsTskSchedule();
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    queueCb->readableCnt++;
+
+QUEUE_END:
+    QUEUE_CB_IRQ_UNLOCK(queueCb, intSave);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_QueueWrite.c notifier_test_stubs.c
+[CASE] QueueWrite invalid id
+  Expect: 8193
+  Actual: 8193
+[CASE] QueueWrite null buf
+  Expect: 8194
+  Actual: 8194
+[CASE] QueueWrite size zero
+  Expect: 8195
+  Actual: 8195
+[CASE] QueueWrite prio invalid
+  Expect: 8202
+  Actual: 8202
+[CASE] QueueWrite not create
+  Expect: 8196
+  Actual: 8196
+[CASE] QueueWrite too big
+  Expect: 8197
+  Actual: 8197
+[CASE] QueueWrite full nowait
+  Expect: 8198
+  Actual: 8198
+[CASE] QueueWrite timeout
+  Expect: 8201
+  Actual: 8201
+[CASE] QueueWrite success
+  Expect: ret=0 readableCnt=1
+  Actual: ret=0 readableCnt=1
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_PRT_QueueWrite.c:2:
+func_under_test.c: In function ‘PRT_QueueWrite’:
+func_under_test.c:8:11: warning: implicit declaration of function ‘OsQueueWriteParaCheck’ [-Wimplicit-function-declaration]
+    8 |     ret = OsQueueWriteParaCheck(innerId, (uintptr_t)bufferAddr, bufferSize, prio);
+      |           ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:29:11: warning: implicit declaration of function ‘OsInnerPend’ [-Wimplicit-function-declaration]
+   29 |     ret = OsInnerPend(&queueCb->writableCnt, &queueCb->writeList, timeOut, queueCb);
+      |           ^~~~~~~~~~~
+func_under_test.c:35:5: warning: implicit declaration of function ‘OsQueueCpData2Node’ [-Wimplicit-function-declaration]
+   35 |     OsQueueCpData2Node(prio, (uintptr_t)bufferAddr, bufferSize, queueCb);
+      |     ^~~~~~~~~~~~~~~~~~
+func_under_test.c:37:9: warning: implicit declaration of function ‘OsQueuePendNeedProc’ [-Wimplicit-function-declaration]
+   37 |     if (OsQueuePendNeedProc(&queueCb->readList)) {
+      |         ^~~~~~~~~~~~~~~~~~~
+test_PRT_QueueWrite.c: In function ‘setup_queue’:
+test_PRT_QueueWrite.c:6:5: warning: implicit declaration of function ‘init_queue_cb’ [-Wimplicit-function-declaration]
+    6 |     init_queue_cb(q, buf, nodeSize, nodeNum);
+      |     ^~~~~~~~~~~~~
+test_PRT_QueueWrite.c: In function ‘main’:
+test_PRT_QueueWrite.c:12:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+   12 |     reset_task();
+      |     ^~~~~~~~~~
+func_under_test.c: In function ‘PRT_QueueWrite’:
+func_under_test.c:40:9: warning: ‘intSave’ may be used uninitialized [-Wmaybe-uninitialized]
+   40 |         OsIntRestore(intSave);
+      |         ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:3:15: note: ‘intSave’ was declared here
+    3 |     uintptr_t intSave;
+      |               ^~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:51:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   51 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:51:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   51 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:77:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   77 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c: In function ‘OsQueueCpData2Node’:
+notifier_test_stubs.c:83:45: warning: unused parameter ‘bufferAddr’ [-Wunused-parameter]
+   83 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                   ~~~~~~~~~~^~~~~~~~~~
+notifier_test_stubs.c:83:61: warning: unused parameter ‘bufferSize’ [-Wunused-parameter]
+   83 | void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize, struct TagQueCb *queueCb)
+      |                                                         ~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:13:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   13 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:7:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    7 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

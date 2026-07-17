@@ -1,0 +1,225 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Scans program headers** for all `PT_LOAD` segments, computing the address span from the minimum `p_vaddr` to the maximum `p_vaddr + p_memsz`
+2. **Validates** that `p_filesz <= p_memsz` for each load segment (returns `OS_MODULE_ERRNO_PTLOAD_SIZE` if violated)
+3. **Returns `OS_MODULE_ERRNO_PTLOAD_SIZE`** if no `PT_LOAD` segments exist or if the total size is zero
+4. **Allocates** a single contiguous buffer covering the entire load range and zero-initializes it (so BSS sections where `p_memsz > p_filesz` remain zero)
+5. **Sets** `loadSegMem`, `loadSegStartAddr`, and `loadSegEndAddr` on the unit info struct
+
+This mirrors the pattern already used by the downstream `OsDynModuleGetLoadSegData` (which copies segment data into the allocated buffer, offset by `p_vaddr - loadSegStartAddr`) and aligns with the cleanup in `OsDynModuleUnitFree` (which frees `loadSegMem`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -210,7 +210,47 @@
+  */
+ static U32 OsDynModuleAllocMemForLoadSeg(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 i;
++    U64 loadSegStartAddr = (U64)-1;
++    U64 loadSegEndAddr = 0;
++    U32 hasLoadSeg = 0;
++    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
++    Elf_Phdr *phdr = (Elf_Phdr *)(unitInfo->moduleStr + elfInfo->e_phoff);
++
++    for (i = 0; i < elfInfo->e_phnum; i++) {
++        if (phdr[i].p_type != PT_LOAD) {
++            continue;
++        }
++        if (phdr[i].p_filesz > phdr[i].p_memsz) {
++            return OS_MODULE_ERRNO_PTLOAD_SIZE;
++        }
++        hasLoadSeg = 1;
++        if (phdr[i].p_vaddr < loadSegStartAddr) {
++            loadSegStartAddr = phdr[i].p_vaddr;
++        }
++        if (phdr[i].p_vaddr + phdr[i].p_memsz > loadSegEndAddr) {
++            loadSegEndAddr = phdr[i].p_vaddr + phdr[i].p_memsz;
++        }
++    }
++
++    if (!hasLoadSeg) {
++        return OS_MODULE_ERRNO_PTLOAD_SIZE;
++    }
++
++    U64 totalSize = loadSegEndAddr - loadSegStartAddr;
++    if (totalSize == 0) {
++        return OS_MODULE_ERRNO_PTLOAD_SIZE;
++    }
++
++    unitInfo->loadSegMem = (uint8_t *)PRT_MemAlloc(OS_MID_DYNAMIC, OS_MEM_DEFAULT_FSC_PT, totalSize);
++    if (unitInfo->loadSegMem == NULL) {
++        return OS_MODULE_ERRNO_MEMORY_ALLOC;
++    }
++    (void)memset_s(unitInfo->loadSegMem, totalSize, 0, totalSize);
++    unitInfo->loadSegStartAddr = loadSegStartAddr;
++    unitInfo->loadSegEndAddr = loadSegEndAddr;
++
++    return OS_MODULE_OK;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i;
+    U64 loadSegStartAddr = (U64)-1;
+    U64 loadSegEndAddr = 0;
+    U32 hasLoadSeg = 0;
+    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
+    Elf_Phdr *phdr = (Elf_Phdr *)(unitInfo->moduleStr + elfInfo->e_phoff);
+
+    for (i = 0; i < elfInfo->e_phnum; i++) {
+        if (phdr[i].p_type != PT_LOAD) {
+            continue;
+        }
+        if (phdr[i].p_filesz > phdr[i].p_memsz) {
+            return OS_MODULE_ERRNO_PTLOAD_SIZE;
+        }
+        hasLoadSeg = 1;
+        if (phdr[i].p_vaddr < loadSegStartAddr) {
+            loadSegStartAddr = phdr[i].p_vaddr;
+        }
+        if (phdr[i].p_vaddr + phdr[i].p_memsz > loadSegEndAddr) {
+            loadSegEndAddr = phdr[i].p_vaddr + phdr[i].p_memsz;
+        }
+    }
+
+    if (!hasLoadSeg) {
+        return OS_MODULE_ERRNO_PTLOAD_SIZE;
+    }
+
+    U64 totalSize = loadSegEndAddr - loadSegStartAddr;
+    if (totalSize == 0) {
+        return OS_MODULE_ERRNO_PTLOAD_SIZE;
+    }
+
+    unitInfo->loadSegMem = (uint8_t *)PRT_MemAlloc(OS_MID_DYNAMIC, OS_MEM_DEFAULT_FSC_PT, totalSize);
+    if (unitInfo->loadSegMem == NULL) {
+        return OS_MODULE_ERRNO_MEMORY_ALLOC;
+    }
+    (void)memset_s(unitInfo->loadSegMem, totalSize, 0, totalSize);
+    unitInfo->loadSegStartAddr = loadSegStartAddr;
+    unitInfo->loadSegEndAddr = loadSegEndAddr;
+
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleAllocMemForLoadSeg.c
+[CASE] no PT_LOAD
+  Expected: ERR_PTLOAD_SIZE
+  Actual  : ERR_PTLOAD_SIZE
+  Result  : PASS
+
+[CASE] filesz>memsz
+  Expected: ERR_PTLOAD_SIZE
+  Actual  : ERR_PTLOAD_SIZE
+  Result  : PASS
+
+[CASE] single PT_LOAD
+  Expected: OK & mem alloc
+  Actual  : OK & alloc
+  Result  : PASS
+
+[CASE] two PT_LOAD
+  Expected: OK
+  Actual  : OK
+  Result  : PASS
+
+[CASE] mixed types
+  Expected: OK & start 0x4000
+  Actual  : OK & start 0x4000
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleAllocMemForLoadSeg.c:4:
+auto_stub.h:48:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   48 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:630:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  630 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+auto_stub.h: At top level:
+auto_stub.h:642: warning: "ELF_R_SYM" redefined
+  642 | #define ELF_R_SYM(info) ((info) >> 8)
+      | 
+In file included from auto_stub.h:19:
+elf.h:123: note: this is the location of the previous definition
+  123 | #define ELF_R_SYM(info) ELF64_R_SYM(info)
+      | 
+auto_stub.h:643: warning: "ELF_R_TYPE" redefined
+  643 | #define ELF_R_TYPE(info) ((info) & 0xff)
+      | 
+elf.h:124: note: this is the location of the previous definition
+  124 | #define ELF_R_TYPE(info) ELF64_R_TYPE(info)
+      | 
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:686:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  686 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:685:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  685 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  684 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:683:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  683 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  682 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:681:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  681 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:680:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  680 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  679 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  678 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  677 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  676 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  675 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:673:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  673 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

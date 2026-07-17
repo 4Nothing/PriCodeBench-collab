@@ -1,0 +1,180 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsPerfOutPutInit` in `src/extended/perf/prt_perf_output.c:27`.
+
+The function now:
+- Dynamically allocates a buffer via `PRT_MemAlloc` when `buf` is `NULL`
+- Initializes the ring buffer with `PRT_RingbufInit`
+- Frees the allocated buffer if ring-buffer initialization fails
+- Sets the water mark to `size / PERF_BUFFER_WATERMARK_ONE_N`
+- Registers the default notify hook `OsPerfDefaultNotify`
+
+I also added `#include "prt_mem.h"` to provide `PRT_MemAlloc`/`PRT_MemFree`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -13,6 +13,7 @@
+  */
+ 
+ #include "prt_perf_output.h"
++#include "prt_mem.h"
+ 
+ OS_SEC_BSS static PERF_BUF_NOTIFY_HOOK g_perfBufNotifyHook;
+ OS_SEC_BSS static PERF_BUF_FLUSH_HOOK g_perfBufFlushHook;
+@@ -25,7 +26,31 @@
+ 
+ U32 OsPerfOutPutInit(void *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    bool releaseFlag = FALSE;
++    U32 ret;
++
++    if (buf == NULL) {
++        buf = PRT_MemAlloc(OS_MID_PERF, OS_MEM_DEFAULT_PT0, size);
++        if (buf == NULL) {
++            printf("perf malloc output buffer failed\n");
++            return OS_ERROR;
++        }
++        releaseFlag = TRUE;
++        (void)memset_s(buf, size, 0, size);
++    }
++
++    ret = PRT_RingbufInit(&g_perfOutputCb.ringbuf, (char *)buf, size);
++    if (ret != OS_OK) {
++        if (releaseFlag) {
++            (void)PRT_MemFree(OS_MID_PERF, buf);
++        }
++        return ret;
++    }
++
++    g_perfOutputCb.waterMark = size / PERF_BUFFER_WATERMARK_ONE_N;
++    g_perfBufNotifyHook = OsPerfDefaultNotify;
++
++    return OS_OK;
+ }
+ 
+ void OsPerfOutPutFlush(void)
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    bool releaseFlag = FALSE;
+    U32 ret;
+
+    if (buf == NULL) {
+        buf = PRT_MemAlloc(OS_MID_PERF, OS_MEM_DEFAULT_PT0, size);
+        if (buf == NULL) {
+            printf("perf malloc output buffer failed\n");
+            return OS_ERROR;
+        }
+        releaseFlag = TRUE;
+        (void)memset_s(buf, size, 0, size);
+    }
+
+    ret = PRT_RingbufInit(&g_perfOutputCb.ringbuf, (char *)buf, size);
+    if (ret != OS_OK) {
+        if (releaseFlag) {
+            (void)PRT_MemFree(OS_MID_PERF, buf);
+        }
+        return ret;
+    }
+
+    g_perfOutputCb.waterMark = size / PERF_BUFFER_WATERMARK_ONE_N;
+    g_perfBufNotifyHook = OsPerfDefaultNotify;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfOutPutInit.c
+[用例] Init NULL, size=64
+  期望输出: ret=0 remain=64
+  实际输出: ret=0 remain=64
+  结果    : PASS
+
+[用例] Init user buf, size=32
+  期望输出: ret=0 remain=32
+  实际输出: ret=0 remain=32
+  结果    : PASS
+
+[用例] Init size=0
+  期望输出: ret=4294967295
+  实际输出: ret=4294967295
+  结果    : PASS
+
+[用例] Init size=1
+  期望输出: ret=0 remain=1
+  实际输出: ret=0 remain=1
+  结果    : PASS
+
+[用例] Init size=256
+  期望输出: ret=0 remain=256
+  实际输出: ret=0 remain=256
+  结果    : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfOutPutInit.c:2:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

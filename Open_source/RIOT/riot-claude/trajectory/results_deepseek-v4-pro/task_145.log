@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function:
+
+1. **Asserts** `ipv6 != NULL` per the documented precondition
+2. **Acquires** the NIB mutex (`_nib_acquire()`)
+3. **Looks up** the neighbor cache entry using `_nib_onl_nc_get(ipv6, iface)` — which finds an entry matching both the IPv6 address and interface, and also verifies it has the `_NC` (neighbor cache) mode flag
+4. **Removes** it via `_nib_nc_remove(node)` if found; silently does nothing if not found (matching the documented behavior: "If the @p ipv6 can't be found for a neighbor in the NIB nothing happens")
+5. **Releases** the NIB mutex (`_nib_release()`)
+
+This follows the same acquire/lookup/remove/release pattern used by `gnrc_ipv6_nib_nc_del_l2` and the same `_NC` mode check used by `gnrc_ipv6_nib_nc_mark_reachable`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
+@@ -90,7 +90,13 @@
+ 
+ void gnrc_ipv6_nib_nc_del(const ipv6_addr_t *ipv6, unsigned iface)
+ {
+-    /* MASKED - implement this function */
++    assert(ipv6 != NULL);
++    _nib_acquire();
++    _nib_onl_entry_t *node = _nib_onl_nc_get(ipv6, iface);
++    if (node != NULL) {
++        _nib_nc_remove(node);
++    }
++    _nib_release();
+ }
+ 
+ #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313171	  72304	  92296	 477771	  74a4b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................................................................................................................................
+OK (152 tests)
+
+native: exiting
+
+--- stderr ---
+==600==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd28a54000; bottom 0x000000470000; size: 0x7ffd285e4000 (140725280718848)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

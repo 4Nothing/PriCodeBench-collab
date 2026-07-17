@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_G4
+    bool
+    select CPU_STM32
+    select CPU_CORE_CORTEX_M4
+
+config CPU_FAM
+    default "g4" if CPU_FAM_G4

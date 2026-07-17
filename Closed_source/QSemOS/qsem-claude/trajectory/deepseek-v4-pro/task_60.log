@@ -1,0 +1,93 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsNotifierChainRegister` by wrapping `NotifierChainRegister` with `PRT_HwiLock()`/`PRT_HwiRestore()` — the same locking pattern used by `OsNotifierChainUnregister` and `OsNotifierCallChain` in the same file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -81,7 +81,13 @@
+ int OsNotifierChainRegister(struct NotifierHead *nh,
+         struct NotifierBlock *n)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t flags;
++    int ret;
++
++    flags = PRT_HwiLock();
++    ret = NotifierChainRegister(&nh->head, n);
++    PRT_HwiRestore(flags);
++    return ret;
+ }
+ 
+ int OsNotifierChainUnregister(struct NotifierHead *nh,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t flags;
+    int ret;
+
+    flags = PRT_HwiLock();
+    ret = NotifierChainRegister(&nh->head, n);
+    PRT_HwiRestore(flags);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsNotifierChainRegister.c notifier_test_stubs.c
+[CASE 1] register a returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 2] head==a
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 3] lock count restored
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 4] register b returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 5] order a->b
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 6] register c(high) returns 0
+  Expect: 0
+  Actual: 0
+  Result: PASS
+
+[CASE 7] head==c
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 8] duplicate returns -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

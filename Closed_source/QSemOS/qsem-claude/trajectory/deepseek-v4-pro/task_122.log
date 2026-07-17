@@ -1,0 +1,108 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implementation complete. The function follows the symmetric pattern of `PRT_PerfStop` (lines 449-472):
+
+- **Status check**: Guards against calling start when not in `PERF_STOPED` state (Stop checks for `PERF_STARTED`).
+- **Param validation**: Calls `OsPerfParamValid()` to ensure a PMU is registered and at least one event has a non-zero period.
+- **Timestamp**: Records `g_perfCb.startTime` via `OsCurCycleGet64()` (Stop records `endTime`).
+- **Header**: Writes a `PerfDataHdr` to the output buffer with the caller-supplied `sectionId`.
+- **PMU start**: Dispatches `OsPerfStart()` on all cores via `SMP_CALL_PERF_FUNC`.
+- **State transition**: Sets `g_perfCb.status = PERF_STARTED`.
+- **Locking**: The spinlock is acquired before all checks and released at the unified `PERF_START_ERROR` label, so the lock is always released.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -420,7 +420,30 @@
+ 
+ void PRT_PerfStart(U32 sectionId)
+ {
+-    /* MASKED - implement this function */
++    U32 intSave;
++
++    PERF_LOCK(intSave);
++    if (g_perfCb.status != PERF_STOPED) {
++        PRT_Printf("perf start status error : 0x%x\n", g_perfCb.status);
++        goto PERF_START_ERROR;
++    }
++
++    if (!OsPerfParamValid()) {
++        PRT_Printf("perf start param invalid\n");
++        goto PERF_START_ERROR;
++    }
++
++    g_perfCb.startTime = OsCurCycleGet64();
++
++    (void)OsPerfHdrInit(sectionId);
++
++    SMP_CALL_PERF_FUNC(OsPerfStart);
++
++    g_perfCb.status = PERF_STARTED;
++
++PERF_START_ERROR:
++    PERF_UNLOCK(intSave);
++    return;
+ }
+ 
+ void PRT_PerfStop(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 intSave;
+
+    PERF_LOCK(intSave);
+    if (g_perfCb.status != PERF_STOPED) {
+        PRT_Printf("perf start status error : 0x%x\n", g_perfCb.status);
+        goto PERF_START_ERROR;
+    }
+
+    if (!OsPerfParamValid()) {
+        PRT_Printf("perf start param invalid\n");
+        goto PERF_START_ERROR;
+    }
+
+    g_perfCb.startTime = OsCurCycleGet64();
+
+    (void)OsPerfHdrInit(sectionId);
+
+    SMP_CALL_PERF_FUNC(OsPerfStart);
+
+    g_perfCb.status = PERF_STARTED;
+
+PERF_START_ERROR:
+    PERF_UNLOCK(intSave);
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfStart.c test_stubs.c
+[Invalid status] expect=1 actual=1 -> PASS
+[Not configured] expect=2 actual=2 -> PASS
+[Header write called] expect=1 actual=1 -> PASS
+[Status started] expect=1 actual=1 -> PASS
+[Start time] -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_PRT_PerfStart.c:36:21: warning: missing braces around initializer [-Wmissing-braces]
+   36 | static Pmu g_pmux = {.events = {{0}}, .type = 2, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_PRT_PerfStart.c:36:21: warning: missing braces around initializer [-Wmissing-braces]
+   36 | static Pmu g_pmux = {.events = {{0}}, .type = 2, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+
+
+

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_ARDUINO_UNO
+    bool
+    default y
+    select CPU_MODEL_ATMEGA328P
+    select BOARD_COMMON_ARDUINO_ATMEGA
+
+config BOARD
+    default "arduino-uno" if BOARD_ARDUINO_UNO
+
+source "$(RIOTBOARD)/common/arduino-atmega/Kconfig"

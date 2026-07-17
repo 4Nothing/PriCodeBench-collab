@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation calls `crb_add_byte` in a loop for each byte in the input data. The `crb_add_byte` inline function (defined in the header) handles:
+
+- The buffer-full check (`cur == protect && cur != cur_start`)
+- Writing the byte at the current position
+- Advancing the write pointer with wrap-around at `buffer_end`
+
+If any byte fails to write, `crb_add_bytes` returns `false`. The caller `crb_add_chunk` uses this return value as the `keep` parameter to `crb_end_chunk`, so a failed write causes the partially-written chunk to be discarded.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/chunked_ringbuffer/chunked_ringbuffer.c
++++ sys/chunked_ringbuffer/chunked_ringbuffer.c
+@@ -55,7 +55,13 @@
+ 
+ bool crb_add_bytes(chunk_ringbuf_t *rb, const void *data, size_t len)
+ {
+-    /* MASKED - implement this function */
++    const uint8_t *src = data;
++    for (size_t i = 0; i < len; i++) {
++        if (!crb_add_byte(rb, src[i])) {
++            return false;
++        }
++    }
++    return true;
+ }
+ 
+ bool crb_add_chunk(chunk_ringbuf_t *rb, const void *data, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/chunked_ringbuffer
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  83840	  32600	  78120	 194560	  2f800	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+OK (2 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff5255c000; bottom 0x00000042e000; size: 0x7fff5212e000 (140734570356736)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

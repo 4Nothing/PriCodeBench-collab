@@ -1,0 +1,205 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function `OsDynModuleCheckElf` now validates the ELF header with the following checks, in order:
+
+1. **Magic number** — verifies the ELF magic bytes (`\x7FELF`) in `e_ident[0..3]`, returns `OS_MODULE_ERRNO_ELF_HEAD_MAGIC` on failure
+2. **Class** — validates `EI_CLASS` is either `ELFCLASS32` or `ELFCLASS64`, returns `OS_MODULE_ERRNO_ELF_HEAD_CLASS`
+3. **Header size** — checks `e_ehsize == sizeof(Elf_Ehdr)`, returns `OS_MODULE_ERRNO_ELF_HEAD_LEN`
+4. **Section header size** — checks `e_shentsize == sizeof(Elf_Shdr)`, returns `OS_MODULE_ERRNO_ELF_HEAD_SHENT_SIZE`
+5. **Section count** — ensures `e_shnum != 0`, returns `OS_MODULE_ERRNO_ELF_HEAD_SHNUM`
+6. **Architecture** — verifies `e_machine` is `EM_X86_64` or `EM_AARCH64`, returns `OS_MODULE_ERRNO_ELF_HEAD_MACHINE`
+7. **File type** — requires `e_type == ET_DYN` (shared object for dynamic loading), returns `OS_MODULE_ERRNO_ELF_HEAD_TYPE`
+
+Returns `OS_MODULE_OK` if all checks pass.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -115,7 +115,36 @@
+  */
+ static U32 OsDynModuleCheckElf(Elf_Ehdr *elfInfo)
+ {
+-    /* MASKED - implement this function */
++    /* 魔术字校验 */
++    if ((elfInfo->e_ident[EI_MAG0] != ELFMAG0) || (elfInfo->e_ident[EI_MAG1] != ELFMAG1) ||
++        (elfInfo->e_ident[EI_MAG2] != ELFMAG2) || (elfInfo->e_ident[EI_MAG3] != ELFMAG3)) {
++        return OS_MODULE_ERRNO_ELF_HEAD_MAGIC;
++    }
++    /* ELF文件类型校验 */
++    if ((elfInfo->e_ident[EI_CLASS] != ELFCLASS32) && (elfInfo->e_ident[EI_CLASS] != ELFCLASS64)) {
++        return OS_MODULE_ERRNO_ELF_HEAD_CLASS;
++    }
++    /* ELF头文件大小校验 */
++    if (elfInfo->e_ehsize != sizeof(Elf_Ehdr)) {
++        return OS_MODULE_ERRNO_ELF_HEAD_LEN;
++    }
++    /* 判断节区表大小 */
++    if (elfInfo->e_shentsize != sizeof(Elf_Shdr)) {
++        return OS_MODULE_ERRNO_ELF_HEAD_SHENT_SIZE;
++    }
++    /* 检查节区个数 */
++    if (elfInfo->e_shnum == 0) {
++        return OS_MODULE_ERRNO_ELF_HEAD_SHNUM;
++    }
++    /* 当前仅支持x86和ARM64架构 */
++    if ((elfInfo->e_machine != EM_X86_64) && (elfInfo->e_machine != EM_AARCH64)) {
++        return OS_MODULE_ERRNO_ELF_HEAD_MACHINE;
++    }
++    /* 当前仅支持DYN类型 */
++    if (elfInfo->e_type != ET_DYN) {
++        return OS_MODULE_ERRNO_ELF_HEAD_TYPE;
++    }
++    return OS_MODULE_OK;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    /* 魔术字校验 */
+    if ((elfInfo->e_ident[EI_MAG0] != ELFMAG0) || (elfInfo->e_ident[EI_MAG1] != ELFMAG1) ||
+        (elfInfo->e_ident[EI_MAG2] != ELFMAG2) || (elfInfo->e_ident[EI_MAG3] != ELFMAG3)) {
+        return OS_MODULE_ERRNO_ELF_HEAD_MAGIC;
+    }
+    /* ELF文件类型校验 */
+    if ((elfInfo->e_ident[EI_CLASS] != ELFCLASS32) && (elfInfo->e_ident[EI_CLASS] != ELFCLASS64)) {
+        return OS_MODULE_ERRNO_ELF_HEAD_CLASS;
+    }
+    /* ELF头文件大小校验 */
+    if (elfInfo->e_ehsize != sizeof(Elf_Ehdr)) {
+        return OS_MODULE_ERRNO_ELF_HEAD_LEN;
+    }
+    /* 判断节区表大小 */
+    if (elfInfo->e_shentsize != sizeof(Elf_Shdr)) {
+        return OS_MODULE_ERRNO_ELF_HEAD_SHENT_SIZE;
+    }
+    /* 检查节区个数 */
+    if (elfInfo->e_shnum == 0) {
+        return OS_MODULE_ERRNO_ELF_HEAD_SHNUM;
+    }
+    /* 当前仅支持x86和ARM64架构 */
+    if ((elfInfo->e_machine != EM_X86_64) && (elfInfo->e_machine != EM_AARCH64)) {
+        return OS_MODULE_ERRNO_ELF_HEAD_MACHINE;
+    }
+    /* 当前仅支持DYN类型 */
+    if (elfInfo->e_type != ET_DYN) {
+        return OS_MODULE_ERRNO_ELF_HEAD_TYPE;
+    }
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleCheckElf.c
+[CASE] bad magic
+  Expected: ERR_MAGIC
+  Actual  : ERR_MAGIC
+  Result  : PASS
+
+[CASE] bad class
+  Expected: ERR_CLASS
+  Actual  : ERR_CLASS
+  Result  : PASS
+
+[CASE] bad ehsize
+  Expected: ERR_LEN
+  Actual  : ERR_LEN
+  Result  : PASS
+
+[CASE] bad shentsize
+  Expected: ERR_SHENT_SIZE
+  Actual  : ERR_SHENT_SIZE
+  Result  : PASS
+
+[CASE] zero shnum
+  Expected: ERR_SHNUM
+  Actual  : ERR_SHNUM
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_common.h:7,
+                 from test_OsDynModuleCheckElf.c:4:
+auto_stub.h:48:67: warning: ‘struct OsDynModuleRelocInfo’ declared inside parameter list will not be visible outside of this definition or declaration
+   48 | typedef U32 (*OsDynModuleRelocateFunc)(Elf_Addr relocAddr, struct OsDynModuleRelocInfo relocInfo);
+      |                                                                   ^~~~~~~~~~~~~~~~~~~~
+auto_stub.h: In function ‘PRT_MemAllocAlign’:
+auto_stub.h:630:9: warning: implicit declaration of function ‘posix_memalign’ [-Wimplicit-function-declaration]
+  630 |     if (posix_memalign(&p, align, size) != 0)
+      |         ^~~~~~~~~~~~~~
+auto_stub.h: At top level:
+auto_stub.h:642: warning: "ELF_R_SYM" redefined
+  642 | #define ELF_R_SYM(info) ((info) >> 8)
+      | 
+In file included from auto_stub.h:19:
+elf.h:123: note: this is the location of the previous definition
+  123 | #define ELF_R_SYM(info) ELF64_R_SYM(info)
+      | 
+auto_stub.h:643: warning: "ELF_R_TYPE" redefined
+  643 | #define ELF_R_TYPE(info) ((info) & 0xff)
+      | 
+elf.h:124: note: this is the location of the previous definition
+  124 | #define ELF_R_TYPE(info) ELF64_R_TYPE(info)
+      | 
+test_common.h:25:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   25 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:14:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   14 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:686:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  686 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:685:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  685 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:684:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  684 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:683:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  683 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:682:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  682 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:681:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  681 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:680:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  680 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:679:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  679 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:678:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  678 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:677:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  677 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:676:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  676 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:675:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  675 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:674:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  674 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:673:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  673 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

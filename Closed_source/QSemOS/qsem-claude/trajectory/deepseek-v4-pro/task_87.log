@@ -1,0 +1,392 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_SignalDeliver` now does:
+
+1. **Parameter validation** — checks for NULL `info`, overflow `taskId`, and invalid `si_signo`
+2. **Task lookup** — uses `GET_TCB_HANDLE` to resolve the TCB, verifies the task exists (`TSK_IS_UNUSED`)
+3. **Pending registration** — adds the signal to the task's pending set via `OsAddSignalPendingFlag`
+4. **Wait resolution** — if the target task is waiting for this specific signal (`OS_TSK_WAIT_SIGNAL` + matching `sigWaitMask`), clears the wait status and re-enqueues the task
+5. **Blocked signal** — if the signal is masked for this task, returns OK (signal stays pending)
+6. **Self-delivery** — if delivering to the currently running task, handles the signal inline via `OsHandleOneSignal`
+7. **Cross-task delivery** — for non-running tasks that are ready/delayed/paused, hijacks the task context to execute `OsSignalEntry` when the task next runs, setting `OS_TSK_HOLD_SIGNAL` and saving the original stack pointer. Includes Linux OSAL support for waking interruptible kernel threads
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/signal/prt_signal.c
++++ src/core/ipc/signal/prt_signal.c
+@@ -243,7 +243,85 @@
+ 
+ OS_SEC_L4_TEXT U32 PRT_SignalDeliver(TskHandle taskId, signalInfo *info)
+ {
+-    /* MASKED - implement this function */
++    if (CHECK_TSK_PID_OVERFLOW(taskId) || info == NULL) {
++        return OS_ERRNO_SIGNAL_PARA_INVALID;
++    }
++
++    int signum = info->si_signo;
++    if (!sigValid(signum)) {
++        return OS_ERRNO_SIGNAL_NUM_INVALID;
++    }
++
++    uintptr_t intSave = OsIntLock();
++    struct TagTskCb *taskCb = (struct TagTskCb *)GET_TCB_HANDLE(taskId);
++    OsSpinLockTaskRq(taskCb);
++    if (TSK_IS_UNUSED(taskCb)) {
++        OsSpinUnlockTaskRq(taskCb);
++        OsIntRestore(intSave);
++        return OS_ERRNO_SIGNAL_TSK_NOT_CREATED;
++    }
++
++    /* 将信号加入pending中，若已存在则更新，不存在则创建 */
++    U32 ret = OsAddSignalPendingFlag(taskCb, info);
++    if (ret != OS_OK) {
++        OsSpinUnlockTaskRq(taskCb);
++        OsIntRestore(intSave);
++        return ret;
++    }
++
++    /* 任务是否在等待该信号，若是则将该任务加入ready队列，触发一次调度 */
++    if (((taskCb->taskStatus & OS_TSK_WAIT_SIGNAL) != 0) && ((taskCb->sigWaitMask & sigMask(signum)) != 0)) {
++        TSK_STATUS_CLEAR(taskCb, OS_TSK_WAIT_SIGNAL);
++        OsSignalWaitReSche(taskCb, taskCb->taskStatus);
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    /* 信号是否为阻塞信号，若是则不返回不处理 */
++    if ((taskCb->sigMask & sigMask(signum)) != 0) {
++        OsSpinUnlockTaskRq(taskCb);
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    /* 判断信号是否是当前的任务处理，若是则处理 */
++    if (taskId == RUNNING_TASK->taskPid) {
++        OsSpinUnlockTaskRq(taskCb);
++        OsHandleOneSignal(taskCb, signum);
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    /* 若任务在就绪队列或者被延时且没有在等待调度去处理信号，则将该任务的上下文保存并使下次调度直接进入信号处理函数 */
++    if ((taskCb->taskStatus & (OS_TSK_READY | OS_TSK_DELAY | OS_TSK_SIG_PAUSE | OS_TSK_DELAY_INTERRUPTIBLE)) &&
++        !(taskCb->taskStatus & OS_TSK_HOLD_SIGNAL)) {
++        taskCb->taskStatus |= OS_TSK_HOLD_SIGNAL;
++
++        taskCb->oldStackPointer = taskCb->stackPointer;
++        taskCb->holdSignal = signum;
++        U32 curStackSize = (U32)taskCb->stackPointer - (U32)taskCb->topOfStack;
++        taskCb->stackPointer = OsTskContextInit(taskId, curStackSize, (uintptr_t *)taskCb->topOfStack,
++            (uintptr_t)OsSignalEntry);
++        /* 如果在暂停状态，收到信号后任务加回就绪队列 */
++        if (taskCb->taskStatus & OS_TSK_SIG_PAUSE) {
++            taskCb->taskStatus &= ~OS_TSK_SIG_PAUSE;
++            OsTskReadyAdd(taskCb);
++        }
++#if defined(OS_OPTION_LINUX)
++        /* 任务如果在TASK_INTERRUPTIBLE状态收到信号会唤醒 */
++        else if (KTHREAD_TSK_STATE_TST(taskCb, TASK_INTERRUPTIBLE)) {
++            wake_up_process(taskCb->kthreadTsk);
++        }
++#endif
++        OsSpinUnlockTaskRq(taskCb);
++
++        OsTskSchedule();
++    } else {
++        OsSpinUnlockTaskRq(taskCb);
++    }
++
++    OsIntRestore(intSave);
++    return OS_OK;
+ }
+ 
+ OS_SEC_L4_TEXT U32 PRT_SignalWait(const signalSet *set, signalInfo *info, U32 timeOutTick)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (CHECK_TSK_PID_OVERFLOW(taskId) || info == NULL) {
+        return OS_ERRNO_SIGNAL_PARA_INVALID;
+    }
+
+    int signum = info->si_signo;
+    if (!sigValid(signum)) {
+        return OS_ERRNO_SIGNAL_NUM_INVALID;
+    }
+
+    uintptr_t intSave = OsIntLock();
+    struct TagTskCb *taskCb = (struct TagTskCb *)GET_TCB_HANDLE(taskId);
+    OsSpinLockTaskRq(taskCb);
+    if (TSK_IS_UNUSED(taskCb)) {
+        OsSpinUnlockTaskRq(taskCb);
+        OsIntRestore(intSave);
+        return OS_ERRNO_SIGNAL_TSK_NOT_CREATED;
+    }
+
+    /* 将信号加入pending中，若已存在则更新，不存在则创建 */
+    U32 ret = OsAddSignalPendingFlag(taskCb, info);
+    if (ret != OS_OK) {
+        OsSpinUnlockTaskRq(taskCb);
+        OsIntRestore(intSave);
+        return ret;
+    }
+
+    /* 任务是否在等待该信号，若是则将该任务加入ready队列，触发一次调度 */
+    if (((taskCb->taskStatus & OS_TSK_WAIT_SIGNAL) != 0) && ((taskCb->sigWaitMask & sigMask(signum)) != 0)) {
+        TSK_STATUS_CLEAR(taskCb, OS_TSK_WAIT_SIGNAL);
+        OsSignalWaitReSche(taskCb, taskCb->taskStatus);
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    /* 信号是否为阻塞信号，若是则不返回不处理 */
+    if ((taskCb->sigMask & sigMask(signum)) != 0) {
+        OsSpinUnlockTaskRq(taskCb);
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    /* 判断信号是否是当前的任务处理，若是则处理 */
+    if (taskId == RUNNING_TASK->taskPid) {
+        OsSpinUnlockTaskRq(taskCb);
+        OsHandleOneSignal(taskCb, signum);
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    /* 若任务在就绪队列或者被延时且没有在等待调度去处理信号，则将该任务的上下文保存并使下次调度直接进入信号处理函数 */
+    if ((taskCb->taskStatus & (OS_TSK_READY | OS_TSK_DELAY | OS_TSK_SIG_PAUSE | OS_TSK_DELAY_INTERRUPTIBLE)) &&
+        !(taskCb->taskStatus & OS_TSK_HOLD_SIGNAL)) {
+        taskCb->taskStatus |= OS_TSK_HOLD_SIGNAL;
+
+        taskCb->oldStackPointer = taskCb->stackPointer;
+        taskCb->holdSignal = signum;
+        U32 curStackSize = (U32)taskCb->stackPointer - (U32)taskCb->topOfStack;
+        taskCb->stackPointer = OsTskContextInit(taskId, curStackSize, (uintptr_t *)taskCb->topOfStack,
+            (uintptr_t)OsSignalEntry);
+        /* 如果在暂停状态，收到信号后任务加回就绪队列 */
+        if (taskCb->taskStatus & OS_TSK_SIG_PAUSE) {
+            taskCb->taskStatus &= ~OS_TSK_SIG_PAUSE;
+            OsTskReadyAdd(taskCb);
+        }
+#if defined(OS_OPTION_LINUX)
+        /* 任务如果在TASK_INTERRUPTIBLE状态收到信号会唤醒 */
+        else if (KTHREAD_TSK_STATE_TST(taskCb, TASK_INTERRUPTIBLE)) {
+            wake_up_process(taskCb->kthreadTsk);
+        }
+#endif
+        OsSpinUnlockTaskRq(taskCb);
+
+        OsTskSchedule();
+    } else {
+        OsSpinUnlockTaskRq(taskCb);
+    }
+
+    OsIntRestore(intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_SignalDeliver.c stub_prt_signal_env.c
+[CASE] NULL info invalid
+  Expected: 0x02001001
+  Actual  : 0x02001001
+  Result  : PASS
+
+[CASE] invalid signo
+  Expected: 0x02001007
+  Actual  : 0x02001007
+  Result  : PASS
+
+[CASE] deliver to self OK
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] handler ran
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] pending cleared
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] blocked deliver OK
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] handler not run
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] pending has 4
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] deliver to other pid OK
+  Expected: 0x00000000
+  Actual  : 0x00000000
+  Result  : PASS
+
+[CASE] hold flag set or pending kept
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+Test completed.
+
+--- stderr ---
+In file included from stubs/prt_signal.h:3,
+                 from test_PRT_SignalDeliver.c:2:
+stubs/../stub_prt_signal_env.h:49: warning: "OS_TSK_DELAY_INTERRUPTIBLE" redefined
+   49 | #define OS_TSK_DELAY_INTERRUPTIBLE 0x20
+      | 
+In file included from test_common.h:7,
+                 from test_PRT_SignalDeliver.c:1:
+auto_stub.h:1002: note: this is the location of the previous definition
+ 1002 | #define OS_TSK_DELAY_INTERRUPTIBLE 0x8000
+      | 
+stubs/../stub_prt_signal_env.h:59: warning: "RUNNING_TASK" redefined
+   59 | #define RUNNING_TASK (&g_runningTask)
+      | 
+auto_stub.h:1512: note: this is the location of the previous definition
+ 1512 | #define RUNNING_TASK ((struct TagTskCb *)g_runningTask)
+      | 
+stubs/prt_signal.h:21: warning: "RESET_COUNTERS" redefined
+   21 | #define RESET_COUNTERS() do { } while(0)
+      | 
+test_common.h:16: note: this is the location of the previous definition
+   16 | #define RESET_COUNTERS() do { g_total = 0; g_pass = 0; } while(0)
+      | 
+In file included from test_PRT_SignalDeliver.c:6:
+../task_081/func_under_test.c: In function ‘OsSignalEntry’:
+../task_081/func_under_test.c:1:45: warning: unused parameter ‘taskId’ [-Wunused-parameter]
+    1 | OS_SEC_L4_TEXT void OsSignalEntry(TskHandle taskId)
+      |                                   ~~~~~~~~~~^~~~~~
+In file included from test_PRT_SignalDeliver.c:7:
+func_under_test.c: In function ‘PRT_SignalDeliver’:
+func_under_test.c:59:28: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   59 |         U32 curStackSize = (U32)taskCb->stackPointer - (U32)taskCb->topOfStack;
+      |                            ^
+test_common.h: At top level:
+test_common.h:29:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   29 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:18:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   18 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+auto_stub.h:1283:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1283 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1282:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1282 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1279:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1279 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1277:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1277 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1276:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1276 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from stub_prt_signal_env.c:1:
+stub_prt_signal_env.h:49: warning: "OS_TSK_DELAY_INTERRUPTIBLE" redefined
+   49 | #define OS_TSK_DELAY_INTERRUPTIBLE 0x20
+      | 
+In file included from stub_prt_signal_env.h:6:
+auto_stub.h:1002: note: this is the location of the previous definition
+ 1002 | #define OS_TSK_DELAY_INTERRUPTIBLE 0x8000
+      | 
+stub_prt_signal_env.h:59: warning: "RUNNING_TASK" redefined
+   59 | #define RUNNING_TASK (&g_runningTask)
+      | 
+auto_stub.h:1512: note: this is the location of the previous definition
+ 1512 | #define RUNNING_TASK ((struct TagTskCb *)g_runningTask)
+      | 
+stub_prt_signal_env.h:23:16: warning: ‘sigValid’ defined but not used [-Wunused-function]
+   23 |     static int sigValid(int s) { return s >= 0 && s < (int)PRT_SIGNAL_MAX; }
+      |                ^~~~~~~~
+stub_prt_signal_env.h:22:22: warning: ‘sigMask’ defined but not used [-Wunused-function]
+   22 |     static signalSet sigMask(int s) { return (signalSet)1ull << (s & 63); }
+      |                      ^~~~~~~
+auto_stub.h:1283:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1283 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1282:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1282 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1281:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1281 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1280:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1280 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1279:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1279 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1277:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1277 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1276:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1276 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1275:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1275 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

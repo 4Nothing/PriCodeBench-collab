@@ -1,0 +1,122 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- Skips timers in `OS_TIMER_FREE` or `OS_TIMER_CREATED` state (not actively ticking)
+- For timers in `OS_TIMER_RUNNING` or `OS_TIMER_EXPIRED` state, checks if `expectedTick <= g_uniTicks`
+- Returns `TRUE` if any such timer has reached or passed its expected tick; `FALSE` otherwise
+
+This follows the same pattern as the adjacent `OsSwtmrNearestTickGet` function (same file, lines 293-320) and mirrors the logic of the SMP variant of `OsSwtmrTargetCheck` (lines 271-288), which checks `nearestTicks <= g_uniTicks`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_init.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
+@@ -321,7 +321,32 @@
+ 
+ OS_SEC_TEXT bool OsSwtmrTargetCheck(U32 coreId)
+ {
+-    /* MASKED - implement this function */
++    (void)coreId;
++    U32 idx;
++    bool target = FALSE;
++    struct TagSwTmrCtrl *swtmr = NULL;
++
++    uintptr_t intSave = OsIntLock();
++    if (g_swtmrCbArray != NULL)
++    {
++        for (idx = 0; idx < g_swTmrMaxNum; idx++)
++        {
++            swtmr = (struct TagSwTmrCtrl *)((struct TagSwTmrCtrl *)(g_swtmrCbArray) + idx);
++
++            if ((swtmr->state == OS_TIMER_FREE) || (swtmr->state == OS_TIMER_CREATED))
++            {
++                continue;
++            }
++
++            if (swtmr->expectedTick <= g_uniTicks)
++            {
++                target = TRUE;
++                break;
++            }
++        }
++    }
++    OsIntRestore(intSave);
++    return target;
+ }
+ #endif
+ #endif
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    (void)coreId;
+    U32 idx;
+    bool target = FALSE;
+    struct TagSwTmrCtrl *swtmr = NULL;
+
+    uintptr_t intSave = OsIntLock();
+    if (g_swtmrCbArray != NULL)
+    {
+        for (idx = 0; idx < g_swTmrMaxNum; idx++)
+        {
+            swtmr = (struct TagSwTmrCtrl *)((struct TagSwTmrCtrl *)(g_swtmrCbArray) + idx);
+
+            if ((swtmr->state == OS_TIMER_FREE) || (swtmr->state == OS_TIMER_CREATED))
+            {
+                continue;
+            }
+
+            if (swtmr->expectedTick <= g_uniTicks)
+            {
+                target = TRUE;
+                break;
+            }
+        }
+    }
+    OsIntRestore(intSave);
+    return target;
+
+
+============================================================
+=== Test Output ===
+============================================================
+ln -sf test_OsSwtmrTargetCheck test
+[CASE] none active -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+[CASE] one running -> true
+  expected=true
+  actual  =true
+  result  =PASS
+
+[CASE] expired -> true
+  expected=true
+  actual  =true
+  result  =PASS
+
+[CASE] all free -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+[CASE] created ignored -> false
+  expected=false
+  actual  =false
+  result  =PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

@@ -1,0 +1,144 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `PRT_TaskGetPriority` in `src/core/kernel/task/smp/prt_task_priority.c`.
+
+The function:
+- Validates `taskPid` via `CHECK_TSK_PID_OVERFLOW`
+- Checks for a non-NULL `taskPrio` pointer
+- Looks up the TCB with `GET_TCB_HANDLE`
+- Locks interrupts, verifies the task is created (not `TSK_IS_UNUSED`)
+- Copies `taskCb->priority` to `*taskPrio`
+- Restores interrupts and returns `OS_OK`
+
+Only the body of `PRT_TaskGetPriority` was changed; no other files were modified.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_priority.c
++++ src/core/kernel/task/smp/prt_task_priority.c
+@@ -21,7 +21,34 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_TaskGetPriority(TskHandle taskPid, TskPrior *taskPrio)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t intSave;
++    struct TagTskCb *taskCb = NULL;
++
++    if (CHECK_TSK_PID_OVERFLOW(taskPid))
++    {
++        return OS_ERRNO_TSK_ID_INVALID;
++    }
++
++    if (taskPrio == NULL)
++    {
++        return OS_ERRNO_TSK_PTR_NULL;
++    }
++
++    taskCb = GET_TCB_HANDLE(taskPid);
++
++    intSave = OsIntLock();
++
++    if (TSK_IS_UNUSED(taskCb))
++    {
++        OsIntRestore(intSave);
++        return OS_ERRNO_TSK_NOT_CREATED;
++    }
++
++    *taskPrio = taskCb->priority;
++
++    OsIntRestore(intSave);
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsTaskPrioritySetCheck(TskHandle taskPid, TskPrior taskPrio)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    uintptr_t intSave;
+    struct TagTskCb *taskCb = NULL;
+
+    if (CHECK_TSK_PID_OVERFLOW(taskPid))
+    {
+        return OS_ERRNO_TSK_ID_INVALID;
+    }
+
+    if (taskPrio == NULL)
+    {
+        return OS_ERRNO_TSK_PTR_NULL;
+    }
+
+    taskCb = GET_TCB_HANDLE(taskPid);
+
+    intSave = OsIntLock();
+
+    if (TSK_IS_UNUSED(taskCb))
+    {
+        OsIntRestore(intSave);
+        return OS_ERRNO_TSK_NOT_CREATED;
+    }
+
+    *taskPrio = taskCb->priority;
+
+    OsIntRestore(intSave);
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_TaskGetPriority.c
+[CASE] NULL taskPrio ptr
+  Expected: 4098
+  Actual  : 4098
+  Result  : PASS
+
+[CASE] PID overflow invalid
+  Expected: 4097
+  Actual  : 4097
+  Result  : PASS
+
+[CASE] Task unused not created
+  Expected: 4099
+  Actual  : 4099
+  Result  : PASS
+
+[CASE] Valid fetch returns OS_OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+  Expected priority: 5
+  Actual priority  : 5
+
+[CASE] Boundary prio 0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+  Expected priority: 0
+  Actual priority  : 0
+
+[CASE] Boundary lowest prio
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+  Expected priority: 63
+  Actual priority  : 63
+
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+
+
+

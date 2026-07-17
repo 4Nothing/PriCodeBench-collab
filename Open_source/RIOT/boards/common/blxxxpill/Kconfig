@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_BLXXXPILL
+    bool
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

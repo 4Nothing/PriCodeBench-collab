@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsSwTmrStop` does:
+
+- **Non-SMP path** (`#if !defined(OS_OPTION_SMP)`): Takes an interrupt lock, then propagates the stopping timer's rollnum to its successor in the sort-link chain (unless the successor is the sentinel head node). This keeps the relative-delay bookkeeping correct when a node is removed from the chain.
+
+- **reckonOff logic**: If `reckonOff` is `false` (normal stop via `OsSwTmrStopTimer`), it recomputes `idxRollNum` to the remaining ticks via `OsSwTmrGetRemainTick`. If `true` (stop within `OsSwTmrRestartTimer`), the rollnum is preserved as-is.
+
+- **Common unlinking**: Disconnects the timer from its doubly-linked list (`prev->next = next`, `next->prev = prev`), then transitions state to `OS_TIMER_CREATED` and nullifies the list pointers.
+
+- **Non-SMP only**: Releases the interrupt lock.
+
+No other files were modified.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -121,7 +121,35 @@
+  */
+ OS_SEC_L2_TEXT void OsSwTmrStop(struct TagSwTmrCtrl *swtmr, bool reckonOff)
+ {
+-    /* MASKED - implement this function */
++#if !defined(OS_OPTION_SMP)
++    U32 idx;
++    struct TagListObject *listObject = NULL;
++    uintptr_t intSave;
++
++    intSave = OsIntLock();
++    /* 如果暂停的节点有下一节点,则将本节点的rollnum传给下一节点 */
++    idx = UWSORTINDEX(swtmr->idxRollNum);
++    listObject = (g_tmrSortLink.sortLink + idx);
++    if (swtmr->next != (struct TagSwTmrCtrl *)listObject) {
++        UWROLLNUMADD(swtmr->next->idxRollNum, swtmr->idxRollNum);
++    }
++#endif
++
++    if (!reckonOff) {
++        /* 调用获取定时器剩余Tick数内部接口 */
++        swtmr->idxRollNum = OsSwTmrGetRemainTick(swtmr);
++    }
++
++    swtmr->next->prev = swtmr->prev;
++    swtmr->prev->next = swtmr->next;
++    /* 定时器被暂停，修改定时器状态 */
++    swtmr->state = (U8)OS_TIMER_CREATED;
++    swtmr->next = NULL;
++    swtmr->prev = NULL;
++
++#if !defined(OS_OPTION_SMP)
++    OsIntRestore(intSave);
++#endif
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+#if !defined(OS_OPTION_SMP)
+    U32 idx;
+    struct TagListObject *listObject = NULL;
+    uintptr_t intSave;
+
+    intSave = OsIntLock();
+    /* 如果暂停的节点有下一节点,则将本节点的rollnum传给下一节点 */
+    idx = UWSORTINDEX(swtmr->idxRollNum);
+    listObject = (g_tmrSortLink.sortLink + idx);
+    if (swtmr->next != (struct TagSwTmrCtrl *)listObject) {
+        UWROLLNUMADD(swtmr->next->idxRollNum, swtmr->idxRollNum);
+    }
+#endif
+
+    if (!reckonOff) {
+        /* 调用获取定时器剩余Tick数内部接口 */
+        swtmr->idxRollNum = OsSwTmrGetRemainTick(swtmr);
+    }
+
+    swtmr->next->prev = swtmr->prev;
+    swtmr->prev->next = swtmr->next;
+    /* 定时器被暂停，修改定时器状态 */
+    swtmr->state = (U8)OS_TIMER_CREATED;
+    swtmr->next = NULL;
+    swtmr->prev = NULL;
+
+#if !defined(OS_OPTION_SMP)
+    OsIntRestore(intSave);
+#endif
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrStop test_OsSwTmrStop.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrStop test
+[stop set remain         ] expect=40, actual=40 => PASS
+[state CREATED           ] expect=2, actual=2 => PASS
+[stop keep idx           ] expect=3355443200, actual=3355443200 => PASS
+[unlink mid->c.next==a   ] expect=0x7ffe86662a30, actual=0x7ffe86662a30 => PASS
+[unlink mid->a.prev==c   ] expect=0x7ffe86662ad0, actual=0x7ffe86662ad0 => PASS
+[first removed -> head next x] expect=0x7ffe86662b20, actual=0x7ffe86662b20 => PASS
+[prev NULL               ] expect=(nil), actual=(nil) => PASS
+[next NULL               ] expect=(nil), actual=(nil) => PASS
+
+OsSwTmrStop Pass-Rate: 100.00% (8/8)
+
+
+--- stderr ---
+test_OsSwTmrStop.c: In function ‘setup_three_in_slot’:
+test_OsSwTmrStop.c:12:5: warning: implicit declaration of function ‘OsSwTmrStart’; did you mean ‘OsSwTmrStop’? [-Wimplicit-function-declaration]
+   12 |     OsSwTmrStart(a, base);
+      |     ^~~~~~~~~~~~
+      |     OsSwTmrStop
+
+
+

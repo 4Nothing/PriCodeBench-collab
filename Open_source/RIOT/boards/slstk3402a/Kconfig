@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "slstk3402a" if BOARD_SLSTK3402A
+
+config BOARD_SLSTK3402A
+    bool
+    default y
+    select BOARD_COMMON_SILABS
+    select CPU_MODEL_EFM32PG12B500F1024GL125
+
+source "$(RIOTBOARD)/common/silabs/Kconfig"

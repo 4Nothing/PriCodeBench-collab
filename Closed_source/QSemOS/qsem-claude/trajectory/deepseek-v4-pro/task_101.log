@@ -1,0 +1,137 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is correct. Here's what `OsHwiDescFieldInit` now does:
+
+- **`OsHwiFuncSet(irqNum, OsHwiDefaultHandler)`** — sets the interrupt handler to the default handler, which reports an unregistered interrupt as a fatal error
+- **`OsHwiParaSet(irqNum, irqNum)`** — sets the handler argument to the IRQ number itself, so the default handler can report which interrupt number fired
+
+This matches the identical pattern used in `OsHwiDeleteFormResume` (line 443-445) and satisfies the test expectations: after `OsHwiDescInitAll()` calls this for every IRQ, each entry has its handler set to `OsHwiDefaultHandler` and its parameter set to the index.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/irq/prt_irq.c
++++ src/core/kernel/irq/prt_irq.c
+@@ -53,7 +53,8 @@
+ 
+ OS_SEC_ALW_INLINE INLINE void OsHwiDescFieldInit(U32 irqNum)
+ {
+-    /* MASKED - implement this function */
++    OsHwiFuncSet(irqNum, OsHwiDefaultHandler);
++    OsHwiParaSet(irqNum, irqNum);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsHwiFuncSet(irqNum, OsHwiDefaultHandler);
+    OsHwiParaSet(irqNum, irqNum);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsHwiDescFieldInit test_OsHwiDescFieldInit.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsHwiDescFieldInit test
+[CASE] handler default at 0
+  Expected: 104046173005073
+  Actual: 104046173005073
+  Result: PASS
+[CASE] param = irq at 0
+  Expected: 0
+  Actual: 0
+  Result: PASS
+[CASE] handler default at 2
+  Expected: 104046173005073
+  Actual: 104046173005073
+  Result: PASS
+[CASE] param = irq at 2
+  Expected: 2
+  Actual: 2
+  Result: PASS
+[CASE] handler default at 5
+  Expected: 104046173005073
+  Actual: 104046173005073
+  Result: PASS
+[CASE] param = irq at 5
+  Expected: 5
+  Actual: 5
+  Result: PASS
+[CASE] handler default at 254
+  Expected: 104046173005073
+  Actual: 104046173005073
+  Result: PASS
+[CASE] param = irq at 254
+  Expected: 254
+  Actual: 254
+  Result: PASS
+[CASE] handler default at 255
+  Expected: 104046173005073
+  Actual: 104046173005073
+  Result: PASS
+[CASE] param = irq at 255
+  Expected: 255
+  Actual: 255
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from prt_irq_internal.h:2,
+                 from test_OsHwiDescFieldInit.c:3:
+auto_stub.h:1545:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1545 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1544:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1544 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1543:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1543 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1542:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1542 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1541:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1541 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1540:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1540 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1539:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1539 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1538:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1538 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1537:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1537 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1536:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1536 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1535:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1535 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1534:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1534 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1533:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1533 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1532:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1532 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_stubs.c:1:
+test_support.h:44:13: warning: ‘print_case_result’ defined but not used [-Wunused-function]
+   44 | static void print_case_result(const char *name, long long expected, long long actual, int passed)
+      |             ^~~~~~~~~~~~~~~~~
+
+
+

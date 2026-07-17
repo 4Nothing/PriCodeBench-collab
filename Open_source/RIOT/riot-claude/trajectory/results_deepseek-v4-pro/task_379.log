@@ -1,0 +1,92 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `ztimer64_set_at` now does at `sys/ztimer64/ztimer64.c:73`:
+
+1. **Disables IRQs** — all list manipulation is done in a critical section, same as `ztimer64_remove`
+2. **Removes if already set** — if the timer is currently active (`_is_set`), removes it from the clock's linked list via `_del_entry_from_list` (which also clears `next`/`target`)
+3. **Sets the new target** — writes `val` into `timer->base.target`
+4. **Inserts into sorted list** — `_add_entry_to_list` inserts the timer maintaining ascending target order
+5. **Updates underlying timer if needed** — if `_add_entry_to_list` returns 1 (the entry is the new list head, i.e., the earliest-firing timer), calls `_ztimer64_update` to reprogram the 32-bit base timer
+6. **Restores IRQs**
+
+The logic mirrors `ztimer64_remove`: in `remove`, the update fires when the deleted entry was *not* the head (because the head value determined the current timer; a non-head deletion means the head is unchanged). In `set_at`, the update fires when the inserted entry *is* the new head (the newly-earliest timer requires reprogramming the base timer).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer64/ztimer64.c
++++ sys/ztimer64/ztimer64.c
+@@ -72,7 +72,19 @@
+ 
+ void ztimer64_set_at(ztimer64_clock_t *clock, ztimer64_t *timer, uint64_t val)
+ {
+-    /* MASKED - implement this function */
++    unsigned state = irq_disable();
++
++    if (_is_set(timer)) {
++        _del_entry_from_list(clock, &timer->base);
++    }
++
++    timer->base.target = val;
++
++    if (_add_entry_to_list(clock, &timer->base)) {
++        _ztimer64_update(clock);
++    }
++
++    irq_restore(state);
+ }
+ 
+ static int _add_entry_to_list(ztimer64_clock_t *clock, ztimer64_base_t *entry)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer64
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+  90342	  32504	  78368	 201214	  311fe	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+OK (7 tests)
+
+native: exiting
+
+--- stderr ---
+==367==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff152aa000; bottom 0x000000430000; size: 0x7fff14e7a000 (140733544112128)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==367==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

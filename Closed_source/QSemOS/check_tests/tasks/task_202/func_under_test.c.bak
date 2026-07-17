@@ -1,0 +1,8 @@
+static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen);
+
+#if defined(OS_OPTION_SMP)
+static struct PrtSpinLock g_logLock;
+static OS_SEC_L2_TEXT uintptr_t OsLogLockOn()
+{
+    return PRT_SplIrqLock(&g_logLock);
+}

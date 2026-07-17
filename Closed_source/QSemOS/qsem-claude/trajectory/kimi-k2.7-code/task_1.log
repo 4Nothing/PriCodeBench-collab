@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsPerfDefaultNotify` in `src/extended/perf/prt_perf_output.c:21` to print `perf buf waterline notify!\n` when the perf output buffer crosses its watermark.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -20,7 +20,7 @@
+ 
+ static void OsPerfDefaultNotify(void)
+ {
+-    /* MASKED - implement this function */
++    printf("perf buf waterline notify!\n");
+ }
+ 
+ U32 OsPerfOutPutInit(void *buf, U32 size)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    printf("perf buf waterline notify!\n");
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfDefaultNotify.c
+[用例] OsPerfDefaultNotify #1
+  期望输出: perf buf waterline notify!
+
+  实际输出: perf buf waterline notify!
+
+  结果    : PASS
+
+[用例] OsPerfDefaultNotify #2
+  期望输出: perf buf waterline notify!
+
+  实际输出: perf buf waterline notify!
+
+  结果    : PASS
+
+[用例] OsPerfDefaultNotify #3
+  期望输出: perf buf waterline notify!
+
+  实际输出: perf buf waterline notify!
+
+  结果    : PASS
+
+[用例] OsPerfDefaultNotify #4
+  期望输出: perf buf waterline notify!
+
+  实际输出: perf buf waterline notify!
+
+  结果    : PASS
+
+[用例] OsPerfDefaultNotify #5
+  期望输出: perf buf waterline notify!
+
+  实际输出: perf buf waterline notify!
+
+  结果    : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsPerfDefaultNotify.c:1:
+func_under_test.c: In function ‘OsPerfDefaultNotify’:
+func_under_test.c:3:5: warning: implicit declaration of function ‘printf’ [-Wimplicit-function-declaration]
+    3 |     printf("perf buf waterline notify!\n");
+      |     ^~~~~~
+func_under_test.c:1:1: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+  +++ |+#include <stdio.h>
+    1 | static void OsPerfDefaultNotify(void)
+func_under_test.c:3:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+    3 |     printf("perf buf waterline notify!\n");
+      |     ^~~~~~
+func_under_test.c:3:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfDefaultNotify.c:3:
+auto_stub.h: At top level:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

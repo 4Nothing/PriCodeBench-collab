@@ -1,0 +1,46 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation delegates to `OsSwTmrGetRemain`, which has two correct implementations already in the file:
+
+- **SMP mode** (line 18-28): returns `expectedTick - g_uniTicks` (or 0 if already passed)
+- **Non-SMP mode** (line 63-90): walks the sort link list, accumulating roll numbers and adjusting for the cursor position to compute remaining ticks
+
+Both are used identically by `OsSwTmrStop` (to preserve remaining ticks when pausing) and `OsSwTmrQuery` (to report remaining time to the caller), so the delegation is the correct approach.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -94,7 +94,7 @@
+  */
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemainTick(struct TagSwTmrCtrl *swtmr)
+ {
+-    /* MASKED - implement this function */
++    return OsSwTmrGetRemain(swtmr);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return OsSwTmrGetRemain(swtmr);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwTmrGetRemainTick.c test_support.c notifier_test_stubs.c
+
+--- stderr ---
+Segmentation fault (core dumped)
+
+
+

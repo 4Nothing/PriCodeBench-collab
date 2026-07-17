@@ -1,0 +1,103 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function now extracts the CoAP message type by reading bits 5-4 from the `ver_t_tkl` header byte, matching the existing `coap_get_ver` pattern (bits 7-6) and `coap_hdr_set_type` (which writes to `type << 4` with mask `0x30`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -648,7 +648,7 @@
+  */
+ static inline unsigned coap_get_type(const coap_pkt_t *pkt)
+ {
+-    /* MASKED - implement this function */
++    return (coap_get_udp_hdr_const(pkt)->ver_t_tkl & 0x30) >> 4;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gcoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/application_layer/gcoap
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/sock
+"make" -C /workspace/sys/net/sock/async/event
+"make" -C /workspace/sys/net/transport_layer/udp
+"make" -C /workspace/sys/posix/inet
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/sock
+"make" -C /workspace/sys/net/gnrc/sock/udp
+"make" -C /workspace/sys/net/gnrc/transport_layer/udp
+   text	   data	    bss	    dec	    hex	filename
+ 167271	  44808	 129416	 341495	  535f7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...........
+OK (11 tests)
+
+native: exiting
+
+--- stderr ---
+==664==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd15f34000; bottom 0x000000447000; size: 0x7ffd15aed000 (140724967231488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

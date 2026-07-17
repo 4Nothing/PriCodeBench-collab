@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: 2022 HAW Hamburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+rsource '../l0l1/Kconfig.clk'

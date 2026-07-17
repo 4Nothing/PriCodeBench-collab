@@ -1,0 +1,124 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSwTmrQuery` now does:
+
+1. **Validates the timer handle** — returns `OS_ERRNO_TIMER_HANDLE_INVALID` if the handle index exceeds `g_swTmrMaxNum`
+2. **Acquires the spinlock** via `OsSwtmrIqrSplLock` for SMP safety
+3. **Checks for FREE state** — returns `OS_ERRNO_SWTMR_NOT_CREATED` if the timer was never created
+4. **Gets remaining ticks** by calling `OsSwTmrGetRemainTick`, which handles all three states:
+   - `OS_TIMER_CREATED` → returns `idxRollNum` directly
+   - `OS_TIMER_EXPIRED` → returns 0
+   - `OS_TIMER_RUNNING` → computes remaining via the sort-link walk
+5. **Converts ticks to milliseconds** using `DIV64(remainTick * 1000, tickPerSecond)`
+6. **Rounds up** when the division has a non-zero remainder (per the API spec: "if conversion is not exact, round up and add 1")
+7. **Writes `*expireTime`**, unlocks, and returns `OS_OK`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -321,7 +321,35 @@
+  */
+ OS_SEC_L2_TEXT U32 OsSwTmrQuery(TimerHandle tmrHandle, U32 *expireTime)
+ {
+-    /* MASKED - implement this function */
++    struct TagSwTmrCtrl *swtmr = NULL;
++    uintptr_t intSave;
++    U32 remainTick;
++    U32 remainMs;
++
++    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum) {
++        return OS_ERRNO_TIMER_HANDLE_INVALID;
++    }
++
++    // 转化为软件定时器内部ID号
++    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
++    intSave = OsSwtmrIqrSplLock(swtmr);
++
++    if (swtmr->state == (U8)OS_TIMER_FREE) {
++        OsSwtmrIqrSplUnlock(swtmr, intSave);
++        return OS_ERRNO_SWTMR_NOT_CREATED;
++    }
++
++    /* 调用获取定时器剩余Tick数内部接口 */
++    remainTick = OsSwTmrGetRemainTick(swtmr);
++    remainMs = (U32)DIV64(((U64)remainTick * OS_SYS_MS_PER_SECOND), g_tickModInfo.tickPerSecond);
++    if (DIV64_REMAIN((U64)remainTick * OS_SYS_MS_PER_SECOND, g_tickModInfo.tickPerSecond) != 0) {
++        remainMs++;
++    }
++
++    *expireTime = remainMs;
++
++    OsSwtmrIqrSplUnlock(swtmr, intSave);
++    return OS_OK;
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSwTmrCtrl *swtmr = NULL;
+    uintptr_t intSave;
+    U32 remainTick;
+    U32 remainMs;
+
+    if (OS_TIMER_GET_INDEX(tmrHandle) >= g_swTmrMaxNum) {
+        return OS_ERRNO_TIMER_HANDLE_INVALID;
+    }
+
+    // 转化为软件定时器内部ID号
+    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
+    intSave = OsSwtmrIqrSplLock(swtmr);
+
+    if (swtmr->state == (U8)OS_TIMER_FREE) {
+        OsSwtmrIqrSplUnlock(swtmr, intSave);
+        return OS_ERRNO_SWTMR_NOT_CREATED;
+    }
+
+    /* 调用获取定时器剩余Tick数内部接口 */
+    remainTick = OsSwTmrGetRemainTick(swtmr);
+    remainMs = (U32)DIV64(((U64)remainTick * OS_SYS_MS_PER_SECOND), g_tickModInfo.tickPerSecond);
+    if (DIV64_REMAIN((U64)remainTick * OS_SYS_MS_PER_SECOND, g_tickModInfo.tickPerSecond) != 0) {
+        remainMs++;
+    }
+
+    *expireTime = remainMs;
+
+    OsSwtmrIqrSplUnlock(swtmr, intSave);
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrQuery test_OsSwTmrQuery.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrQuery test
+[invalid handle          ] expect=33557763, actual=33557763 => PASS
+[free -> not created     ] expect=33557771, actual=33557771 => PASS
+[created -> ok           ] expect=0, actual=0 => PASS
+[ms=123                  ] expect=123, actual=123 => PASS
+[running -> ok           ] expect=0, actual=0 => PASS
+[ms=50                   ] expect=50, actual=50 => PASS
+[round up                ] expect=0, actual=0 => PASS
+[ms=667                  ] expect=667, actual=667 => PASS
+
+OsSwTmrQuery Pass-Rate: 100.00% (8/8)
+
+
+--- stderr ---
+test_OsSwTmrQuery.c: In function ‘main’:
+test_OsSwTmrQuery.c:42:5: warning: implicit declaration of function ‘OsSwTmrStart’; did you mean ‘OsSwTmrQuery’? [-Wimplicit-function-declaration]
+   42 |     OsSwTmrStart(&arr[1], 50);
+      |     ^~~~~~~~~~~~
+      |     OsSwTmrQuery
+
+
+

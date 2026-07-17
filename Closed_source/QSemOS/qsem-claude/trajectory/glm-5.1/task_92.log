@@ -1,0 +1,141 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **Computes free contiguous space**: When `startIdx > endIdx`, the free region from `endIdx` to `startIdx` is contiguous (no wrap), giving `freeSpace = startIdx - endIdx`.
+- **Clamps to available space**: Copies `min(freeSpace, size)` bytes using `memcpy_s`.
+- **Updates ringbuf state**: Decrements `remain` (free space counter) and advances `endIdx` by the copied byte count.
+- **Returns actual bytes written**: Matching the convention of `OsRingbufWriteLoop` and `OsRingbufReadLinear`.
+
+The implementation mirrors `OsRingbufReadLinear` (line 97) — it uses the same structure and error handling, just symmetrically: write uses `startIdx - endIdx` for free space, updates `remain -=` and `endIdx +=`, while read uses `endIdx - startIdx` for data, updates `remain +=` and `startIdx +=`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_ringbuf.c
++++ src/extended/perf/prt_perf_ringbuf.c
+@@ -41,7 +41,27 @@
+  */
+ static U32 OsRingbufWriteLinear(Ringbuf *ringbuf, const char *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 cpSize;
++    U32 freeSpace;
++
++    freeSpace = ringbuf->startIdx - ringbuf->endIdx;
++    cpSize = (freeSpace < size) ? freeSpace : size;
++
++    if (cpSize == 0) {
++        return 0;
++    }
++
++    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSpace, buf, cpSize);
++    if (ret != OS_OK) {
++        printf("write linear ring buffer failed, endIdx: %u, cpSize=%u\n", ringbuf->endIdx, cpSize);
++        return 0;
++    }
++
++    ringbuf->remain -= cpSize;
++    ringbuf->endIdx += cpSize;
++
++    return cpSize;
+ }
+ 
+ static U32 OsRingbufWriteLoop(Ringbuf *ringbuf, const char *buf, U32 size)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 cpSize;
+    U32 freeSpace;
+
+    freeSpace = ringbuf->startIdx - ringbuf->endIdx;
+    cpSize = (freeSpace < size) ? freeSpace : size;
+
+    if (cpSize == 0) {
+        return 0;
+    }
+
+    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSpace, buf, cpSize);
+    if (ret != OS_OK) {
+        printf("write linear ring buffer failed, endIdx: %u, cpSize=%u\n", ringbuf->endIdx, cpSize);
+        return 0;
+    }
+
+    ringbuf->remain -= cpSize;
+    ringbuf->endIdx += cpSize;
+
+    return cpSize;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRingbufWriteLinear.c notifier_test_stubs.c
+Case 1 (remain 0) -> Expected: 0, Actual: 0
+Case 2 (write 3) -> Expected: 3, Actual: 0
+Case 3 (size 0) -> Expected: 0, Actual: 0
+Case 4 (cap by remain=2) -> Expected: 2, Actual: 5
+Case 5 (seq 3 then 4 -> second ret) -> Expected: 4, Actual: 0
+Pass-Rate: 40.00%
+
+--- stderr ---
+test_OsRingbufWriteLinear.c: In function ‘main’:
+test_OsRingbufWriteLinear.c:69:9: warning: unused variable ‘r1’ [-Wunused-variable]
+   69 |     U32 r1 = OsRingbufWriteLinear(&rb, src, 3); /* 3 */
+      |         ^~
+In file included from test_OsRingbufWriteLinear.c:3:
+auto_stub.h: At top level:
+auto_stub.h:602:13: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+  602 | static char g_osRtSingleSchedClass[64];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:601:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+  601 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:600:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+  600 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:599:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+  599 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:598:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+  598 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:597:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+  597 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:596:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+  596 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:595:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+  595 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:594:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+  594 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:593:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+  593 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:592:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+  592 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:591:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+  591 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:590:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+  590 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:589:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+  589 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

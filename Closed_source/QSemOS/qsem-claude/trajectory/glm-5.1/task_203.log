@@ -1,0 +1,74 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what the function does:
+
+- Reads the **head pointer** from shared memory at `g_logMemBase + HEAD_PTR_OFFSET` (`0x1004000`)
+- Reads the **tail pointer** from shared memory at `g_logMemBase + TAIL_PTR_OFFSET` (`0x1004100`)
+- Uses `volatile U32 *` reads, consistent with how `OsLogUpdateTail` reads the tail pointer (line 163 uses the same pattern) and how `OsAtomicReadU32` is defined (line 62-65)
+
+This follows the log subsystem's design: tail is updated under lock by the producer (`OsLogUpdateTail`), and head is updated by the consumer (another core/process). `OsLogGetTailAndHead` provides an optimistic snapshot of both — the caller in `OsLogUpdateTail` then re-validates under lock that the tail hasn't changed before committing the update.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -151,7 +151,8 @@
+ 
+ static OS_SEC_L2_TEXT void OsLogGetTailAndHead(U32 *head, U32 *tail)
+ {
+-    /* MASKED - implement this function */
++    *head = *(volatile U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
++    *tail = *(volatile U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
+ }
+ 
+ static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    *head = *(volatile U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
+    *tail = *(volatile U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsLogGetTailAndHead.c
+[CASE] initial equal
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] read custom values
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] near wrap snapshot
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] repeat consistent
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+[CASE] zero values
+  Expected: 0x00000001
+  Actual  : 0x00000001
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+
+
+

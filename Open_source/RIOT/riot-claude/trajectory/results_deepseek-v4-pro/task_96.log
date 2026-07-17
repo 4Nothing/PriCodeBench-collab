@@ -1,0 +1,104 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same patterns used throughout the file:
+
+- **Lock** the table mutex (`mtx_access`) for thread safety
+- **Validate** that `dst` and `next_hop` are non-NULL, returning `-EFAULT` if not
+- **Find or create**: If an exact-match entry already exists (`fib_find_entry` returns 1), update it via `fib_upd_entry` (new next-hop, lifetime, etc.). Otherwise, allocate a new entry via `fib_create_entry` with all the provided parameters (`iface_id`, `dst`, `dst_flags`, etc.)
+- **Unlock** the mutex and return the result
+
+This is the same lock/validate/find-or-create/unlock pattern used by `fib_update_entry` and `fib_get_next_hop`. The key difference from `fib_update_entry` is that when no existing entry is found, `fib_add_entry` creates a new one rather than returning an error.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -393,7 +393,31 @@
+                   uint32_t dst_flags, uint8_t *next_hop, size_t next_hop_size,
+                   uint32_t next_hop_flags, uint32_t lifetime)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    DEBUG("[fib_add_entry]\n");
++    size_t count = 1;
++    fib_entry_t *entry[count];
++    int ret = -ENOMEM;
++
++    /* check if dst and next_hop are valid pointers */
++    if ((dst == NULL) || (next_hop == NULL)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    if (fib_find_entry(table, dst, dst_size, &(entry[0]), &count) == 1) {
++        DEBUG("[fib_add_entry] found existing entry: %p\n", (void *)(entry[0]));
++        /* update the existing entry */
++        ret = fib_upd_entry(entry[0], next_hop, next_hop_size, next_hop_flags, lifetime);
++    }
++    else {
++        /* create a new entry */
++        ret = fib_create_entry(table, iface_id, dst, dst_size, dst_flags,
++                               next_hop, next_hop_size, next_hop_flags, lifetime);
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return ret;
+ }
+ 
+ int fib_update_entry(fib_table_t *table, uint8_t *dst, size_t dst_size,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 128036	  37800	  80456	 246292	  3c214	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................
+OK (20 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff14b22000; bottom 0x00000043b000; size: 0x7fff146e7000 (140733536169984)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

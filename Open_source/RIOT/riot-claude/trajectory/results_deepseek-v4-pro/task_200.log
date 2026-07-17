@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **`iolist_size(iolist)`** — computes the total bytes across all linked list entries
+- **`-ENOBUFS`** — returned if the provided buffer is too small
+- **`while (iolist)` loop** — walks the list, `memcpy`ing each entry's data (`iol_base` → `iol_len` bytes) sequentially into the destination buffer
+- **Returns `total`** — the number of bytes copied, matching the documented contract
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/iolist/iolist.c
++++ sys/iolist/iolist.c
+@@ -66,5 +66,17 @@
+ 
+ ssize_t iolist_to_buffer(const iolist_t *iolist, void *buf, size_t len)
+ {
+-    /* MASKED - implement this function */
++    size_t total = iolist_size(iolist);
++    if (total > len) {
++        return -ENOBUFS;
++    }
++
++    char *dst = buf;
++    while (iolist) {
++        memcpy(dst, iolist->iol_base, iolist->iol_len);
++        dst += iolist->iol_len;
++        iolist = iolist->iol_next;
++    }
++
++    return total;
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-unicoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/application_layer/unicoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
+   text	   data	    bss	    dec	    hex	filename
+ 125147	  43144	  82464	 250755	  3d383	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+OK (16 tests)
+
+native: exiting
+
+--- stderr ---
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe60a1b000; bottom 0x00000043c000; size: 0x7ffe605df000 (140730515189760)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

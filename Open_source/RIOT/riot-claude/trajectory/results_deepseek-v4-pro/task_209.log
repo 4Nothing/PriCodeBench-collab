@@ -1,0 +1,96 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function iterates through each byte of the two addresses. Matching bytes contribute 8 bits. When a byte differs, `bitarithm_clzb(a->u8[i] ^ b->u8[i])` counts how many leading bits match within that byte before breaking. This returns the total number of identical leading bits — i.e., the common prefix length.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr.c
+@@ -42,7 +42,19 @@
+ 
+ uint8_t ipv6_addr_match_prefix(const ipv6_addr_t *a, const ipv6_addr_t *b)
+ {
+-    /* MASKED - implement this function */
++    uint8_t bits = 0;
++
++    for (unsigned i = 0; i < sizeof(ipv6_addr_t); i++) {
++        if (a->u8[i] == b->u8[i]) {
++            bits += 8;
++        }
++        else {
++            bits += bitarithm_clzb(a->u8[i] ^ b->u8[i]);
++            break;
++        }
++    }
++
++    return bits;
+ }
+ 
+ void ipv6_addr_init_prefix(ipv6_addr_t *out, const ipv6_addr_t *prefix,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193777	  41928	  78152	 313857	  4ca01	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......................................
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffde42e000; bottom 0x00000044c000; size: 0x7fffddfe2000 (140736917807104)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x00000040a401 bp 0x000000447fe0 sp 0x000000447fe0 T0)
+==329==The signal is caused by a READ memory access.
+==329==Hint: address points to the zero page.
+    #0 0x40a401 in ipv6_addr_match_prefix /workspace/sys/net/network_layer/ipv6/addr/ipv6_addr.c:48
+    #1 0x4201da in test_ipv6_addr_match_prefix_first_NULL /workspace/tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c:422
+    #2 0x408bb2 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x408a0c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x409166 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x422aae in tests_ipv6_addr /workspace/tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c:1199
+    #6 0x4029c7 in main /workspace/tests/unittests/main.c:47
+    #7 0x4037ed in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x76e856b62f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /workspace/sys/net/network_layer/ipv6/addr/ipv6_addr.c:48 in ipv6_addr_match_prefix
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

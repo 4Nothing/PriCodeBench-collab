@@ -1,0 +1,96 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `gnrc_priority_pktqueue_push` now does at `priority_pktqueue.c:60`:
+
+1. **Asserts** that both `queue` and `node` are non-NULL (consistent with `flush`/`length` patterns).
+2. **Casts** the `gnrc_priority_pktqueue_node_t*` to `priority_queue_node_t*` — safe because the two structs share identical memory layout (`next` and `priority` fields match, `pkt` sits at the same offset as `data`).
+3. **Resets `next`** to NULL to clear any stale pointer from prior use of the node.
+4. **Copies `pkt` into `data`** so the underlying `priority_queue_add` can see the packet pointer.
+5. **Calls `priority_queue_add`** to insert the node into the queue in priority order (lower 32-bit value = higher priority, inserted closer to the head).
+
+This mirrors the inverse operation in `gnrc_priority_pktqueue_pop` (line 44), which reads `head->data` and casts it back to `gnrc_pktsnip_t*`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/priority_pktqueue/priority_pktqueue.c
++++ sys/net/gnrc/priority_pktqueue/priority_pktqueue.c
+@@ -60,7 +60,13 @@
+ void gnrc_priority_pktqueue_push(gnrc_priority_pktqueue_t *queue,
+                                  gnrc_priority_pktqueue_node_t *node)
+ {
+-    /* MASKED - implement this function */
++    assert(queue != NULL);
++    assert(node != NULL);
++
++    priority_queue_node_t *pq_node = (priority_queue_node_t *)node;
++    pq_node->next = NULL;
++    pq_node->data = (uintptr_t)node->pkt;
++    priority_queue_add((priority_queue_t *)queue, pq_node);
+ }
+ 
+ /******************************************************************************/
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-priority_pktqueue
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/priority_pktqueue
+   text	   data	    bss	    dec	    hex	filename
+ 119898	  37328	  85352	 242578	  3b392	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.........
+OK (9 tests)
+
+native: exiting
+
+--- stderr ---
+==460==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcfcb5a000; bottom 0x000000439000; size: 0x7ffcfc721000 (140724543819776)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

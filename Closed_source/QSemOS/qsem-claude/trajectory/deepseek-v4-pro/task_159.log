@@ -1,0 +1,107 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsSemPendListGet` does, mirroring the inverse operation `OsSemPendListPut`:
+
+1. **Gets the first waiting task** from the semaphore's pend list via `OS_LIST_FIRST`
+2. **Removes it** from the pend list with `ListDelete`
+3. **Locks the task's run queue** before modifying task state
+4. **Detaches any timer** if the task had a timeout (`OS_TSK_DELAY_LOCKED_DETACH`)
+5. **Clears pending status** — both `OS_TSK_TIMEOUT` and `OS_TSK_PEND` flags
+6. **Clears the task's pend reference** (`taskPend = NULL`)
+7. **Adds to ready queue** via `OsTskReadyAddBgd` if the task isn't suspended
+8. **Unlocks the task's run queue**
+9. **Transfers semaphore ownership** to the woken task (`semOwner`)
+10. **Links the semaphore to the task's held-semaphore list** for binary/mutex semaphores (`semBList`), matching what `OsSemPendNotNeedSche` does in the immediate-acquire path
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -319,7 +319,33 @@
+  */
+ OS_SEC_L0_TEXT void OsSemPendListGet(struct TagSemCb *semPended)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&semPended->semList));
++
++    ListDelete(&resumedTask->pendList);
++    OsSpinLockTaskRq(resumedTask);
++
++    if (TSK_STATUS_TST(resumedTask, OS_TSK_TIMEOUT))
++    {
++        OS_TSK_DELAY_LOCKED_DETACH(resumedTask);
++    }
++
++    TSK_STATUS_CLEAR(resumedTask, OS_TSK_TIMEOUT | OS_TSK_PEND);
++    resumedTask->taskPend = (void *)NULL;
++
++    if (!TSK_STATUS_TST(resumedTask, OS_TSK_SUSPEND_READY_BLOCK))
++    {
++        OsTskReadyAddBgd(resumedTask);
++    }
++
++    OsSpinUnlockTaskRq(resumedTask);
++
++    semPended->semOwner = resumedTask->taskPid;
++#if defined(OS_OPTION_BIN_SEM)
++    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN)
++    {
++        ListTailAdd(&semPended->semBList, &resumedTask->semBList);
++    }
++#endif
+ }
+ 
+ OS_SEC_L0_TEXT U32 OsSemPendParaCheck(U32 timeout)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *resumedTask = GET_TCB_PEND(OS_LIST_FIRST(&semPended->semList));
+
+    ListDelete(&resumedTask->pendList);
+    OsSpinLockTaskRq(resumedTask);
+
+    if (TSK_STATUS_TST(resumedTask, OS_TSK_TIMEOUT))
+    {
+        OS_TSK_DELAY_LOCKED_DETACH(resumedTask);
+    }
+
+    TSK_STATUS_CLEAR(resumedTask, OS_TSK_TIMEOUT | OS_TSK_PEND);
+    resumedTask->taskPend = (void *)NULL;
+
+    if (!TSK_STATUS_TST(resumedTask, OS_TSK_SUSPEND_READY_BLOCK))
+    {
+        OsTskReadyAddBgd(resumedTask);
+    }
+
+    OsSpinUnlockTaskRq(resumedTask);
+
+    semPended->semOwner = resumedTask->taskPid;
+#if defined(OS_OPTION_BIN_SEM)
+    if (GET_SEM_TYPE(semPended->semType) == SEM_TYPE_BIN)
+    {
+        ListTailAdd(&semPended->semBList, &resumedTask->semBList);
+    }
+#endif
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendListGet.c test_stubs.c notifier_test_stubs.c
+[Case] Get first waiter
+  Remaining waiter: tsk2
+  Result: PASS
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+
+
+

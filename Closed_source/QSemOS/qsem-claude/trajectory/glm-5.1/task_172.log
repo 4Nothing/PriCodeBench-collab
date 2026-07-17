@@ -1,0 +1,143 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `OsQueueCpData2Node` function is now implemented. Here's what it does:
+
+- **Normal priority (`OS_QUEUE_NORMAL`)**: Writes the message at `queueTail` and advances the tail pointer (with wrap-around at `nodeNum`)
+- **Urgent priority (`OS_QUEUE_URGENT`)**: Moves `queueHead` backward (with wrap-around) and writes the message there, effectively inserting at the front of the queue
+- Copies the data into the node's buffer via `memcpy_s`, sets the node's `size` and `srcPid` (from `OsGetSrcPid()`)
+- Updates `nodePeak` to track the maximum number of simultaneous messages in the queue, computed as the distance between head and tail in the circular buffer
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -269,7 +269,40 @@
+ OS_SEC_ALW_INLINE INLINE void OsQueueCpData2Node(U32 prio, uintptr_t bufferAddr, U32 bufferSize,
+                                                  struct TagQueCb *queueCb)
+ {
+-    /* MASKED - implement this function */
++    U16 peak;
++    struct QueNode *queueNode = NULL;
++    if (prio == (U32)OS_QUEUE_NORMAL) {
++        /* 普通消息加到队列尾部 */
++        queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueTail) * (queueCb->nodeSize))];
++
++        queueCb->queueTail++;
++        if (queueCb->queueTail == queueCb->nodeNum) {
++            queueCb->queueTail = 0;
++        }
++    } else {
++        /* 紧急消息加到队列头上 */
++        if (queueCb->queueHead == 0) {
++            queueCb->queueHead = queueCb->nodeNum;
++        }
++        queueCb->queueHead--;
++
++        queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueHead) * (queueCb->nodeSize))];
++    }
++
++    if (memcpy_s((void *)queueNode->buf, (queueCb->nodeSize - OS_QUEUE_NODE_HEAD_LEN),
++                 (void *)bufferAddr, bufferSize) != EOK) {
++        OS_GOTO_SYS_ERROR1();
++    }
++
++    queueNode->size = (U16)bufferSize;
++    queueNode->srcPid = (U16)OsGetSrcPid();
++
++    peak = queueCb->queueTail > queueCb->queueHead ? queueCb->queueTail - queueCb->queueHead
++           : (queueCb->nodeNum - queueCb->queueHead) + queueCb->queueTail;
++
++    if (peak > queueCb->nodePeak) {
++        queueCb->nodePeak = peak;
++    }
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U16 peak;
+    struct QueNode *queueNode = NULL;
+    if (prio == (U32)OS_QUEUE_NORMAL) {
+        /* 普通消息加到队列尾部 */
+        queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueTail) * (queueCb->nodeSize))];
+
+        queueCb->queueTail++;
+        if (queueCb->queueTail == queueCb->nodeNum) {
+            queueCb->queueTail = 0;
+        }
+    } else {
+        /* 紧急消息加到队列头上 */
+        if (queueCb->queueHead == 0) {
+            queueCb->queueHead = queueCb->nodeNum;
+        }
+        queueCb->queueHead--;
+
+        queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueHead) * (queueCb->nodeSize))];
+    }
+
+    if (memcpy_s((void *)queueNode->buf, (queueCb->nodeSize - OS_QUEUE_NODE_HEAD_LEN),
+                 (void *)bufferAddr, bufferSize) != EOK) {
+        OS_GOTO_SYS_ERROR1();
+    }
+
+    queueNode->size = (U16)bufferSize;
+    queueNode->srcPid = (U16)OsGetSrcPid();
+
+    peak = queueCb->queueTail > queueCb->queueHead ? queueCb->queueTail - queueCb->queueHead
+           : (queueCb->nodeNum - queueCb->queueHead) + queueCb->queueTail;
+
+    if (peak > queueCb->nodePeak) {
+        queueCb->nodePeak = peak;
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsQueueCpData2Node.c notifier_test_stubs.c
+[CASE] normal write tail
+  Expect: tail=1 size=4 srcPid=1
+  Actual: tail=1 size=4 srcPid=1
+[CASE] urgent write head
+  Expect: head=2 size=2
+  Actual: head=2 size=2
+[CASE] peak updated
+  Expect: >=1
+  Actual: 2
+[CASE] tail wrap
+  Expect: 0
+  Actual: 0
+[CASE] head wrap
+  Expect: 2
+  Actual: 2
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsQueueCpData2Node.c:2:
+func_under_test.c: In function ‘OsQueueCpData2Node’:
+func_under_test.c:30:30: warning: implicit declaration of function ‘OsGetSrcPid’ [-Wimplicit-function-declaration]
+   30 |     queueNode->srcPid = (U16)OsGetSrcPid();
+      |                              ^~~~~~~~~~~
+test_OsQueueCpData2Node.c: In function ‘main’:
+test_OsQueueCpData2Node.c:12:5: warning: implicit declaration of function ‘reset_task’ [-Wimplicit-function-declaration]
+   12 |     reset_task();
+      |     ^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h:15:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   15 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:9:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    9 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

@@ -1,0 +1,134 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `OsPerfOutPutWrite` in `src/extended/perf/prt_perf_output.c:100`.
+
+The function now:
+1. Checks for available space via `OsPerfOutPutBegin(size)`
+2. Returns `OS_ERROR` if the ring buffer can't accommodate the write
+3. Writes the data with `PRT_RingbufWrite`
+4. Triggers flush/notify via `OsPerfOutPutEnd()`
+5. Returns `OS_OK` on success
+
+No other files were modified.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf_output.c
++++ src/extended/perf/prt_perf_output.c
+@@ -99,7 +99,14 @@
+ 
+ U32 OsPerfOutPutWrite(char *data, U32 size)
+ {
+-    /* MASKED - implement this function */
++    if (!OsPerfOutPutBegin(size)) {
++        return OS_ERROR;
++    }
++
++    PRT_RingbufWrite(&g_perfOutputCb.ringbuf, data, size);
++
++    OsPerfOutPutEnd();
++    return OS_OK;
+ }
+ 
+ U32 OsPerfOutPutRemainSize()
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (!OsPerfOutPutBegin(size)) {
+        return OS_ERROR;
+    }
+
+    PRT_RingbufWrite(&g_perfOutputCb.ringbuf, data, size);
+
+    OsPerfOutPutEnd();
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_utils.c test_OsPerfOutPutWrite.c
+[用例] Write 0 bytes
+  期望输出: ret=0 remain=16
+  实际输出: ret=0 remain=16
+  结果    : PASS
+
+[用例] Write 5 bytes
+  期望输出: ret=0 remain=11
+  实际输出: ret=0 remain=11
+  结果    : PASS
+
+[用例] Write 11 bytes exact
+  期望输出: ret=0 remain=0
+  实际输出: ret=0 remain=0
+  结果    : PASS
+
+perf buf remain 0, and has no enough space for 0x1
+[用例] Write overflow 1
+  期望输出: ret=1
+  实际输出: ret=4294967295
+  结果    : PASS
+
+[用例] Notify on watermark
+  期望输出: notify=1
+  实际输出: notify=1
+  结果    : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from prt_perf_output.h:2,
+                 from test_OsPerfOutPutWrite.c:2:
+auto_stub.h:1891:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1891 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1890:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1890 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1889:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1889 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1888:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1888 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1887:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1887 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1886:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1886 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1885:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1885 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1884:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1884 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1883:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1883 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1882:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1882 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1881:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1881 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1880:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1880 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1879:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1879 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1878:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1878 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,2808 @@
+[
+  {
+    "task_id": "4",
+    "sut_function": "OsPerfOutPutFlush",
+    "source_path": "src/extended/perf/prt_perf_output.c",
+    "module": "perf/output",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "extra_calls: PRT_RingbufUsedSize",
+        "if_statement: oracle=1 claude=2",
+        "removed_logic: 'if (g_perfBufFlushHook != NULL) {'",
+        "removed_logic: 'g_perfBufFlushHook(g_perfOutputCb.ringbuf.fifo, g_perfOutputCb.ringbuf.size);'",
+        "extra_conditions_added: if (g_perfBufFlushHook == NULL) {"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "PRT_RingbufUsedSize"
+        ],
+        "only_oracle": [],
+        "shared": [
+          "g_perfBufFlushHook"
+        ],
+        "claude_count": 2,
+        "oracle_count": 1,
+        "jaccard": 0.5
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "size"
+        ],
+        "jaccard": 0.6666666666666666
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "if_statement": 2,
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 362,
+      "oracle_chars": 144,
+      "ratio": 2.513888888888889
+    }
+  },
+  {
+    "task_id": "6",
+    "sut_function": "OsPerfOutPutInit",
+    "source_path": "src/extended/perf/prt_perf_output.c",
+    "module": "perf/output",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "missing_calls: PRT_MemAlloc, PRT_MemFree, memset_s, printf",
+        "if_statement: oracle=5 claude=1",
+        "return_statement: oracle=4 claude=2",
+        "removed_logic: 'if (PERF_BUFFER_WATERMARK_ONE_N == 0) {'",
+        "removed_logic: 'return OS_ERROR;'",
+        "fewer_return_statements: oracle=4 claude=2"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "PRT_MemAlloc",
+          "PRT_MemFree",
+          "memset_s",
+          "printf"
+        ],
+        "shared": [
+          "PRT_RingbufInit"
+        ],
+        "claude_count": 1,
+        "oracle_count": 5,
+        "jaccard": 0.2
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERROR",
+          "OS_MEM_DEFAULT_PT0",
+          "OS_MID_PERF"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 4,
+        "if_statement": 5,
+        "goto_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 346,
+      "oracle_chars": 821,
+      "ratio": 0.42143727161997563
+    }
+  },
+  {
+    "task_id": "7",
+    "sut_function": "OsPerfOutPutRead",
+    "source_path": "src/extended/perf/prt_perf_output.c",
+    "module": "perf/output",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "missing_calls: OsPerfOutPutFlush",
+        "extra_calls: PRT_RingbufUsedSize",
+        "if_statement: oracle=0 claude=1",
+        "return_statement: oracle=1 claude=2",
+        "extra_conditions_added: if (dest == NULL || PRT_RingbufUsedSize(&g_perfOutputCb.ringbuf) < size) {"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "PRT_RingbufUsedSize"
+        ],
+        "only_oracle": [
+          "OsPerfOutPutFlush"
+        ],
+        "shared": [
+          "PRT_RingbufRead"
+        ],
+        "claude_count": 2,
+        "oracle_count": 2,
+        "jaccard": 0.3333333333333333
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_ERROR",
+          "OS_OK"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 317,
+      "oracle_chars": 91,
+      "ratio": 3.4835164835164836
+    }
+  },
+  {
+    "task_id": "12",
+    "sut_function": "OsTaskPrioritySetCheck",
+    "source_path": "src/core/kernel/task/smp/prt_task_priority.c",
+    "module": "kernel/task_priority",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=3 claude=2",
+        "return_statement: oracle=4 claude=3",
+        "removed_logic: 'if (taskPrio > OS_TSK_PRIORITY_LOWEST) {'",
+        "removed_logic: 'if (CHECK_TSK_PID_OVERFLOW(taskPid)) {'",
+        "removed_logic: 'if (taskPid >= g_tskMaxNum) {'",
+        "fewer_return_statements: oracle=4 claude=3"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "CHECK_TSK_PID_OVERFLOW"
+        ],
+        "claude_count": 1,
+        "oracle_count": 1,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERRNO_TSK_OPERATE_IDLE"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 4,
+        "if_statement": 3
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 333,
+      "oracle_chars": 284,
+      "ratio": 1.1725352112676057
+    }
+  },
+  {
+    "task_id": "22",
+    "sut_function": "OsSwTmrCreateTimerParaChk",
+    "source_path": "src/core/kernel/timer/swtmr/prt_swtmr_init.c",
+    "module": "kernel/timer",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "missing_calls: DIV64, DIV64_REMAIN",
+        "removed_logic: '/* OS接管中断, 中断处理函数必须为非NULL */'",
+        "removed_logic: 'if (createPara->timerGroupId != OS_TICK_SWTMR_GROUP_ID) {'",
+        "removed_logic: 'if ((DIV64_REMAIN((U64)g_tickModInfo.tickPerSecond * (createPara->interval), OS_'",
+        "extra_conditions_added: if (createPara == NULL) {"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "DIV64",
+          "DIV64_REMAIN"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "mode"
+        ],
+        "only_oracle": [
+          "tickPerSecond",
+          "timerGroupId"
+        ],
+        "jaccard": 0.4
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_ERRNO_TIMER_INPUT_PTR_NULL",
+          "OS_ERRNO_TIMER_INTERVAL_INVALID",
+          "OS_ERRNO_TIMER_MODE_INVALID",
+          "OS_TIMER_LOOP",
+          "OS_TIMER_ONCE"
+        ],
+        "only_oracle": [
+          "DIV64_REMAIN",
+          "OS_ERRNO_SWTMR_INTERVAL_NOT_SUITED",
+          "OS_ERRNO_SWTMR_INTERVAL_OVERFLOW",
+          "OS_ERRNO_TIMERGROUP_ID_INVALID",
+          "OS_MAX_U32",
+          "OS_SYS_MS_PER_SECOND",
+          "OS_TICK_SWTMR_GROUP_ID"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 5,
+        "if_statement": 4
+      },
+      "oracle_control": {
+        "return_statement": 5,
+        "if_statement": 4
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 551,
+      "oracle_chars": 648,
+      "ratio": 0.8503086419753086
+    }
+  },
+  {
+    "task_id": "35",
+    "sut_function": "PRT_SemCreate",
+    "source_path": "src/core/ipc/sem/prt_sem_init.c",
+    "module": "ipc/sem",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=1 claude=0",
+        "return_statement: oracle=2 claude=1",
+        "removed_logic: 'if (count > OS_SEM_COUNT_MAX) {'",
+        "fewer_return_statements: oracle=2 claude=1"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "OsSemCreate"
+        ],
+        "claude_count": 1,
+        "oracle_count": 1,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERRNO_SEM_OVERFLOW",
+          "OS_SEM_COUNT_MAX"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 200,
+      "oracle_chars": 211,
+      "ratio": 0.9478672985781991
+    }
+  },
+  {
+    "task_id": "38",
+    "sut_function": "OsSetSysTimeHook",
+    "source_path": "src/core/kernel/sys/prt_sys_time.c",
+    "module": "kernel/sys",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=1 claude=0",
+        "return_statement: oracle=2 claude=1",
+        "removed_logic: 'if (g_sysTimeHook != NULL) {'",
+        "fewer_return_statements: oracle=2 claude=1"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 0,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERRNO_SYS_TIME_HOOK_REGISTER_REPEATED"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 168,
+      "oracle_chars": 161,
+      "ratio": 1.0434782608695652
+    }
+  },
+  {
+    "task_id": "66",
+    "sut_function": "OsSwTmrGetRemain",
+    "source_path": "src/core/kernel/timer/swtmr/prt_swtmr_minor.c",
+    "module": "kernel/timer",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "missing_calls: UWROLLNUM, UWSORTINDEX",
+        "extra_calls: (U32)",
+        "while_statement: oracle=1 claude=0",
+        "return_statement: oracle=1 claude=2",
+        "removed_logic: 'struct TagSwTmrCtrl *timer = NULL;'",
+        "removed_logic: 'struct TagListObject *listObject = NULL;'"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "(U32)"
+        ],
+        "only_oracle": [
+          "UWROLLNUM",
+          "UWSORTINDEX"
+        ],
+        "shared": [],
+        "claude_count": 1,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "expectedTick"
+        ],
+        "only_oracle": [
+          "cursor",
+          "idxRollNum",
+          "prev",
+          "sortLink"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_SWTMR_SORTLINK_LEN"
+        ]
+      },
+      "claude_control": {
+        "if_statement": 1,
+        "else_clause": 1,
+        "return_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "while_statement": 1,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 276,
+      "oracle_chars": 642,
+      "ratio": 0.42990654205607476
+    }
+  },
+  {
+    "task_id": "67",
+    "sut_function": "OsSwTmrGetRemainTick",
+    "source_path": "src/core/kernel/timer/swtmr/prt_swtmr_minor.c",
+    "module": "kernel/timer",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "missing_synchronization",
+      "L3_detail": [
+        "missing_lock_calls: OsIntLock, OsIntRestore"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OsIntLock",
+          "OsIntRestore"
+        ],
+        "shared": [
+          "OsSwTmrGetRemain"
+        ],
+        "claude_count": 1,
+        "oracle_count": 3,
+        "jaccard": 0.3333333333333333
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "idxRollNum",
+          "state"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_SWTMR_STATUS_MASK",
+          "OS_TIMER_CREATED",
+          "OS_TIMER_EXPIRED"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "switch_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 160,
+      "oracle_chars": 435,
+      "ratio": 0.367816091954023
+    }
+  },
+  {
+    "task_id": "75",
+    "sut_function": "OsAddSignalPendingFlag",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 965,
+      "oracle_chars": 869,
+      "ratio": 1.1104718066743384
+    }
+  },
+  {
+    "task_id": "76",
+    "sut_function": "OsHandleOneSignal",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 602,
+      "oracle_chars": 593,
+      "ratio": 1.015177065767285
+    }
+  },
+  {
+    "task_id": "77",
+    "sut_function": "OsHandleUnBlockSignal",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: OsHandleOneSignal",
+        "extra_macros_not_in_oracle: PRT_SIGNAL_MAX"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsHandleOneSignal",
+          "OsSpinLockTaskRq",
+          "OsSpinUnlockTaskRq"
+        ],
+        "only_oracle": [
+          "LIST_COMPONENT",
+          "LIST_FOR_EACH",
+          "ListDelete",
+          "PRT_MemFree",
+          "handler"
+        ],
+        "shared": [
+          "sigMask"
+        ],
+        "claude_count": 4,
+        "oracle_count": 6,
+        "jaccard": 0.1111111111111111
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "prev",
+          "si_signo",
+          "sigInfoList",
+          "sigVectors",
+          "siginfo",
+          "siglist"
+        ],
+        "jaccard": 0.25
+      },
+      "macro_diff": {
+        "only_claude": [
+          "PRT_SIGNAL_MAX"
+        ],
+        "only_oracle": [
+          "LIST_COMPONENT",
+          "LIST_FOR_EACH",
+          "OS_MID_SIGNAL"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1,
+        "for_statement": 1,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 4
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 496,
+      "oracle_chars": 958,
+      "ratio": 0.5177453027139874
+    }
+  },
+  {
+    "task_id": "78",
+    "sut_function": "OsInitSigVectors",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 230,
+      "oracle_chars": 119,
+      "ratio": 1.9327731092436975
+    }
+  },
+  {
+    "task_id": "79",
+    "sut_function": "OsSigDefaultHandler",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 154,
+      "oracle_chars": 34,
+      "ratio": 4.529411764705882
+    }
+  },
+  {
+    "task_id": "80",
+    "sut_function": "OsSigWaitProcPendingSignal",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_error_handling",
+      "L3_detail": [
+        "MANUAL: Claude returns OS_ERRNO_SIGNAL_PARA_INVALID when no signal matches (oracle returns OS_OK).",
+        "MANUAL: premature_return inside loop skips sigWaitMask=0 cleanup.",
+        "Test: 7/9 passed. Fails on \"no pending\" and \"wait mask cleared\" cases."
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "LIST_FOR_EACH",
+          "ListDelete",
+          "PRT_MemFree",
+          "memcpy_s",
+          "sigMask"
+        ],
+        "claude_count": 5,
+        "oracle_count": 5,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "sigWaitMask"
+        ],
+        "jaccard": 0.8333333333333334
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_ERRNO_SIGNAL_PARA_INVALID"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 664,
+      "oracle_chars": 581,
+      "ratio": 1.1428571428571428
+    },
+    "manual_override": true
+  },
+  {
+    "task_id": "81",
+    "sut_function": "OsSignalEntry",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 462,
+      "oracle_chars": 370,
+      "ratio": 1.2486486486486486
+    }
+  },
+  {
+    "task_id": "82",
+    "sut_function": "OsSignalTimeOutSet",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "data_structure_misuse",
+      "L3_detail": [
+        "missing_list_queue_ops: TSK_STATUS_CLEAR",
+        "task_status_op_mismatch: oracle=['TSK_STATUS_CLEAR', 'TSK_STATUS_SET'], claude=['TSK_STATUS_SET']"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "TSK_STATUS_CLEAR"
+        ],
+        "shared": [
+          "OsTskTimerAdd",
+          "TSK_STATUS_SET"
+        ],
+        "claude_count": 2,
+        "oracle_count": 3,
+        "jaccard": 0.6666666666666666
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "TSK_STATUS_CLEAR"
+        ]
+      },
+      "claude_control": {
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "if_statement": 1,
+        "else_clause": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 271,
+      "oracle_chars": 211,
+      "ratio": 1.2843601895734598
+    }
+  },
+  {
+    "task_id": "83",
+    "sut_function": "OsSignalWaitReSche",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 381,
+      "oracle_chars": 301,
+      "ratio": 1.26578073089701
+    }
+  },
+  {
+    "task_id": "84",
+    "sut_function": "OsSignalWaitSche",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 699,
+      "oracle_chars": 594,
+      "ratio": 1.1767676767676767
+    }
+  },
+  {
+    "task_id": "85",
+    "sut_function": "PRT_SigSuspend",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 1205,
+      "oracle_chars": 1050,
+      "ratio": 1.1476190476190475
+    }
+  },
+  {
+    "task_id": "87",
+    "sut_function": "PRT_SignalDeliver",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 2726,
+      "oracle_chars": 2600,
+      "ratio": 1.0484615384615386
+    }
+  },
+  {
+    "task_id": "88",
+    "sut_function": "PRT_SignalMask",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_error_handling",
+      "L3_detail": [
+        "MANUAL: Claude returns OS_ERRNO_SIGNAL_PARA_INVALID for invalid \"how\" in default case.",
+        "MANUAL: Oracle returns OS_OK for all cases (default does nothing).",
+        "Test: 9/10 passed. Fails on \"pending cleared\" after unblock delivery."
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "OsHandleUnBlockSignal",
+          "OsIntLock",
+          "OsIntRestore",
+          "OsSpinLockTaskRq",
+          "OsSpinUnlockTaskRq"
+        ],
+        "claude_count": 5,
+        "oracle_count": 5,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_ERRNO_SIGNAL_PARA_INVALID"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 2,
+        "switch_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "if_statement": 2,
+        "switch_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 975,
+      "oracle_chars": 737,
+      "ratio": 1.322930800542741
+    },
+    "manual_override": true
+  },
+  {
+    "task_id": "89",
+    "sut_function": "PRT_SignalWait",
+    "source_path": "src/core/ipc/signal/prt_signal.c",
+    "module": "ipc/signal",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 1111,
+      "oracle_chars": 1045,
+      "ratio": 1.063157894736842
+    }
+  },
+  {
+    "task_id": "92",
+    "sut_function": "OsRingbufWriteLinear",
+    "source_path": "src/extended/perf/prt_perf_ringbuf.c",
+    "module": "perf/ringbuf",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "removed_logic: 'cpSize = (ringbuf->remain < size) ? ringbuf->remain : size;'",
+        "removed_logic: 'ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, ringbuf->remain, buf, cpSize);'"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "memcpy_s",
+          "printf"
+        ],
+        "claude_count": 2,
+        "oracle_count": 2,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "startIdx"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.75
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 676,
+      "oracle_chars": 459,
+      "ratio": 1.4727668845315904
+    }
+  },
+  {
+    "task_id": "94",
+    "sut_function": "PRT_RingbufInit",
+    "source_path": "src/extended/perf/prt_perf_ringbuf.c",
+    "module": "perf/ringbuf",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: PRT_SplLockInit",
+        "extra_macros_not_in_oracle: RBUF_UNINIT"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "PRT_SplLockInit"
+        ],
+        "only_oracle": [
+          "OsSpinLockInitInner"
+        ],
+        "shared": [
+          "memset_s"
+        ],
+        "claude_count": 2,
+        "oracle_count": 2,
+        "jaccard": 0.3333333333333333
+      },
+      "field_diff": {
+        "only_claude": [
+          "endIdx",
+          "startIdx"
+        ],
+        "only_oracle": [
+          "rawLock"
+        ],
+        "jaccard": 0.625
+      },
+      "macro_diff": {
+        "only_claude": [
+          "RBUF_UNINIT"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 556,
+      "oracle_chars": 380,
+      "ratio": 1.4631578947368422
+    }
+  },
+  {
+    "task_id": "104",
+    "sut_function": "OsHwiHookDispatcher",
+    "source_path": "src/core/kernel/irq/prt_irq.c",
+    "module": "kernel/irq",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "hallucinated_api_and_wrong_architecture",
+      "L3_detail": [
+        "MANUAL: Claude hallucinated OsHwiFuncGet() and OsHwiParaGet() — do not exist.",
+        "MANUAL: Oracle uses OsHwiHandleActive(irqNum) for standard IRQ dispatch.",
+        "MANUAL: Claude tried to manually resolve handler pointer and call it directly.",
+        "MANUAL: Symmetric naming fallacy: assumed Get exists because Set exists.",
+        "Result: Real segfault from calling non-existent function."
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsHwiFuncGet",
+          "OsHwiParaGet",
+          "handler"
+        ],
+        "only_oracle": [
+          "OsHwiHandleActive"
+        ],
+        "shared": [
+          "OS_HWI2IRQ",
+          "OS_HWI_GET_HWINUM",
+          "OS_MHOOK_ACTIVATE_PARA1"
+        ],
+        "claude_count": 6,
+        "oracle_count": 4,
+        "jaccard": 0.42857142857142855
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 439,
+      "oracle_chars": 275,
+      "ratio": 1.5963636363636364
+    },
+    "manual_override": true
+  },
+  {
+    "task_id": "120",
+    "sut_function": "PRT_PerfInit",
+    "source_path": "src/extended/perf/prt_perf.c",
+    "module": "perf/core",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "hallucinated_api",
+      "L3_detail": [
+        "extra_macros_not_in_oracle: PERF_PMU_STOPED, PRT_KERNEL_CORE_NUM"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsSpinLockInitInner"
+        ],
+        "only_oracle": [
+          "PRT_Printf",
+          "PRT_SplLockInit"
+        ],
+        "shared": [
+          "OsPerfOutPutInit",
+          "OsPmuInit",
+          "PERF_LOCK",
+          "PERF_UNLOCK"
+        ],
+        "claude_count": 5,
+        "oracle_count": 6,
+        "jaccard": 0.5714285714285714
+      },
+      "field_diff": {
+        "only_claude": [
+          "pmuStatusPerCpu",
+          "rawLock"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.3333333333333333
+      },
+      "macro_diff": {
+        "only_claude": [
+          "PERF_PMU_STOPED",
+          "PRT_KERNEL_CORE_NUM"
+        ],
+        "only_oracle": [
+          "OS_ERROR",
+          "OS_OPTION_SMP"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 4,
+        "for_statement": 1,
+        "if_statement": 3
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 4,
+        "goto_statement": 3
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 704,
+      "oracle_chars": 695,
+      "ratio": 1.0129496402877698
+    }
+  },
+  {
+    "task_id": "123",
+    "sut_function": "OsIdleTaskExe",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "removed_logic: 'if (coreSleep != NULL) {'",
+        "extra_conditions_added: if (coreSleep != NULL)"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "OS_MHOOK_ACTIVATE_PARA0",
+          "coreSleep"
+        ],
+        "claude_count": 2,
+        "oracle_count": 2,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 295,
+      "oracle_chars": 168,
+      "ratio": 1.755952380952381
+    }
+  },
+  {
+    "task_id": "124",
+    "sut_function": "OsPowerOffFuncHook",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 162,
+      "oracle_chars": 39,
+      "ratio": 4.153846153846154
+    }
+  },
+  {
+    "task_id": "125",
+    "sut_function": "OsPowerOffSetFlag",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 154,
+      "oracle_chars": 31,
+      "ratio": 4.967741935483871
+    }
+  },
+  {
+    "task_id": "126",
+    "sut_function": "OsSetOfflineFlagHook",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 171,
+      "oracle_chars": 48,
+      "ratio": 3.5625
+    }
+  },
+  {
+    "task_id": "127",
+    "sut_function": "OsTskIdleBgd",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 171,
+      "oracle_chars": 104,
+      "ratio": 1.6442307692307692
+    }
+  },
+  {
+    "task_id": "129",
+    "sut_function": "OsTskReadyAddNoWakeUpIpc",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 201,
+      "oracle_chars": 76,
+      "ratio": 2.6447368421052633
+    }
+  },
+  {
+    "task_id": "130",
+    "sut_function": "OsTskReadyAddOnly",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 408,
+      "oracle_chars": 297,
+      "ratio": 1.3737373737373737
+    }
+  },
+  {
+    "task_id": "131",
+    "sut_function": "OsTskReadyDel",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": true,
+    "is_false_failure": true,
+    "classification": {
+      "L1": "false_failure_detection",
+      "L2": "harness_bug_crash_regex",
+      "L3_detail": [
+        "Test actually PASSED but framework classified as crash. Reason: crash regex. Implementation is correct."
+      ],
+      "call_diff": {},
+      "field_diff": {},
+      "macro_diff": {},
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 441,
+      "oracle_chars": 330,
+      "ratio": 1.3363636363636364
+    }
+  },
+  {
+    "task_id": "132",
+    "sut_function": "OsTskTimerAdd",
+    "source_path": "src/core/kernel/task/smp/prt_task.c",
+    "module": "kernel/task",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "semantic_drift",
+      "L3_detail": [
+        "semantic_drift: call jaccard=1.00, structurally similar but behavior differs"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "CPU_OVERTIME_SORT_LIST_LOCK",
+          "CPU_OVERTIME_SORT_LIST_UNLOCK",
+          "LIST_FOR_EACH",
+          "ListEmpty",
+          "ListTailAdd",
+          "OS_SET_DLYBASE_AND_TSK_CORE",
+          "OsTskDlyNearestTicksRefresh"
+        ],
+        "claude_count": 7,
+        "oracle_count": 7,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 1,
+        "if_statement": 2,
+        "else_clause": 1
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "if_statement": 2,
+        "else_clause": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 954,
+      "oracle_chars": 831,
+      "ratio": 1.148014440433213
+    }
+  },
+  {
+    "task_id": "133",
+    "sut_function": "OsPerfGetEventName",
+    "source_path": "src/extended/perf/pmu/prt_perf_timed_pmu.c",
+    "module": "perf/pmu",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "semantic_drift",
+      "L3_detail": [
+        "semantic_drift: call jaccard=1.00, structurally similar but behavior differs"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 0,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "if_statement": 1,
+        "else_clause": 1,
+        "return_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 230,
+      "oracle_chars": 120,
+      "ratio": 1.9166666666666667
+    }
+  },
+  {
+    "task_id": "135",
+    "sut_function": "OsPerfTimedConfig",
+    "source_path": "src/extended/perf/pmu/prt_perf_timed_pmu.c",
+    "module": "perf/pmu",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=3 claude=2",
+        "return_statement: oracle=4 claude=3",
+        "removed_logic: 'if (event->eventId == PERF_COUNT_CPU_CLOCK) {'",
+        "removed_logic: 'if (period == 0) {'",
+        "extra_conditions_added: if (event->eventId != PERF_COUNT_CPU_CLOCK || event->period == 0) {",
+        "fewer_return_statements: oracle=4 claude=3"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "PRT_TimerCreate",
+          "printf"
+        ],
+        "claude_count": 2,
+        "oracle_count": 2,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "callBackFunc",
+          "interval",
+          "mode",
+          "timerGroupId",
+          "type"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.5454545454545454
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERRNO_TIMER_INTERVAL_INVALID"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2,
+        "for_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 4,
+        "for_statement": 1,
+        "if_statement": 3
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 935,
+      "oracle_chars": 1007,
+      "ratio": 0.9285004965243296
+    }
+  },
+  {
+    "task_id": "137",
+    "sut_function": "OsPerfTimedStart",
+    "source_path": "src/extended/perf/pmu/prt_perf_timed_pmu.c",
+    "module": "perf/pmu",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_calculation",
+      "L3_detail": [
+        "missing_calls: PRT_TimerDelete",
+        "for_statement: oracle=1 claude=0",
+        "removed_logic: 'Event *event = NULL;'",
+        "missing_bitwise_operations: oracle uses bit ops, Claude doesn't"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "PRT_TimerDelete"
+        ],
+        "shared": [
+          "PRT_GetCoreID",
+          "PRT_TimerStart",
+          "printf"
+        ],
+        "claude_count": 3,
+        "oracle_count": 4,
+        "jaccard": 0.75
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "count",
+          "events",
+          "nr",
+          "per",
+          "pmu"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_ERROR"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "if_statement": 2,
+        "for_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 389,
+      "oracle_chars": 559,
+      "ratio": 0.6958855098389982
+    }
+  },
+  {
+    "task_id": "138",
+    "sut_function": "OsPerfTimedStop",
+    "source_path": "src/extended/perf/pmu/prt_perf_timed_pmu.c",
+    "module": "perf/pmu",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: PRT_TimerStop"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "PRT_TimerStop"
+        ],
+        "only_oracle": [
+          "PRT_TimerDelete",
+          "printf"
+        ],
+        "shared": [
+          "PRT_GetCoreID"
+        ],
+        "claude_count": 2,
+        "oracle_count": 3,
+        "jaccard": 0.25
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERROR"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 281,
+      "oracle_chars": 266,
+      "ratio": 1.056390977443609
+    }
+  },
+  {
+    "task_id": "141",
+    "sut_function": "OsFirstTimeSwitch",
+    "source_path": "src/core/kernel/sched/prt_sched_single.c",
+    "module": "kernel/sched",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "data_structure_misuse",
+      "L3_detail": [
+        "missing_list_queue_ops: TSK_STATUS_SET",
+        "extra_field_accesses: taskStatus",
+        "task_status_op_mismatch: oracle=['TSK_STATUS_SET'], claude=[]"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OsCurCycleGet64",
+          "OsTskHighestSet",
+          "TSK_STATUS_SET"
+        ],
+        "shared": [
+          "OsTskContextLoad"
+        ],
+        "claude_count": 1,
+        "oracle_count": 4,
+        "jaccard": 0.25
+      },
+      "field_diff": {
+        "only_claude": [
+          "taskStatus"
+        ],
+        "only_oracle": [
+          "startTime"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_OPTION_RR_SCHED",
+          "TSK_STATUS_SET"
+        ]
+      },
+      "claude_control": {},
+      "oracle_control": {
+        "return_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 255,
+      "oracle_chars": 277,
+      "ratio": 0.9205776173285198
+    }
+  },
+  {
+    "task_id": "151",
+    "sut_function": "PRT_SplLock",
+    "source_path": "src/core/kernel/spinlock/prt_spinlock.c",
+    "module": "kernel/spinlock",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_calculation",
+      "L3_detail": [
+        "missing_calls: OS_TSK_SPINLOCK, OsSplLock",
+        "spinlock_specific: likely HW-register knowledge gap",
+        "missing_bitwise_operations: oracle uses bit ops, Claude doesn't"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_TSK_SPINLOCK",
+          "OsSplLock"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "rawLock"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_TSK_SPINLOCK"
+        ]
+      },
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 144,
+      "oracle_chars": 109,
+      "ratio": 1.3211009174311927
+    }
+  },
+  {
+    "task_id": "152",
+    "sut_function": "PRT_SplLockInit",
+    "source_path": "src/core/kernel/spinlock/prt_spinlock.c",
+    "module": "kernel/spinlock",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "missing_synchronization",
+      "L3_detail": [
+        "missing_lock_calls: OsSplLockInit",
+        "missing_null_checks: 1 null-check(s) in oracle not in Claude (1 vs 0)",
+        "extra_field_accesses: rawLock",
+        "missing_if_statements: oracle has 1, Claude has 0 (Δ=1)"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OsSplLockInit"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 1,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "rawLock"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_OK",
+          "OS_SPINLOCK_UNLOCK"
+        ],
+        "only_oracle": [
+          "OS_ERRNO_SPL_ALLOC_ADDR_INVALID"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 186,
+      "oracle_chars": 118,
+      "ratio": 1.576271186440678
+    }
+  },
+  {
+    "task_id": "153",
+    "sut_function": "PRT_SplUnlock",
+    "source_path": "src/core/kernel/spinlock/prt_spinlock.c",
+    "module": "kernel/spinlock",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_calculation",
+      "L3_detail": [
+        "missing_calls: OS_TSK_SPINUNLOCK, OsSplUnlock",
+        "missing_bitwise_operations: oracle uses bit ops, Claude doesn't"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_TSK_SPINUNLOCK",
+          "OsSplUnlock"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "rawLock"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_TSK_SPINUNLOCK"
+        ]
+      },
+      "claude_control": {},
+      "oracle_control": {}
+    },
+    "body_sizes": {
+      "claude_chars": 144,
+      "oracle_chars": 113,
+      "ratio": 1.2743362831858407
+    }
+  },
+  {
+    "task_id": "162",
+    "sut_function": "OsSemPendParaCheck",
+    "source_path": "src/core/ipc/sem/prt_sem.c",
+    "module": "ipc/sem",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=2 claude=1",
+        "return_statement: oracle=3 claude=2",
+        "removed_logic: 'if (timeout == 0) {'",
+        "removed_logic: 'if (OS_TASK_LOCK_DATA != 0) {'",
+        "extra_conditions_added: if (OS_TASK_LOCK_DATA != 0)",
+        "fewer_return_statements: oracle=3 claude=2"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 0,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_ERRNO_SEM_UNAVAILABLE"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 247,
+      "oracle_chars": 173,
+      "ratio": 1.4277456647398843
+    }
+  },
+  {
+    "task_id": "165",
+    "sut_function": "PRT_SemPend",
+    "source_path": "src/core/ipc/sem/prt_sem.c",
+    "module": "ipc/sem",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: OsIntLock",
+        "suspicious_hallucinated_calls: GET_SEM_TYPE",
+        "extra_macros_not_in_oracle: GET_SEM_TYPE, OS_OPTION_BIN_SEM, SEM_TYPE_BIN"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "GET_SEM_TYPE",
+          "OsIntLock"
+        ],
+        "only_oracle": [
+          "OsSpinLockRunTaskRq",
+          "OsSpinUnLockRunTaskRq",
+          "OsTskScheduleFastPs",
+          "PRT_PERF"
+        ],
+        "shared": [
+          "GET_SEM",
+          "OsIntRestore",
+          "OsSemIfPrioLock",
+          "OsSemIfPrioUnLock",
+          "OsSemPendListPut",
+          "OsSemPendNotNeedSche",
+          "OsSemPendParaCheck",
+          "OsTskSchedule",
+          "SEM_CB_IRQ_LOCK",
+          "SEM_CB_IRQ_UNLOCK",
+          "SEM_CB_UNLOCK",
+          "TSK_STATUS_CLEAR",
+          "TSK_STATUS_TST"
+        ],
+        "claude_count": 15,
+        "oracle_count": 17,
+        "jaccard": 0.6842105263157895
+      },
+      "field_diff": {
+        "only_claude": [
+          "semType"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.5
+      },
+      "macro_diff": {
+        "only_claude": [
+          "GET_SEM_TYPE",
+          "OS_OPTION_BIN_SEM",
+          "SEM_TYPE_BIN"
+        ],
+        "only_oracle": [
+          "OS_OPTION_PERF",
+          "OS_OPTION_PERF_SW_PMU",
+          "OS_WAIT_FOREVER",
+          "PRT_PERF",
+          "SEM_PEND"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 7,
+        "if_statement": 6
+      },
+      "oracle_control": {
+        "return_statement": 7,
+        "if_statement": 7
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 1462,
+      "oracle_chars": 1761,
+      "ratio": 0.8302101078932425
+    }
+  },
+  {
+    "task_id": "170",
+    "sut_function": "OsGetSrcPid",
+    "source_path": "src/core/ipc/queue/prt_queue.c",
+    "module": "ipc/queue",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "missing_calls: COMPOSE_PID, OsGetHwThreadId",
+        "return_statement: oracle=1 claude=2",
+        "removed_logic: 'if (OS_HWI_ACTIVE) {'",
+        "removed_logic: '#if defined(OS_OPTION_SMP)'"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "COMPOSE_PID",
+          "OsGetHwThreadId"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_INT_ACTIVE"
+        ],
+        "only_oracle": [
+          "COMPOSE_PID",
+          "OS_HWI_ACTIVE",
+          "OS_OPTION_SMP"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1,
+        "if_statement": 1,
+        "else_clause": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 219,
+      "oracle_chars": 307,
+      "ratio": 0.7133550488599348
+    }
+  },
+  {
+    "task_id": "175",
+    "sut_function": "PRT_QueueRead",
+    "source_path": "src/core/ipc/queue/prt_queue.c",
+    "module": "ipc/queue",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "if_statement: oracle=9 claude=8",
+        "removed_logic: 'if (innerId >= g_maxQueue) {'",
+        "removed_logic: 'if ((bufferAddr == NULL) || (len == NULL)) {'"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "GET_QUEUE_HANDLE",
+          "OS_GOTO_SYS_ERROR1",
+          "OS_QUEUE_INNER_ID",
+          "OsInnerPend",
+          "OsIntRestore",
+          "OsQueuePendNeedProc",
+          "OsTskSchedule",
+          "QUEUE_CB_IRQ_LOCK",
+          "QUEUE_CB_IRQ_UNLOCK",
+          "QUEUE_CB_UNLOCK",
+          "memcpy_s"
+        ],
+        "claude_count": 11,
+        "oracle_count": 11,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "srcPid"
+        ],
+        "jaccard": 0.9166666666666666
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_QUEUE_PID_INVALID"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 5,
+        "if_statement": 8,
+        "goto_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 5,
+        "if_statement": 9,
+        "goto_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 1713,
+      "oracle_chars": 1711,
+      "ratio": 1.0011689070718879
+    }
+  },
+  {
+    "task_id": "183",
+    "sut_function": "OsActivate",
+    "source_path": "src/core/kernel/task/smp/prt_task_init.c",
+    "module": "kernel/task_init",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "hallucinated_api",
+      "L3_detail": [
+        "extra_macros_not_in_oracle: OS_FLG_TSK_REQ"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsTskHighestSet"
+        ],
+        "only_oracle": [
+          "OsGetHwThreadId",
+          "OsSmpWakeUpSecondaryCore"
+        ],
+        "shared": [
+          "OS_MHOOK_ACTIVATE_PARA0",
+          "OsFirstTimeSwitch",
+          "OsIdleTskSMPCreate"
+        ],
+        "claude_count": 4,
+        "oracle_count": 5,
+        "jaccard": 0.5
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_FLG_TSK_REQ"
+        ],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 419,
+      "oracle_chars": 452,
+      "ratio": 0.9269911504424779
+    }
+  },
+  {
+    "task_id": "193",
+    "sut_function": "OsTskInit",
+    "source_path": "src/core/kernel/task/smp/prt_task_init.c",
+    "module": "kernel/task_init",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: OsSpinLockInitInner",
+        "suspicious_hallucinated_calls: INIT_LIST_OBJECT, ListTailAdd, memset_s",
+        "extra_macros_not_in_oracle: INIT_LIST_OBJECT, MEM_ADDR_ALIGN_016, OS_ERRNO_TSK_MAX_NUM_NOT_SUITED, OS_ERRNO_TSK_NO_MEMORY, OS_MEM_DEFAULT_FSC_PT, OS_MID_TSK, OS_OPTION_SMP"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "INIT_LIST_OBJECT",
+          "ListTailAdd",
+          "OsMemAllocAlign",
+          "OsSpinLockInitInner",
+          "memset_s"
+        ],
+        "only_oracle": [
+          "OsTskSMPInit"
+        ],
+        "shared": [],
+        "claude_count": 5,
+        "oracle_count": 1,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [
+          "pendList",
+          "semBList",
+          "sigInfoList",
+          "taskPid",
+          "timerList"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "INIT_LIST_OBJECT",
+          "MEM_ADDR_ALIGN_016",
+          "OS_ERRNO_TSK_MAX_NUM_NOT_SUITED",
+          "OS_ERRNO_TSK_NO_MEMORY",
+          "OS_MEM_DEFAULT_FSC_PT",
+          "OS_MID_TSK",
+          "OS_OPTION_SMP"
+        ],
+        "only_oracle": [
+          "OS_FLG_TSK_SWHK",
+          "OS_OPTION_POWEROFF",
+          "OS_OPTION_TASK_INFO",
+          "UNI_FLAG"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 4,
+        "for_statement": 1,
+        "if_statement": 3
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 1135,
+      "oracle_chars": 442,
+      "ratio": 2.567873303167421
+    }
+  },
+  {
+    "task_id": "197",
+    "sut_function": "PRT_LocaleCurrent",
+    "source_path": "src/core/kernel/task/smp/prt_task_init.c",
+    "module": "kernel/task_init",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "crash",
+      "L2": "missing_null_check",
+      "L3_detail": [
+        "missing_null_checks: 2 null-check(s) in oracle not in Claude (2 vs 0)",
+        "missing_if_statements: oracle has 2, Claude has 0 (Δ=2)"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsGetCurrentTcb"
+        ],
+        "only_oracle": [],
+        "shared": [],
+        "claude_count": 1,
+        "oracle_count": 0,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "RUNNING_TASK"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 2,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 201,
+      "oracle_chars": 205,
+      "ratio": 0.9804878048780488
+    }
+  },
+  {
+    "task_id": "202",
+    "sut_function": "OsLog",
+    "source_path": "src/utility/log/prt_log.c",
+    "module": "utility/log",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "hallucinated_api",
+      "L3_detail": [
+        "unknown_compile_error"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsAtomicReadU32",
+          "OsAtomicSetU32"
+        ],
+        "only_oracle": [
+          "OsLogLockOn",
+          "OsLogLockRestore"
+        ],
+        "shared": [
+          "OsLogUpdateTail",
+          "PRT_TaskSelf",
+          "STORE_FENCE",
+          "clock_gettime",
+          "memcpy_s"
+        ],
+        "claude_count": 7,
+        "oracle_count": 7,
+        "jaccard": 0.5555555555555556
+      },
+      "field_diff": {
+        "only_claude": [
+          "logContent"
+        ],
+        "only_oracle": [],
+        "jaccard": 0.9
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "LOG_MAX_SIZE"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "if_statement": 3,
+        "else_clause": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 1127,
+      "oracle_chars": 1448,
+      "ratio": 0.7783149171270718
+    }
+  },
+  {
+    "task_id": "208",
+    "sut_function": "PRT_Log",
+    "source_path": "src/utility/log/prt_log.c",
+    "module": "utility/log",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "removed_logic: 'if (OsCheckLog(level, facility) || str == NULL || strLen == 0) {'",
+        "removed_logic: 'if (strLen > (LOG_MAX_SIZE - 1)) {'",
+        "extra_conditions_added: if (OsCheckLog(level, facility) || str == NULL) {"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "shared": [
+          "LOAD_FENCE",
+          "OsCheckLog",
+          "OsLog"
+        ],
+        "claude_count": 3,
+        "oracle_count": 3,
+        "jaccard": 1.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 4,
+        "if_statement": 4
+      },
+      "oracle_control": {
+        "return_statement": 4,
+        "if_statement": 4
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 507,
+      "oracle_chars": 408,
+      "ratio": 1.2426470588235294
+    }
+  },
+  {
+    "task_id": "215",
+    "sut_function": "OsTaskIrqUnlock",
+    "source_path": "src/core/kernel/task/smp/prt_task_lock.c",
+    "module": "kernel/task_lock",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "wrong_calculation",
+      "L3_detail": [
+        "missing_calls: LIKELY, OS_DI_STATE_CHECK, OS_REPORT_ERROR, OsTskScheduleFast, SMP_MC_SCHEDULE_TRIGGER, THIS_CORE, THIS_RUNQ, UNLIKELY",
+        "extra_calls: OsTskUnlock",
+        "if_statement: oracle=4 claude=0",
+        "return_statement: oracle=3 claude=0",
+        "removed_logic: 'if(LIKELY(rq->uniTaskLock == 1)) {'",
+        "removed_logic: 'if (UNLIKELY(rq->needReschedule) && UNLIKELY((rq->uniFlag & OS_HWI_ACTIVE_MASK) '",
+        "removed_logic: 'if ((OS_DI_STATE_CHECK(intSave)) != 0) {'",
+        "fewer_return_statements: oracle=3 claude=0",
+        "missing_bitwise_operations: oracle uses bit ops, Claude doesn't"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsTskUnlock"
+        ],
+        "only_oracle": [
+          "LIKELY",
+          "OS_DI_STATE_CHECK",
+          "OS_REPORT_ERROR",
+          "OsTskScheduleFast",
+          "SMP_MC_SCHEDULE_TRIGGER",
+          "THIS_CORE",
+          "THIS_RUNQ",
+          "UNLIKELY"
+        ],
+        "shared": [
+          "OsIntRestore"
+        ],
+        "claude_count": 2,
+        "oracle_count": 9,
+        "jaccard": 0.1
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "needReschedule",
+          "uniFlag",
+          "uniTaskLock"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_DI_STATE_CHECK",
+          "OS_ERRNO_TSK_UNLOCK_NO_LOCK",
+          "OS_HWI_ACTIVE_MASK",
+          "OS_REPORT_ERROR",
+          "SMP_MC_SCHEDULE_TRIGGER",
+          "THIS_CORE",
+          "THIS_RUNQ"
+        ]
+      },
+      "claude_control": {},
+      "oracle_control": {
+        "if_statement": 4,
+        "return_statement": 3,
+        "else_clause": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 170,
+      "oracle_chars": 663,
+      "ratio": 0.2564102564102564
+    }
+  },
+  {
+    "task_id": "218",
+    "sut_function": "PRT_TaskDelay",
+    "source_path": "src/core/kernel/task/smp/prt_task_lock.c",
+    "module": "kernel/task_lock",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "extra_conditional_guard",
+      "L3_detail": [
+        "missing_calls: OsSpinLockTaskRq, OsSpinUnlockTaskRq, OsTaskYield, OsTskScheduleFastPs",
+        "extra_calls: OsTskSchedule",
+        "if_statement: oracle=3 claude=4",
+        "return_statement: oracle=4 claude=5",
+        "removed_logic: '#if defined(OS_OPTION_TICK)'",
+        "removed_logic: 'if (tick > 0) {'",
+        "extra_conditions_added: if (UNI_FLAG == 0) {"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsTskSchedule"
+        ],
+        "only_oracle": [
+          "OsSpinLockTaskRq",
+          "OsSpinUnlockTaskRq",
+          "OsTaskYield",
+          "OsTskScheduleFastPs"
+        ],
+        "shared": [
+          "OS_REPORT_ERROR",
+          "OsIntLock",
+          "OsIntRestore",
+          "OsTskReadyDel",
+          "OsTskTimerAdd",
+          "TSK_STATUS_SET"
+        ],
+        "claude_count": 7,
+        "oracle_count": 10,
+        "jaccard": 0.5454545454545454
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "priority"
+        ],
+        "jaccard": 0.0
+      },
+      "macro_diff": {
+        "only_claude": [
+          "OS_TSK_TIMEOUT",
+          "UNI_FLAG"
+        ],
+        "only_oracle": [
+          "OS_OPTION_TASK_YIELD",
+          "OS_OPTION_TICK",
+          "OS_TSK_NULL_ID"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 5,
+        "if_statement": 4
+      },
+      "oracle_control": {
+        "return_statement": 4,
+        "if_statement": 3
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 952,
+      "oracle_chars": 949,
+      "ratio": 1.0031612223393045
+    }
+  },
+  {
+    "task_id": "227",
+    "sut_function": "OsDynModuleFind",
+    "source_path": "src/core/extend/dlmodule/prt_dynmodule.c",
+    "module": "extend/dlmodule",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: OsDynModuleSetError, OsDynModuleSetError"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "OsDynModuleSetError"
+        ],
+        "only_oracle": [],
+        "shared": [
+          "strcmp"
+        ],
+        "claude_count": 2,
+        "oracle_count": 1,
+        "jaccard": 0.5
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": []
+      },
+      "claude_control": {
+        "return_statement": 3,
+        "for_statement": 1,
+        "if_statement": 2
+      },
+      "oracle_control": {
+        "return_statement": 3,
+        "for_statement": 1,
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 573,
+      "oracle_chars": 328,
+      "ratio": 1.7469512195121952
+    }
+  },
+  {
+    "task_id": "236",
+    "sut_function": "OsTaskInfoCommonGet",
+    "source_path": "src/core/kernel/task/smp/prt_task_info.c",
+    "module": "kernel/task_info",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "compile_error",
+      "L2": "undefined_reference",
+      "L3_detail": [
+        "undefined_reference: memcpy_s, memcpy_s, memcpy_s, memcpy_s",
+        "suspicious_hallucinated_calls: memcpy_s"
+      ],
+      "call_diff": {
+        "only_claude": [
+          "memcpy_s"
+        ],
+        "only_oracle": [
+          "OS_GOTO_SYS_ERROR1",
+          "g_taskNameGet",
+          "strncpy_s"
+        ],
+        "shared": [],
+        "claude_count": 1,
+        "oracle_count": 3,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [],
+        "jaccard": 1.0
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OS_GOTO_SYS_ERROR1",
+          "OS_TSK_NAME_LEN"
+        ]
+      },
+      "claude_control": {
+        "if_statement": 1
+      },
+      "oracle_control": {
+        "if_statement": 2
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 605,
+      "oracle_chars": 614,
+      "ratio": 0.9853420195439739
+    }
+  },
+  {
+    "task_id": "240",
+    "sut_function": "OsTaskSpPcInfoReady",
+    "source_path": "src/core/kernel/task/smp/prt_task_info.c",
+    "module": "kernel/task_info",
+    "actual_pass": false,
+    "is_false_failure": false,
+    "classification": {
+      "L1": "test_failure",
+      "L2": "missing_conditional_guard",
+      "L3_detail": [
+        "missing_calls: OsTaskStackIsSave, THIS_CORE",
+        "removed_logic: 'return ((((taskCB->taskStatus & OS_TSK_RUNNING) == 0) || (OS_INT_ACTIVE) ||'"
+      ],
+      "call_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "OsTaskStackIsSave",
+          "THIS_CORE"
+        ],
+        "shared": [],
+        "claude_count": 0,
+        "oracle_count": 2,
+        "jaccard": 0.0
+      },
+      "field_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "coreID"
+        ],
+        "jaccard": 0.5
+      },
+      "macro_diff": {
+        "only_claude": [],
+        "only_oracle": [
+          "THIS_CORE"
+        ]
+      },
+      "claude_control": {
+        "return_statement": 1
+      },
+      "oracle_control": {
+        "return_statement": 1
+      }
+    },
+    "body_sizes": {
+      "claude_chars": 192,
+      "oracle_chars": 154,
+      "ratio": 1.2467532467532467
+    }
+  }
+]

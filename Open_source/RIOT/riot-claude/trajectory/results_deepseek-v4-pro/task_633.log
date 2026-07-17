@@ -1,0 +1,59 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what was changed in `sys/include/ut_process.h`:
+
+**Added `#include <errno.h>`** (line 29) — needed because the `static inline` function references `ENOENT`.
+
+**Implemented `ut_process_str_expand`** (lines 94–109):
+- Iterates over all variable names in the `vars` array
+- Validates each character against RFC 6570's `varchar` production: letters, digits, underscore, dot, and `%` (for percent-encoded sequences)
+- Returns `-ENOENT` if a `name` is `NULL` or contains any invalid character
+- Delegates to `ut_process_expand(ut, strlen(ut), vars, vars_len, uri, uri_len)` — using `strlen()` to derive the length from the null-terminated template string
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/ut_process.h
++++ sys/include/ut_process.h
+@@ -26,6 +26,7 @@
+  * @author  Martine Lenders <m.lenders@fu-berlin.de>
+  */
+ 
++#include <errno.h>
+ #include <stddef.h>
+ #include <string.h>
+ 
+@@ -90,7 +91,22 @@
+                                         size_t vars_len,
+                                         char *uri, size_t *uri_len)
+ {
+-    /* MASKED - implement this function */
++    for (size_t i = 0; i < vars_len; i++) {
++        const char *name = vars[i].name;
++
++        if (name == NULL) {
++            return -ENOENT;
++        }
++        for (const char *c = name; *c != '\0'; c++) {
++            if (!((*c >= '0' && *c <= '9') ||
++                  (*c >= 'A' && *c <= 'Z') ||
++                  (*c >= 'a' && *c <= 'z') ||
++                  (*c == '_') || (*c == '.') || (*c == '%'))) {
++                return -ENOENT;
++            }
++        }
++    }
++    return ut_process_expand(ut, strlen(ut), vars, vars_len, uri, uri_len);
+ }
+ 
+ #ifdef __cplusplus
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation is a single line at `src/utility/lib/prt_notifier.c:127`:
+
+```c
+return NotifierCallChain(&g_dieNotifier.head, val, v, -1, NULL);
+```
+
+It calls `NotifierCallChain` directly on the static `g_dieNotifier` head — same pattern as `OsNotifierRawCallChain` (no HWI locking), which is appropriate for a die/panic path where taking locks could be unsafe. The `-1` means "call all registered notifiers" and `NULL` means "don't track call count."
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/lib/prt_notifier.c
++++ src/utility/lib/prt_notifier.c
+@@ -124,7 +124,7 @@
+ 
+ int OsNotifyDie(int val, void *v)
+ {
+-    /* MASKED - implement this function */
++    return NotifierCallChain(&g_dieNotifier.head, val, v, -1, NULL);
+ }
+ 
+ int OsRegisterDieNotifier(struct NotifierBlock *nb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return NotifierCallChain(&g_dieNotifier.head, val, v, -1, NULL);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsNotifyDie.c notifier_test_stubs.c
+[CASE 1] ret has STOP mask
+  Expect: 32768
+  Actual: 32768
+  Result: PASS
+
+[CASE 2] first recorded val is 42
+  Expect: 42
+  Actual: 42
+  Result: PASS
+
+[CASE 3] ret ok
+  Expect: 1
+  Actual: 1
+  Result: PASS
+
+[CASE 4] two callbacks recorded
+  Expect: 2
+  Actual: 2
+  Result: PASS
+
+[CASE 5] double unregister -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+[CASE 6] duplicate register -1
+  Expect: -1
+  Actual: -1
+  Result: PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+test_OsNotifyDie.c: In function ‘cb_stop’:
+test_OsNotifyDie.c:17:52: warning: unused parameter ‘val’ [-Wunused-parameter]
+   17 | static int cb_stop(struct NotifierBlock *self, int val, void *v)
+      |                                                ~~~~^~~
+
+
+

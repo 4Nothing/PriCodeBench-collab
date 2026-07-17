@@ -1,0 +1,78 @@
+=== COMMAND ===
+cd tests/unittests && make BOARD=native64 tests-dns_msg -j && ./bin/native64/tests_unittests.elf
+
+=== STDOUT ===
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /home/carl/RIOT/boards
+"make" -C /home/carl/RIOT/boards/native64
+"make" -C /home/carl/RIOT/core
+"make" -C /home/carl/RIOT/core/lib
+"make" -C /home/carl/RIOT/cpu/native
+"make" -C /home/carl/RIOT/drivers
+"make" -C /home/carl/RIOT/sys
+"make" -C /home/carl/RIOT/tests/unittests/tests-dns_msg
+"make" -C /home/carl/RIOT/boards/common/native
+"make" -C /home/carl/RIOT/boards/common/init
+"make" -C /home/carl/RIOT/drivers/periph_common
+"make" -C /home/carl/RIOT/sys/embunit
+"make" -C /home/carl/RIOT/boards/common/native/drivers
+"make" -C /home/carl/RIOT/sys/event
+"make" -C /home/carl/RIOT/sys/evtimer
+"make" -C /home/carl/RIOT/sys/fmt
+"make" -C /home/carl/RIOT/sys/frac
+"make" -C /home/carl/RIOT/sys/iolist
+"make" -C /home/carl/RIOT/cpu/native/periph
+"make" -C /home/carl/RIOT/sys/libc
+"make" -C /home/carl/RIOT/cpu/native/stdio_native
+"make" -C /home/carl/RIOT/sys/luid
+"make" -C /home/carl/RIOT/sys/net/application_layer/dns
+"make" -C /home/carl/RIOT/sys/net/crosslayer/inet_csum
+"make" -C /home/carl/RIOT/sys/net/gnrc
+"make" -C /home/carl/RIOT/sys/net/link_layer/l2util
+"make" -C /home/carl/RIOT/sys/net/gnrc/netapi
+"make" -C /home/carl/RIOT/sys/net/gnrc/netif
+"make" -C /home/carl/RIOT/sys/net/netif
+"make" -C /home/carl/RIOT/sys/net/gnrc/netreg
+"make" -C /home/carl/RIOT/sys/net/gnrc/network_layer/icmpv6
+"make" -C /home/carl/RIOT/sys/net/gnrc/network_layer/ipv6
+"make" -C /home/carl/RIOT/sys/net/network_layer/icmpv6
+"make" -C /home/carl/RIOT/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /home/carl/RIOT/sys/net/network_layer/ipv6/addr
+"make" -C /home/carl/RIOT/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /home/carl/RIOT/sys/net/network_layer/ipv6/hdr
+"make" -C /home/carl/RIOT/sys/net/gnrc/network_layer/ndp
+"make" -C /home/carl/RIOT/sys/net/transport_layer/udp
+"make" -C /home/carl/RIOT/sys/net/gnrc/pkt
+"make" -C /home/carl/RIOT/sys/net/gnrc/pktbuf
+"make" -C /home/carl/RIOT/sys/posix/inet
+"make" -C /home/carl/RIOT/sys/net/gnrc/pktbuf_static
+"make" -C /home/carl/RIOT/sys/random
+"make" -C /home/carl/RIOT/sys/net/gnrc/sock
+"make" -C /home/carl/RIOT/sys/stdio
+"make" -C /home/carl/RIOT/sys/test_utils/print_stack_usage
+"make" -C /home/carl/RIOT/sys/net/gnrc/sock/udp
+"make" -C /home/carl/RIOT/sys/ztimer
+"make" -C /home/carl/RIOT/sys/net/gnrc/transport_layer/udp
+"make" -C /home/carl/RIOT/sys/net/gnrc/netif/hdr
+   text	   data	    bss	    dec	    hex	filename
+ 139944	  41136	 112168	 293248	  47980	/home/carl/RIOT/tests/unittests/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...
+OK (3 tests)
+
+native: exiting
+
+=== STDERR ===
+==113912==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdae00e000; bottom 0x00000043e000; size: 0x7ffdadbd0000 (140727518298112)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==113912==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+=== RC ===
+0

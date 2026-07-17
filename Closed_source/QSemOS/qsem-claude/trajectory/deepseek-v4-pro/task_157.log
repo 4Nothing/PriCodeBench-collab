@@ -1,0 +1,110 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation looks correct. Here's a summary of what `OsPriorityRestore` now does:
+
+**When called** (after the running task releases a mutex semaphore, with `semPrio` lock held):
+
+1. **Early exit** — if `priority == origPriority`, no inheritance boost occurred, return `FALSE`.
+2. **Compute target** — acquire the task run queue lock, then iterate all mutex semaphores the task still holds (`semBList`), calling `OsGetPendTskMaxPriority` to find the highest priority among any tasks blocked on those semaphores. The result is `max(origPriority, highestPendingPriority)`.
+3. **No-change short-circuit** — if the target equals the current priority, unlock and return `FALSE`.
+4. **Apply** — remove the task from the ready queue (`OsTskReadyDel`), set `priority = maxPriority`, then add it back (`OsTskReadyAddBgd`) unless it has been suspended (`OS_TSK_SUSPEND`). Return `TRUE` to signal the caller that rescheduling may be needed.
+
+This mirrors `OsPriorityInherit` (line 173) — it's the inverse operation, lowering priority that was previously boosted.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -228,7 +228,32 @@
+  */
+ OS_SEC_L0_TEXT bool OsPriorityRestore(void)
+ {
+-    /* MASKED - implement this function */
++    struct TagTskCb *runTsk = RUNNING_TASK;
++    TskPrior maxPriority = runTsk->origPriority;
++
++    if (runTsk->priority == runTsk->origPriority) {
++        return FALSE;
++    }
++
++    OsSpinLockTaskRq(runTsk);
++
++    /* 遍历当前任务持有的互斥信号量，获取pend任务的最高优先级 */
++    OsGetPendTskMaxPriority(runTsk, &maxPriority);
++
++    /* 最高优先级与任务当前优先级相等，不需要调整 */
++    if (maxPriority == runTsk->priority) {
++        OsSpinUnlockTaskRq(runTsk);
++        return FALSE;
++    }
++
++    /* 优先级降到最高优先，最高优先级至少为原始优先级 */
++    OsTskReadyDel(runTsk);
++    runTsk->priority = maxPriority;
++    if (!TSK_STATUS_TST(runTsk, OS_TSK_SUSPEND)) {
++        OsTskReadyAddBgd(runTsk);
++    }
++    OsSpinUnlockTaskRq(runTsk);
++    return TRUE;
+ }
+ #endif
+ 
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *runTsk = RUNNING_TASK;
+    TskPrior maxPriority = runTsk->origPriority;
+
+    if (runTsk->priority == runTsk->origPriority) {
+        return FALSE;
+    }
+
+    OsSpinLockTaskRq(runTsk);
+
+    /* 遍历当前任务持有的互斥信号量，获取pend任务的最高优先级 */
+    OsGetPendTskMaxPriority(runTsk, &maxPriority);
+
+    /* 最高优先级与任务当前优先级相等，不需要调整 */
+    if (maxPriority == runTsk->priority) {
+        OsSpinUnlockTaskRq(runTsk);
+        return FALSE;
+    }
+
+    /* 优先级降到最高优先，最高优先级至少为原始优先级 */
+    OsTskReadyDel(runTsk);
+    runTsk->priority = maxPriority;
+    if (!TSK_STATUS_TST(runTsk, OS_TSK_SUSPEND)) {
+        OsTskReadyAddBgd(runTsk);
+    }
+    OsSpinUnlockTaskRq(runTsk);
+    return TRUE;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsPriorityRestore.c test_stubs.c notifier_test_stubs.c
+already original => expected ret=0 prio=20, actual ret=0 prio=20
+drop to original => expected ret=1 prio=20, actual ret=1 prio=20
+drop to highest waiter => expected ret=1 prio=12, actual ret=1 prio=12
+no change when equal => expected ret=0 prio=12, actual ret=0 prio=12
+no mutex held => expected ret=0 prio=10, actual ret=0 prio=10
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsPriorityRestore.c:6:
+func_under_test.c: In function ‘OsPriorityRestore’:
+func_under_test.c:13:5: warning: implicit declaration of function ‘OsGetPendTskMaxPriority’ [-Wimplicit-function-declaration]
+   13 |     OsGetPendTskMaxPriority(runTsk, &maxPriority);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~
+
+
+

@@ -1,0 +1,151 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsRwLockPendSchedule` does:
+
+1. **timeout == 0**: Immediate rejection — restores interrupts, returns `EINVAL` (non-blocking calls must use the try-lock path, not pend)
+
+2. **Priority-ordered insertion**: Finds the correct position in the pend list using `OsRwLockPendFindPos`, then calls `OsRwLockPendPre` to remove the task from the ready queue, set the `OS_TSK_RW_PEND` status, optionally set `OS_TSK_TIMEOUT`, and add it to the pend list
+
+3. **Finite timeout** (not `OS_WAIT_FOREVER`): Calls `OsTskSchedule()` to yield, then re-acquires the lock and checks if the task still has `OS_TSK_TIMEOUT` set — if so, the wait timed out, so clear the flag and return `ETIMEDOUT`
+
+4. **Infinite timeout** (`OS_WAIT_FOREVER`): Calls `OsTskSchedule()` and returns `OS_OK` — the task was woken by `OsRwLockPost` when the lock was released
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/rwlock/prt_rwlock.c
++++ src/core/ipc/rwlock/prt_rwlock.c
+@@ -195,7 +195,31 @@
+ U32 OsRwLockPendSchedule(struct TagTskCb *runTask, struct TagListObject *lockList, U32 timeout, U32 intSave,
+                          pthread_rwlock_t *rwl)
+ {
+-    /* MASKED - implement this function */
++    struct TagListObject *node;
++
++    if (timeout == 0) {
++        PRT_HwiRestore(intSave);
++        return EINVAL;
++    }
++
++    node = OsRwLockPendFindPos(runTask, lockList);
++    OsRwLockPendPre(runTask, node, timeout, rwl);
++    if (timeout != OS_WAIT_FOREVER) {
++        OsTskSchedule();
++        PRT_HwiRestore(intSave);
++        intSave = PRT_HwiLock();
++        if (TSK_STATUS_TST(runTask, OS_TSK_TIMEOUT)) {
++            TSK_STATUS_CLEAR(runTask, OS_TSK_TIMEOUT);
++            PRT_HwiRestore(intSave);
++            return ETIMEDOUT;
++        }
++        PRT_HwiRestore(intSave);
++    } else {
++        OsTskSchedule();
++        PRT_HwiRestore(intSave);
++    }
++
++    return OS_OK;
+ }
+ 
+ U32 OsRwLockRdPend(pthread_rwlock_t *rwl, U32 timeout, U32 rwType)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagListObject *node;
+
+    if (timeout == 0) {
+        PRT_HwiRestore(intSave);
+        return EINVAL;
+    }
+
+    node = OsRwLockPendFindPos(runTask, lockList);
+    OsRwLockPendPre(runTask, node, timeout, rwl);
+    if (timeout != OS_WAIT_FOREVER) {
+        OsTskSchedule();
+        PRT_HwiRestore(intSave);
+        intSave = PRT_HwiLock();
+        if (TSK_STATUS_TST(runTask, OS_TSK_TIMEOUT)) {
+            TSK_STATUS_CLEAR(runTask, OS_TSK_TIMEOUT);
+            PRT_HwiRestore(intSave);
+            return ETIMEDOUT;
+        }
+        PRT_HwiRestore(intSave);
+    } else {
+        OsTskSchedule();
+        PRT_HwiRestore(intSave);
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockPendSchedule.c
+[Case 1] Expected: 22, Actual: 22
+  Result  : PASS
+
+[Case 2] Expected: 110, Actual: 110
+  Result  : PASS
+
+[Case 3] Expected: 0, Actual: 0
+  Result  : PASS
+
+Case 4: expect=1, actual=1
+[Case 5] Expected: 110, Actual: 110
+  Result  : PASS
+
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+In file included from test_OsRwLockPendSchedule.c:1:
+test_common.h:56:12: warning: ‘print_summary’ defined but not used [-Wunused-function]
+   56 | static int print_summary()
+      |            ^~~~~~~~~~~~~
+test_common.h:45:13: warning: ‘print_result’ defined but not used [-Wunused-function]
+   45 | static void print_result(const char *case_name, U32 expected, U32 actual)
+      |             ^~~~~~~~~~~~
+In file included from test_common.h:7:
+auto_stub.h:1422:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1422 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1421:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1421 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1420:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1420 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1418:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1418 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1416:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1416 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1415:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1415 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1414:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1414 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1412:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1412 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1411:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1411 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1410:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1410 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1409:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1409 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

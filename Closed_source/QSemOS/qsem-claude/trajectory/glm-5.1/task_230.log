@@ -1,0 +1,109 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Iterates through all ELF section headers** looking for relocation sections (type `SHT_RELA` or `SHT_REL`)
+2. **For each relocation section**, resolves the linked symbol table (via `sh_link`) and its associated string table (via the symbol table's own `sh_link`)
+3. **For each relocation entry** in the section, determines whether it's an `Elf_Rela` or `Elf_Rel` entry based on the section type, then calls `OsDynModuleRelocatePrepare` to process it
+4. **Returns immediately** on the first relocation error, or `OS_MODULE_OK` if all sections process successfully
+
+The implementation follows the same ELF-parsing patterns established by the adjacent functions `OsDynModuleSaveSymTab` and `OsDynModuleRelocatePrepare` — same section header traversal, same pointer arithmetic for entries, same type-based branching for `SHT_RELA` vs `SHT_REL`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -328,7 +328,30 @@
+ 
+ static U32 OsDynModuleProcessRelocationSection(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U16 i, j;
++    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
++    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
++    for (i = 0; i < elfInfo->e_shnum; i++) {
++        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
++            continue;
++        }
++        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
++        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
++        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++) {
++            uintptr_t reloc;
++            if (shdr[i].sh_type == SHT_RELA) {
++                reloc = (uintptr_t)((Elf_Rela *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
++            } else {
++                reloc = (uintptr_t)((Elf_Rel *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
++            }
++            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
++            if (ret != OS_MODULE_OK) {
++                return ret;
++            }
++        }
++    }
++    return OS_MODULE_OK;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U16 i, j;
+    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
+    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
+    for (i = 0; i < elfInfo->e_shnum; i++) {
+        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
+            continue;
+        }
+        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
+        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
+        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++) {
+            uintptr_t reloc;
+            if (shdr[i].sh_type == SHT_RELA) {
+                reloc = (uintptr_t)((Elf_Rela *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+            } else {
+                reloc = (uintptr_t)((Elf_Rel *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+            }
+            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
+            if (ret != OS_MODULE_OK) {
+                return ret;
+            }
+        }
+    }
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleProcessRelocationSection.c
+
+--- stderr ---
+In file included from test_OsDynModuleProcessRelocationSection.c:4:
+func_under_test.c: In function ‘OsDynModuleProcessRelocationSection’:
+func_under_test.c:16:38: error: ‘Elf_Rela’ undeclared (first use in this function)
+   16 |                 reloc = (uintptr_t)((Elf_Rela *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+      |                                      ^~~~~~~~
+func_under_test.c:16:38: note: each undeclared identifier is reported only once for each function it appears in
+func_under_test.c:16:48: error: expected expression before ‘)’ token
+   16 |                 reloc = (uintptr_t)((Elf_Rela *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+      |                                                ^
+func_under_test.c:18:38: error: ‘Elf_Rel’ undeclared (first use in this function)
+   18 |                 reloc = (uintptr_t)((Elf_Rel *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+      |                                      ^~~~~~~
+func_under_test.c:18:47: error: expected expression before ‘)’ token
+   18 |                 reloc = (uintptr_t)((Elf_Rel *)(unitInfo->moduleStr + shdr[i].sh_offset) + j);
+      |                                               ^
+make: *** [Makefile:13: test] Error 1
+
+
+

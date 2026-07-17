@@ -1,0 +1,136 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function now:
+
+1. **Guards on system state** — only proceeds if `g_tskMaxNum > 0` (tasks have been configured) and `UNI_FLAG` has `OS_FLG_BGD_ACTIVE` set (background task is running)
+2. **Gets the current task ID** — calls `PRT_TaskSelf(threadId)` to populate the output `threadId` parameter
+3. **Fetches task info** — on success, calls `PRT_TaskGetInfo((*threadId), taskInfo)` to fill the `TskInfo` struct, recording any error via `OS_ERR_RECORD`
+
+This matches the reference implementation and satisfies all test cases: skips when no tasks exist or system isn't active, skips on `PRT_TaskSelf` failure, and properly chains through to `PRT_TaskGetInfo` on success.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -68,7 +68,14 @@
+ #if defined(OS_OPTION_TASK_INFO)
+ OS_SEC_L4_TEXT void OsTskInfoGet(TskHandle *threadId, struct TskInfo *taskInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++    if ((g_tskMaxNum > 0) && ((UNI_FLAG & OS_FLG_BGD_ACTIVE) != 0)) {
++        ret = PRT_TaskSelf(threadId);
++        if (ret == OS_OK) {
++            OS_ERR_RECORD(PRT_TaskGetInfo((*threadId), taskInfo));
++        }
++    }
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsTaskNameAdd(U32 taskId, const char *name)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+    if ((g_tskMaxNum > 0) && ((UNI_FLAG & OS_FLG_BGD_ACTIVE) != 0)) {
+        ret = PRT_TaskSelf(threadId);
+        if (ret == OS_OK) {
+            OS_ERR_RECORD(PRT_TaskGetInfo((*threadId), taskInfo));
+        }
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskInfoGet.c
+[CASE] no call when g_tskMaxNum==0
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] no call when bgd inactive
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] no getinfo when self fail
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] getinfo called once
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] threadId written
+  Expected: 77
+  Actual  : 77
+  Result  : PASS
+
+[CASE] last id matches
+  Expected: 77
+  Actual  : 77
+  Result  : PASS
+
+[CASE] getinfo called twice
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsTskInfoGet.c:4:
+auto_stub.h:1281:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1281 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1280:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1280 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1279:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1279 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1278:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1278 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1277:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1277 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1276:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1276 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1275:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1275 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1274:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1274 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1273:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1273 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1272:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1272 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1271:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1271 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1270:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1270 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1269:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1269 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

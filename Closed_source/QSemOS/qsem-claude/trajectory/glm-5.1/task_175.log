@@ -1,0 +1,245 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `PRT_QueueRead` does, mirroring the `PRT_QueueWrite` pattern:
+
+- **Parameter validation**: checks `innerId` bounds, null pointers on `bufferAddr`/`len`, and zero `*len` — all as early returns before locking
+- **Lock & state check**: acquires the queue IRQ lock, verifies the queue has been created
+- **Pend on readable messages**: calls `OsInnerPend` on `readableCnt`/`readList` — blocks if queue is empty (unless `timeOut == OS_QUEUE_NO_WAIT`)
+- **Read from queue head** (FIFO): locates the node at `queueHead`, copies `min(actual_size, buffer_size)` bytes to the user buffer via `memcpy_s`, sets `*len` to the actual message size, and advances `queueHead` with wraparound
+- **Wake blocked writers**: if any tasks are pending on `writeList`, wakes the first one and triggers a reschedule; otherwise increments `writableCnt`
+- **Cleanup**: restores interrupts and returns the status code
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/queue/prt_queue.c
++++ src/core/ipc/queue/prt_queue.c
+@@ -162,7 +162,78 @@
+  */
+ OS_SEC_L4_TEXT U32 PRT_QueueRead(U32 queueId, void *bufferAddr, U32 *len, U32 timeOut)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    uintptr_t intSave;
++    U32 innerId = OS_QUEUE_INNER_ID(queueId);
++    struct TagQueCb *queueCb = NULL;
++    struct QueNode *queueNode = NULL;
++    U32 msgSize;
++    U32 copySize;
++
++    if (innerId >= g_maxQueue)
++    {
++        return OS_ERRNO_QUEUE_INVALID;
++    }
++
++    if (bufferAddr == 0)
++    {
++        return OS_ERRNO_QUEUE_PTR_NULL;
++    }
++
++    if (len == 0)
++    {
++        return OS_ERRNO_QUEUE_PTR_NULL;
++    }
++
++    if (*len == 0)
++    {
++        return OS_ERRNO_QUEUE_SIZE_ZERO;
++    }
++
++    queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
++    QUEUE_CB_IRQ_LOCK(queueCb, intSave);
++    if (queueCb->queueState == OS_QUEUE_UNUSED)
++    {
++        ret = OS_ERRNO_QUEUE_NOT_CREATE;
++        goto QUEUE_END;
++    }
++
++    ret = OsInnerPend(&queueCb->readableCnt, &queueCb->readList, timeOut, queueCb);
++    if (ret != OS_OK)
++    {
++        goto QUEUE_END;
++    }
++
++    queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueHead) * (queueCb->nodeSize))];
++    msgSize = (U32)queueNode->size;
++
++    copySize = (msgSize < *len) ? msgSize : *len;
++    if (memcpy_s(bufferAddr, *len, (void *)queueNode->buf, copySize) != EOK)
++    {
++        OS_GOTO_SYS_ERROR1();
++    }
++
++    *len = msgSize;
++
++    queueCb->queueHead++;
++    if (queueCb->queueHead == queueCb->nodeNum)
++    {
++        queueCb->queueHead = 0;
++    }
++
++    if (OsQueuePendNeedProc(&queueCb->writeList))
++    {
++        QUEUE_CB_UNLOCK(queueCb);
++        OsTskSchedule();
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    queueCb->writableCnt++;
++
++QUEUE_END:
++    QUEUE_CB_IRQ_UNLOCK(queueCb, intSave);
++    return ret;
+ }
+ 
+ OS_SEC_L4_TEXT U32 OsQueueWriteParaCheck(U32 innerId, uintptr_t bufferAddr, U32 bufferSize, U32 prio)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    uintptr_t intSave;
+    U32 innerId = OS_QUEUE_INNER_ID(queueId);
+    struct TagQueCb *queueCb = NULL;
+    struct QueNode *queueNode = NULL;
+    U32 msgSize;
+    U32 copySize;
+
+    if (innerId >= g_maxQueue)
+    {
+        return OS_ERRNO_QUEUE_INVALID;
+    }
+
+    if (bufferAddr == 0)
+    {
+        return OS_ERRNO_QUEUE_PTR_NULL;
+    }
+
+    if (len == 0)
+    {
+        return OS_ERRNO_QUEUE_PTR_NULL;
+    }
+
+    if (*len == 0)
+    {
+        return OS_ERRNO_QUEUE_SIZE_ZERO;
+    }
+
+    queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
+    QUEUE_CB_IRQ_LOCK(queueCb, intSave);
+    if (queueCb->queueState == OS_QUEUE_UNUSED)
+    {
+        ret = OS_ERRNO_QUEUE_NOT_CREATE;
+        goto QUEUE_END;
+    }
+
+    ret = OsInnerPend(&queueCb->readableCnt, &queueCb->readList, timeOut, queueCb);
+    if (ret != OS_OK)
+    {
+        goto QUEUE_END;
+    }
+
+    queueNode = (struct QueNode *)(uintptr_t)&queueCb->queue[((queueCb->queueHead) * (queueCb->nodeSize))];
+    msgSize = (U32)queueNode->size;
+
+    copySize = (msgSize < *len) ? msgSize : *len;
+    if (memcpy_s(bufferAddr, *len, (void *)queueNode->buf, copySize) != EOK)
+    {
+        OS_GOTO_SYS_ERROR1();
+    }
+
+    *len = msgSize;
+
+    queueCb->queueHead++;
+    if (queueCb->queueHead == queueCb->nodeNum)
+    {
+        queueCb->queueHead = 0;
+    }
+
+    if (OsQueuePendNeedProc(&queueCb->writeList))
+    {
+        QUEUE_CB_UNLOCK(queueCb);
+        OsTskSchedule();
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    queueCb->writableCnt++;
+
+QUEUE_END:
+    QUEUE_CB_IRQ_UNLOCK(queueCb, intSave);
+    return ret;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_QueueRead.c notifier_test_stubs.c
+DEBUG: g_maxQueue address = 0x5b5f50d4b040, value = 4
+[CASE] QueueRead invalid id
+  Expect: 8193
+  Actual: 8193
+[CASE] QueueRead null buf
+  Expect: 8194
+  Actual: 8194
+[CASE] QueueRead size zero
+  Expect: 8195
+  Actual: 8195
+[CASE] QueueRead not create
+  Expect: 8196
+  Actual: 8196
+[CASE] QueueRead success truncate
+  Expect: ret=0 len=2 data=AB
+  Actual: ret=0 len=4 data=AB
+[CASE] QueueRead no data no wait
+  Expect: 8198
+  Actual: 8198
+[CASE] QueueRead timeout
+  Expect: 8201
+  Actual: 8201
+Pass-Rate: 85.71%
+
+--- stderr ---
+In file included from test_PRT_QueueRead.c:2:
+func_under_test.c: In function ‘PRT_QueueRead’:
+func_under_test.c:39:11: warning: implicit declaration of function ‘OsInnerPend’ [-Wimplicit-function-declaration]
+   39 |     ret = OsInnerPend(&queueCb->readableCnt, &queueCb->readList, timeOut, queueCb);
+      |           ^~~~~~~~~~~
+func_under_test.c:62:9: warning: implicit declaration of function ‘OsQueuePendNeedProc’ [-Wimplicit-function-declaration]
+   62 |     if (OsQueuePendNeedProc(&queueCb->writeList))
+      |         ^~~~~~~~~~~~~~~~~~~
+func_under_test.c:66:9: warning: ‘intSave’ may be used uninitialized [-Wmaybe-uninitialized]
+   66 |         OsIntRestore(intSave);
+      |         ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:4:15: note: ‘intSave’ was declared here
+    4 |     uintptr_t intSave;
+      |               ^~~~~~~
+notifier_test_stubs.c: In function ‘OsInnerPend’:
+notifier_test_stubs.c:51:51: warning: unused parameter ‘pendList’ [-Wunused-parameter]
+   51 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+notifier_test_stubs.c:51:91: warning: unused parameter ‘queueCb’ [-Wunused-parameter]
+   51 | U32 OsInnerPend(U16 *count, struct TagListObject *pendList, U32 timeOut, struct TagQueCb *queueCb)
+      |                                                                          ~~~~~~~~~~~~~~~~~^~~~~~~
+notifier_test_stubs.c: In function ‘OsQueuePendNeedProc’:
+notifier_test_stubs.c:77:48: warning: unused parameter ‘objectList’ [-Wunused-parameter]
+   77 | bool OsQueuePendNeedProc(struct TagListObject *objectList)
+      |                          ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+In file included from notifier_test_stubs.c:5:
+test_support.h: At top level:
+test_support.h:13:13: warning: ‘print_pass_rate’ defined but not used [-Wunused-function]
+   13 | static void print_pass_rate(int pass, int total)
+      |             ^~~~~~~~~~~~~~~
+test_support.h:7:12: warning: ‘assert_eq_u32’ defined but not used [-Wunused-function]
+    7 | static int assert_eq_u32(const char *name, U32 expect, U32 actual)
+      |            ^~~~~~~~~~~~~
+
+
+

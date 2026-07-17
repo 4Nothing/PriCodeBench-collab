@@ -1,0 +1,105 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what `crb_consume_chunk` does:
+
+1. **Finds the first valid chunk** via `_get_complete_chunk` — returns `false` if none exists.
+2. **Copies data** if `dst` is non-NULL (up to `len` bytes, capped at the actual chunk size), using the same circular-buffer wrap logic as `crb_peek_bytes` at line 134.
+3. **Frees the chunk slot** by setting `chunk_start[idx] = NULL` and advancing `chunk_cur` to the next slot (so subsequent operations find the correct next chunk).
+4. **Updates `protect`** — if the consumed chunk was the one `protect` guarded, moves `protect` to the next valid chunk's start, or `NULL` if no valid chunks remain. This allows the writer to safely proceed past the consumed data.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/chunked_ringbuffer/chunked_ringbuffer.c
++++ sys/chunked_ringbuffer/chunked_ringbuffer.c
+@@ -184,7 +184,39 @@
+ 
+ bool crb_consume_chunk(chunk_ringbuf_t *rb, void *dst, size_t len)
+ {
+-    /* MASKED - implement this function */
++    int idx = _get_complete_chunk(rb);
++    if (idx < 0) {
++        return false;
++    }
++
++    uint8_t *start = rb->chunk_start[idx];
++    size_t chunk_len = rb->chunk_len[idx];
++
++    if (dst) {
++        size_t copy_len = len < chunk_len ? len : chunk_len;
++
++        if (start + copy_len <= rb->buffer_end) {
++            memcpy(dst, start, copy_len);
++        } else {
++            size_t len_0 = 1 + rb->buffer_end - start;
++            memcpy(dst, start, len_0);
++            memcpy((uint8_t *)dst + len_0, rb->buffer, copy_len - len_0);
++        }
++    }
++
++    rb->chunk_start[idx] = NULL;
++    rb->chunk_cur = (idx + 1) % CONFIG_CHUNK_NUM_MAX;
++
++    if (rb->protect == start) {
++        int next_idx = _get_complete_chunk(rb);
++        if (next_idx >= 0) {
++            rb->protect = rb->chunk_start[next_idx];
++        } else {
++            rb->protect = NULL;
++        }
++    }
++
++    return true;
+ }
+ 
+ void crb_init(chunk_ringbuf_t *rb, void *buffer, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/chunked_ringbuffer
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  83831	  32600	  78120	 194551	  2f7f7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+OK (2 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdfdbe6000; bottom 0x00000042e000; size: 0x7ffdfd7b8000 (140728856182784)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

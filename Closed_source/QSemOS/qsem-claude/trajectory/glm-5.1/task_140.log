@@ -1,0 +1,171 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsContextSwitch` now does at `prt_sched_single.c:93-99`:
+
+- **`prev != next`**: Calls `OsTskSwitchHookCaller(prev->taskPid, next->taskPid)` to notify the hook of the task switch
+- **`prev == next`**: Skips the hook (no actual context change)
+- **Always**: Calls `OsTskContextLoad((uintptr_t)next)` to restore the next task's execution context
+
+This is a simpler counterpart to `OsMainSchedule` — it assumes the caller has already handled the `RUNNING_TASK` update and status flag manipulation (the reference implementation notes "prev已经在putprev经过处理，这里跳过"). The function just bridges the scheduler decision to the actual hardware context switch, calling the hook along the way.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/sched/prt_sched_single.c
++++ src/core/kernel/sched/prt_sched_single.c
+@@ -92,7 +92,10 @@
+  */
+ OS_SEC_L0_TEXT void OsContextSwitch(struct TagTskCb *prev, struct TagTskCb *next)
+ {
+-    /* MASKED - implement this function */
++    if (prev != next) {
++        OsTskSwitchHookCaller(prev->taskPid, next->taskPid);
++    }
++    OsTskContextLoad((uintptr_t)next);
+ }
+ 
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (prev != next) {
+        OsTskSwitchHookCaller(prev->taskPid, next->taskPid);
+    }
+    OsTskContextLoad((uintptr_t)next);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsContextSwitch.c test_support.c notifier_test_stubs.c
+[Case] No hook when same
+  Expect: 0
+  Actual: 0
+  Result: PASS
+[Case] Hook called once
+  Expect: 1
+  Actual: 1
+  Result: PASS
+[Case] Context load next
+  Expect: 22
+  Actual: 22
+  Result: PASS
+[Case] Hook prev pid recorded
+  Expect: 11
+  Actual: 11
+  Result: PASS
+[Case] Hook next pid recorded
+  Expect: 22
+  Actual: 22
+  Result: PASS
+[Case] Multiple switches count
+  Expect: 3
+  Actual: 3
+  Result: PASS
+Pass-Rate: 100.00%
+
+--- stderr ---
+In file included from test_OsContextSwitch.c:8:
+func_under_test.c: In function ‘OsContextSwitch’:
+func_under_test.c:4:9: warning: implicit declaration of function ‘OsTskSwitchHookCaller’ [-Wimplicit-function-declaration]
+    4 |         OsTskSwitchHookCaller(prev->taskPid, next->taskPid);
+      |         ^~~~~~~~~~~~~~~~~~~~~
+func_under_test.c:6:5: warning: implicit declaration of function ‘OsTskContextLoad’ [-Wimplicit-function-declaration]
+    6 |     OsTskContextLoad((uintptr_t)next);
+      |     ^~~~~~~~~~~~~~~~
+In file included from test_support.h:4,
+                 from test_OsContextSwitch.c:4:
+auto_stub.h: At top level:
+auto_stub.h:1636:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1636 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1635:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1635 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1634:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1634 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1633:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1633 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1632:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1632 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1631:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1631 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1630:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1630 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1629:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1629 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1628:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1628 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1627:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1627 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1626:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1626 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1625:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1625 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1624:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1624 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1623:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1623 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_support.h:4,
+                 from test_support.c:3:
+auto_stub.h:1636:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1636 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1635:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1635 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1634:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1634 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1633:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1633 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1632:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1632 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1631:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1631 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1630:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1630 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1629:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1629 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1627:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1627 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1626:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1626 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1625:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1625 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1624:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1624 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1623:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1623 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

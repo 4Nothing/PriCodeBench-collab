@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# CPU lines
+config CPU_LINE_STM32L552XX
+    bool
+    select CPU_FAM_L5
+
+config CPU_LINE_STM32L562XX
+    bool
+    select CPU_FAM_L5

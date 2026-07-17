@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2021 Otto-von-Guericke-Universität Magdeburg
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_RPX0XX
+    bool
+    select CPU_CORE_CORTEX_M0PLUS
+
+config CPU_FAM
+    default "RPX0XX" if CPU_FAM_RPX0XX
+
+config CPU_MODEL_RP2040
+    bool
+    select CPU_FAM_RPX0XX
+
+config CPU_MODEL
+    default "RP2040" if CPU_MODEL_RP2040
+
+config CPU
+    default "rpx0xx" if CPU_FAM_RPX0XX
+
+
+source "$(RIOTCPU)/cortexm_common/Kconfig"

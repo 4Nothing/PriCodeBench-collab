@@ -1,0 +1,77 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. `bf_find_first_unset` mirrors `bf_find_first_set`: it skips bytes that are all-ones (0xFF) via `_skip_bytes`, then scans the remaining bits for the first unset one, returning -1 if none is found.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bitfield/bitfield.c
++++ sys/bitfield/bitfield.c
+@@ -71,7 +71,16 @@
+ 
+ int bf_find_first_unset(const uint8_t field[], size_t size)
+ {
+-    /* MASKED - implement this function */
++    unsigned nbytes = (size + 7) / 8;
++    unsigned i = _skip_bytes(field, nbytes, 0xff);
++
++    for (; i < size; i++) {
++        if (!bf_isset(field, i)) {
++            return i;
++        }
++    }
++
++    return -1;
+ }
+ 
+ void bf_set_all(uint8_t field[], size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/tests/unittests/tests-bitfield
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/cpu/native/stdio_native
+   text	   data	    bss	    dec	    hex	filename
+  85986	  32024	  78120	 196130	  2fe22	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+OK (14 tests)
+
+native: exiting
+
+--- stderr ---
+==323==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc0da40000; bottom 0x00000042f000; size: 0x7ffc0d611000 (140720532951040)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

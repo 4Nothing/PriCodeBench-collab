@@ -1,0 +1,1 @@
+-DSKIP_OsPmuInit -DSKIP_OsHwPmuInit -DSKIP_OsTimedPmuInit -DSKIP_OsSwPmuInit

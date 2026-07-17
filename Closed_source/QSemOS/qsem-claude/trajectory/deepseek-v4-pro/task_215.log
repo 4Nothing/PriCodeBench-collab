@@ -1,0 +1,101 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `OsTaskIrqUnlock` (line 213-217) now mirrors the lock ordering in reverse:
+
+- `OsTskUnlock()` — the inverse of `OS_TSK_LOCK()` from `PRT_TaskIrqLock`
+- `OsIntRestore(intSave)` — the inverse of `OsIntLock()` from `PRT_TaskIrqLock`
+
+This follows the same pattern used by `PRT_SplIrqUnlock`, `PRT_SplIrqReadUnlock`, and `PRT_SplIrqWriteUnlock` in `prt_spinlock.c`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_lock.c
++++ src/core/kernel/task/smp/prt_task_lock.c
+@@ -212,7 +212,8 @@
+  */
+ OS_SEC_ALW_INLINE INLINE void OsTaskIrqUnlock(uintptr_t intSave)
+ {
+-    /* MASKED - implement this function */
++    OsTskUnlock();
++    OsIntRestore(intSave);
+ }
+ OS_SEC_L0_TEXT void PRT_TaskUnlock(void)
+ {
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsTskUnlock();
+    OsIntRestore(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskIrqUnlock.c common_test.c
+===== OsTaskIrqUnlock =====
+[lock->0] expect=0 actual=1 -> FAIL
+[restore called] expect=1 actual=1 -> PASS
+[no schedule] expect=0 actual=0 -> PASS
+[schedule fast called] expect=1 actual=0 -> FAIL
+[SMP trigger] expect=1 actual=0 -> FAIL
+[lock->2] expect=2 actual=3 -> FAIL
+[error code set] expect=33555226 actual=0 -> FAIL
+[no extra schedule] expect=1 actual=0 -> FAIL
+Pass-Rate: 25.00% (2/8)
+
+--- stderr ---
+In file included from prt_task_internal.h:2,
+                 from test_OsTaskIrqUnlock.c:2:
+auto_stub.h:1266:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1266 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1265:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1265 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1264:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1264 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1263:14: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1263 | static void *g_runningTask = NULL;
+      |              ^~~~~~~~~~~~~
+auto_stub.h:1262:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1262 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1261:13: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1261 | static char g_runQueue[256];  /* placeholder */
+      |             ^~~~~~~~~~
+auto_stub.h:1260:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1260 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1259:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1259 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1258:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1258 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1257:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1257 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1256:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1256 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1255:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1255 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1254:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1254 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1253:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1253 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

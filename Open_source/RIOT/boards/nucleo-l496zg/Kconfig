@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "nucleo-l496zg" if BOARD_NUCLEO_L496ZG
+
+config BOARD_NUCLEO_L496ZG
+    bool
+    default y
+    select BOARD_COMMON_NUCLEO144
+    select CPU_MODEL_STM32L496ZG
+
+source "$(RIOTBOARD)/common/nucleo144/Kconfig"

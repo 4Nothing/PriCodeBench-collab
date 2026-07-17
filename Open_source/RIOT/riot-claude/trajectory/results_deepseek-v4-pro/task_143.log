@@ -1,0 +1,154 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implementation complete. Here's a summary of the `gnrc_ipv6_nib_ft_iter` function:
+
+**Two-phase iteration** using a tagged `*state` pointer (lowest bit = phase):
+- **Phase 1** (bit 0 clear): Iterates the Default Router List via `_nib_drl_iter`. Matched entries are converted with `_nib_drl_ft_get`.
+- **Phase 2** (bit 0 set): Iterates off-link entries via `_nib_offl_iter`, including entries with `_FT`, `_DC`, or `_PL` with `_PFX_ON_LINK` flags. Matched entries are converted with `_nib_ft_get`.
+
+**Filters**: Both phases respect the `next_hop` (NULL = any) and `iface` (0 = any) parameters, matching the documented API.
+
+**Locking**: `_nib_acquire()` / `_nib_release()` around the entire operation, consistent with every other public function in this file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_ft.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_ft.c
+@@ -124,7 +124,60 @@
+ bool gnrc_ipv6_nib_ft_iter(const ipv6_addr_t *next_hop, unsigned iface,
+                           void **state, gnrc_ipv6_nib_ft_t *fte)
+ {
+-    /* MASKED - implement this function */
++    uintptr_t st = (uintptr_t)(*state);
++
++    _nib_acquire();
++    if (!(st & 1)) {
++        /* Phase 1: iterate default router list */
++        _nib_dr_entry_t *drl = (st == 0) ? NULL : (void *)st;
++        while ((drl = _nib_drl_iter(drl)) != NULL) {
++            if (((next_hop == NULL) ||
++                 ipv6_addr_equal(&drl->next_hop->ipv6, next_hop)) &&
++                ((iface == 0) || (_nib_onl_get_if(drl->next_hop) == iface))) {
++                _nib_drl_ft_get(drl, fte);
++                *state = drl;
++                _nib_release();
++                return true;
++            }
++        }
++        /* DRL exhausted, mark for off-link phase */
++        st = 1;
++    }
++
++    /* Phase 2: iterate off-link entries */
++    _nib_offl_entry_t *offl = (st == 1) ? NULL : (void *)(st & ~((uintptr_t)1));
++    while ((offl = _nib_offl_iter(offl)) != NULL) {
++        if (offl->next_hop == NULL) {
++            continue;
++        }
++        bool visible = false;
++#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER)
++        if (offl->mode & _FT) {
++            visible = true;
++        }
++#endif
++#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_DC)
++        if (offl->mode & _DC) {
++            visible = true;
++        }
++#endif
++        if ((offl->mode & _PL) && (offl->flags & _PFX_ON_LINK)) {
++            visible = true;
++        }
++        if (visible &&
++            ((next_hop == NULL) ||
++             ipv6_addr_equal(&offl->next_hop->ipv6, next_hop)) &&
++            ((iface == 0) || (_nib_onl_get_if(offl->next_hop) == iface))) {
++            _nib_ft_get(offl, fte);
++            *state = (void *)((uintptr_t)offl | 1);
++            _nib_release();
++            return true;
++        }
++    }
++
++    *state = NULL;
++    _nib_release();
++    return false;
+ }
+ 
+ void gnrc_ipv6_nib_ft_print(const gnrc_ipv6_nib_ft_t *fte)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313200	  72304	  92296	 477800	  74a68	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................................................................................................................................
+OK (152 tests)
+
+native: exiting
+
+--- stderr ---
+==600==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff8e199000; bottom 0x000000470000; size: 0x7fff8dd29000 (140735572774912)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

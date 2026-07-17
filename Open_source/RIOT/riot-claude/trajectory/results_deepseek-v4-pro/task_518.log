@@ -1,0 +1,75 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation replaces the TODO with a comparison of the raw 32-bit integer values. Since both addresses are stored in network byte order, comparing `a->u32.u32 == b->u32.u32` correctly determines equality in a single operation.
+
+The change at `sys/include/net/ipv4/addr.h:75`:
+```c
+return (a->u32.u32 == b->u32.u32);
+```
+
+This follows the pattern seen in the existing `ipv4_addr_is_multicast` function (same file, line 91) and leverages the `u32` member of the `be_uint32_t` union that underlies `ipv4_addr_t`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv4/addr.h
++++ sys/include/net/ipv4/addr.h
+@@ -71,7 +71,7 @@
+  */
+ static inline bool ipv4_addr_equal(const ipv4_addr_t *a, const ipv4_addr_t *b)
+ {
+-    /* MASKED - implement this function */
++    return (a->u32.u32 == b->u32.u32);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-ipv4_addr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/net/network_layer/ipv4/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  89016	  34264	  78120	 201400	  312b8	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...................
+OK (19 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd24b78000; bottom 0x000000431000; size: 0x7ffd24747000 (140725215064064)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

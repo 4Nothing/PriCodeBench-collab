@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+# This file was auto-generated from ST ProductsList.xlsx sheet using the
+# script in cpu/stm32/dist/kconfig/gen_kconfig.py
+# See cpu/stm32/dist/kconfig/README.md for details
+
+# CPU lines
+config CPU_LINE_STM32L100XB
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L100XBA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L100XC
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XB
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XBA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XC
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XCA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XD
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XDX
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L151XE
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XB
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XBA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XC
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XCA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XD
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XDX
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L152XE
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L162XC
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L162XCA
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L162XD
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L162XDX
+    bool
+    select CPU_FAM_L1
+
+config CPU_LINE_STM32L162XE
+    bool
+    select CPU_FAM_L1

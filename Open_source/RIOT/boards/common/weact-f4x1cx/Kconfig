@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2020 Benjamin Valentin
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD_COMMON_WEACT_F4X1CX
+    bool
+
+    # Clock configuration
+    select BOARD_HAS_HSE
+    select BOARD_HAS_LSE
+
+config CLOCK_HSE
+    default 25000000
+
+source "$(RIOTBOARD)/common/stm32/Kconfig"

@@ -1,0 +1,66 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what was done:
+
+**Added `#include <errno.h>`** (line 17) — needed for `-EINVAL` and `-ENOMEM` error codes.
+
+**Implemented `gnrc_ipv6_nib_pl_set`** (lines 30-47) with:
+
+1. **Input validation** (matches the header docs in `pl.h`):
+   - `pfx` is not link-local (`fe80::`)
+   - `pfx` is not multicast
+   - `pfx_len` is not 0
+   - `pfx` is not the unspecified address (`::`)
+   - `pref_ltime <= valid_ltime`
+   - Returns `-EINVAL` if any check fails
+
+2. **NIB lock management**: acquires before calling `_nib_pl_add` and releases on both success and error paths (including the `-ENOMEM` case).
+
+3. **Delegates to `_nib_pl_add`**: which handles both creating new off-link entries and updating existing ones — it finds an existing entry via `_nib_offl_alloc`, resets the timeout event, and updates `valid_until`/`pref_until`.
+
+The pattern follows the existing convention in the codebase (e.g., `gnrc_ipv6_nib_nc_set` in `nib_nc.c`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_pl.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_pl.c
+@@ -14,6 +14,7 @@
+  */
+ 
+ #include <assert.h>
++#include <errno.h>
+ #include <inttypes.h>
+ #include <stdio.h>
+ #include <kernel_defines.h>
+@@ -30,7 +31,19 @@
+                          const ipv6_addr_t *pfx, unsigned pfx_len,
+                          uint32_t valid_ltime, uint32_t pref_ltime)
+ {
+-    /* MASKED - implement this function */
++    assert(pfx != NULL);
++    if (ipv6_addr_is_link_local(pfx) || ipv6_addr_is_multicast(pfx) ||
++        (pfx_len == 0) || ipv6_addr_is_unspecified(pfx) ||
++        (pref_ltime > valid_ltime)) {
++        return -EINVAL;
++    }
++    _nib_acquire();
++    if (_nib_pl_add(iface, pfx, pfx_len, valid_ltime, pref_ltime) == NULL) {
++        _nib_release();
++        return -ENOMEM;
++    }
++    _nib_release();
++    return 0;
+ }
+ 
+ void gnrc_ipv6_nib_pl_del(unsigned iface,
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

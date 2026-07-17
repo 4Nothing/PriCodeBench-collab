@@ -1,0 +1,41 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Two changes were made to `sys/include/net/gcoap.h`:
+
+1. **Added `#include <string.h>`** (line 400) for `strlen()`.
+
+2. **Implemented `gcoap_req_init`** (line 970-975) — it delegates to `gcoap_req_init_path_buffer`, computing the path length via `strlen()` when path is non-NULL, or passing 0 when path is NULL. This matches the documented behavior as a convenience wrapper for the null-terminated path case.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gcoap.h
++++ sys/include/net/gcoap.h
+@@ -397,6 +397,7 @@
+  */
+ 
+ #include <stdint.h>
++#include <string.h>
+ 
+ #include "event/callback.h"
+ #include "event/timeout.h"
+@@ -969,7 +970,8 @@
+ static inline int gcoap_req_init(coap_pkt_t *pdu, uint8_t *buf, size_t len,
+                                  unsigned code, const char *path)
+ {
+-    /* MASKED - implement this function */
++    return gcoap_req_init_path_buffer(pdu, buf, len, code, path,
++                                      path ? strlen(path) : 0);
+ }
+ 
+ /**
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

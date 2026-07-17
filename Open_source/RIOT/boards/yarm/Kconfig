@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2020 Antonio Galea
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "yarm" if BOARD_YARM
+
+config BOARD_YARM
+    bool
+    default y
+    select CPU_MODEL_SAML21J18B

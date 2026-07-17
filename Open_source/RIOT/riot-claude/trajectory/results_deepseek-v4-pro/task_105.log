@@ -1,0 +1,103 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `fib_sr_create` does:
+
+- **Acquires the table mutex** for thread safety (consistent with every other public function in the file).
+- **Validates parameters**: returns `-EFAULT` if `fib_sr` is NULL or `sr_lifetime` is 0 (a zero-lifetime entry would be effectively expired on creation).
+- **Finds a free slot** by iterating `table->data.source_routes->headers[]` looking for a slot with `sr_lifetime == 0` (the convention for free/expired slots).
+- **Initializes the slot**: sets `sr_iface_id`, `sr_flags`, converts `sr_lifetime` from ms to an absolute timestamp via `fib_lifetime_to_absolute()`, and sets `sr_path` and `sr_dest` to NULL (empty route).
+- **Sets the output pointer** `*fib_sr` to the newly created header.
+- **Returns** 0 on success, `-ENOBUFS` if no free slot is available.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -676,7 +676,30 @@
+ int fib_sr_create(fib_table_t *table, fib_sr_t **fib_sr, kernel_pid_t sr_iface_id,
+                   uint32_t sr_flags, uint32_t sr_lifetime)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++
++    if ((fib_sr == NULL) || (sr_lifetime == 0)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    for (size_t i = 0; i < table->size; ++i) {
++        if (table->data.source_routes->headers[i].sr_lifetime == 0) {
++            table->data.source_routes->headers[i].sr_iface_id = sr_iface_id;
++            table->data.source_routes->headers[i].sr_flags = sr_flags;
++            fib_lifetime_to_absolute(sr_lifetime,
++                                     &(table->data.source_routes->headers[i].sr_lifetime));
++            table->data.source_routes->headers[i].sr_path = NULL;
++            table->data.source_routes->headers[i].sr_dest = NULL;
++            *fib_sr = &(table->data.source_routes->headers[i]);
++
++            mutex_unlock(&(table->mtx_access));
++            return 0;
++        }
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return -ENOBUFS;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 126907	  36808	  86856	 250571	  3d2cb	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe8ee49000; bottom 0x000000439000; size: 0x7ffe8ea10000 (140731291336704)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

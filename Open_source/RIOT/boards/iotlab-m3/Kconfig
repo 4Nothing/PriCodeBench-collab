@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config BOARD
+    default "iotlab-m3" if BOARD_IOTLAB_M3
+
+config BOARD_IOTLAB_M3
+    bool
+    default y
+    select BOARD_COMMON_IOTLAB
+
+source "$(RIOTBOARD)/common/iotlab/Kconfig"

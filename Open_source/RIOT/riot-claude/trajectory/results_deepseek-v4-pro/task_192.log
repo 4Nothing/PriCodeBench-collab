@@ -1,0 +1,96 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. The function follows standard RFC 2104 HMAC-SHA256:
+
+1. **Key preparation**: If the key exceeds the 64-byte block size, it's hashed via `sha256()`; otherwise it's copied directly. The result is zero-padded into a 64-byte `key_block`.
+2. **Inner hash prep**: Each byte of `key_block` is XORed with the inner pad (0x36), then `sha256_init` + `sha2xx_update` prime `c_in` with this value.
+3. **Outer hash prep**: The bytes are flipped from ipad to opad by XORing with `0x36 ^ 0x5C`, then `c_out` is similarly primed.
+
+This matches the split init/update/final API already used by `hmac_sha256_update` and `hmac_sha256_final`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/sha256.c
++++ sys/hashes/sha256.c
+@@ -80,7 +80,27 @@
+ 
+ void hmac_sha256_init(hmac_context_t *ctx, const void *key, size_t key_length)
+ {
+-    /* MASKED - implement this function */
++    unsigned char key_block[SHA256_INTERNAL_BLOCK_SIZE];
++
++    memset(key_block, 0, sizeof(key_block));
++    if (key_length > SHA256_INTERNAL_BLOCK_SIZE) {
++        sha256(key, key_length, key_block);
++    }
++    else {
++        memcpy(key_block, key, key_length);
++    }
++
++    sha256_init(&ctx->c_in);
++    for (int i = 0; i < SHA256_INTERNAL_BLOCK_SIZE; i++) {
++        key_block[i] ^= 0x36;
++    }
++    sha2xx_update(&ctx->c_in, key_block, SHA256_INTERNAL_BLOCK_SIZE);
++
++    for (int i = 0; i < SHA256_INTERNAL_BLOCK_SIZE; i++) {
++        key_block[i] ^= 0x36 ^ 0x5C;
++    }
++    sha256_init(&ctx->c_out);
++    sha2xx_update(&ctx->c_out, key_block, SHA256_INTERNAL_BLOCK_SIZE);
+ }
+ 
+ void hmac_sha256_update(hmac_context_t *ctx, const void *data, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 221362	  74296	  82656	 378314	  5c5ca	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==433==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc5c73f000; bottom 0x00000045a000; size: 0x7ffc5c2e5000 (140721855025152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

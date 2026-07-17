@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2020 Inria
+# SPDX-License-Identifier: LGPL-2.1-only
+
+config CPU_FAM_F4
+    bool
+    select CPU_STM32
+    select CPU_CORE_CORTEX_M4F
+
+config CPU_FAM
+    default "f4" if CPU_FAM_F4
+
+config CLOCK_MAX_84MHZ
+    bool
+    help
+        Indicates that the CPU max core clock frequency is 84MHz
+
+config CLOCK_MAX_100MHZ
+    bool
+    help
+        Indicates that the CPU max core clock frequency is 100MHz
+
+config CLOCK_MAX_180MHZ
+    bool
+    help
+        Indicates that the CPU max core clock frequency is 180MHz

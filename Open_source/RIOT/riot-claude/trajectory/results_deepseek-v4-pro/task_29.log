@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what it does:
+
+- **Line 47**: Formats `addr[0]` as two uppercase hex chars using `fmt_byte_hex` (advances `out` by 2).
+- **Lines 48-51**: For each remaining byte (1-5), writes a colon separator then the hex pair.
+- **Line 52**: Null-terminates the string.
+
+This produces the format `XX:XX:XX:XX:XX:XX` (e.g., `AB:CD:EF:01:23:45`), which is the exact inverse of `bluetil_addr_from_str` — 17 characters + null = `BLUETIL_ADDR_STRLEN` (18).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/ble/bluetil/bluetil_addr/bluetil_addr.c
++++ sys/net/ble/bluetil/bluetil_addr/bluetil_addr.c
+@@ -44,7 +44,12 @@
+ 
+ void bluetil_addr_sprint(char *out, const uint8_t *addr)
+ {
+-    /* MASKED - implement this function */
++    out += fmt_byte_hex(out, addr[0]);
++    for (unsigned i = 1; i < BLE_ADDR_LEN; i++) {
++        *out++ = ':';
++        out += fmt_byte_hex(out, addr[i]);
++    }
++    *out = '\0';
+ }
+ 
+ void bluetil_addr_print(const uint8_t *addr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bluetil
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/ble/bluetil
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/ble/bluetil/bluetil_addr
+   text	   data	    bss	    dec	    hex	filename
+  77593	  32048	  78120	 187761	  2dd71	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+OK (1 tests)
+
+native: exiting
+
+--- stderr ---
+==334==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff65348000; bottom 0x00000042d000; size: 0x7fff64f1b000 (140734886948864)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

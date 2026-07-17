@@ -1,0 +1,110 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. `OsSemInit` now delegates to `OsSemInitCb()`, which handles:
+
+- Allocating the semaphore control block array (`g_allSem`) via `OsMemAllocAlign`
+- Zeroing it with `memset_s`
+- Initializing the unused semaphore list
+- Assigning each semaphore an ID and SMP spinlock
+- Adding them to the unused list
+
+This matches the two-phase init pattern used across the codebase (e.g., `OsQueueConfigInit`, `OsTskInit`): the register phase stores configuration, and the init phase allocates/initializes the runtime structures.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem_init.c
++++ src/core/ipc/sem/prt_sem_init.c
+@@ -90,7 +90,7 @@
+  */
+ OS_SEC_L4_TEXT U32 OsSemInit(void)
+ {
+-    /* MASKED - implement this function */
++    return OsSemInitCb();
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE void OsSemCreateCbInit(U32 count, U32 semType, enum SemMode semMode,
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    return OsSemInitCb();
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSemInit.c
+[CASE] OsSemInit calls InitCb
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] Free list populated
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] Sem IDs assigned
+  Expected: true
+  Actual  : true
+  Result  : PASS
+
+[CASE] Re-OsSemInit OK
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (4/4)
+
+--- stderr ---
+test_OsSemInit.c:11:18: warning: ‘g_semPrioLock’ defined but not used [-Wunused-variable]
+   11 | static uintptr_t g_semPrioLock = 0;
+      |                  ^~~~~~~~~~~~~
+In file included from prt_sem_external.h:2,
+                 from test_OsSemInit.c:2:
+auto_stub.h:1516:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1516 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1515:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1515 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1514:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1514 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1513:39: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1513 | static struct TagOsTskSortedDelayList g_tskSortedDelay[1];
+      |                                       ^~~~~~~~~~~~~~~~
+auto_stub.h:1512:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1512 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1511:14: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1511 | static void *g_tskCbArray = NULL;
+      |              ^~~~~~~~~~~~
+auto_stub.h:1510:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1510 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1509:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1509 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1508:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1508 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1507:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1507 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1506:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1506 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1505:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1505 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,43 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `bhp_msg_isr_cb` now does (`sys/bhp/msg.c:32-38`):
+
+- **Cast** the `void *` context to `bhp_msg_t *`
+- **Assert** that the target PID has been claimed (not `KERNEL_PID_UNDEF`) — as required by the doc comment
+- **Send the message** via `msg_send_int()`, the ISR-safe variant of the RIOT messaging API. The message was pre-initialized by `bhp_msg_init` with type `BHP_MSG_BH_REQUEST` and a pointer to the `bhp_t` descriptor, so `bhp_msg_handler` on the receiving thread will call `bhp_irq_handler` to execute the real callback.
+
+This mirrors the sibling `bhp_event_isr_cb` in `event.c` — cast the context, then post/dispatch to the target.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bhp/msg.c
++++ sys/bhp/msg.c
+@@ -17,6 +17,7 @@
+  *
+  * @}
+  */
++#include <assert.h>
+ #include <stdio.h>
+ #include "bhp/msg.h"
+ 
+@@ -30,5 +31,8 @@
+ 
+ void bhp_msg_isr_cb(void *bhp_msg_ctx)
+ {
+-    /* MASKED - implement this function */
++    bhp_msg_t *bhp_msg = bhp_msg_ctx;
++
++    assert(bhp_msg->pid != KERNEL_PID_UNDEF);
++    msg_send_int(&bhp_msg->msg, bhp_msg->pid);
+ }
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed, or forbidden keyword in function body
+
+

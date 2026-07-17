@@ -1,0 +1,66 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. The function now returns the TCB to the `g_tskCbFreeList` free list via `ListAdd`, consistent with the same error-handling pattern used in `pthread_create.c` and `kthread_create_on_node.c`. When `OsTaskCreateRsrcInit` fails during task creation, the partly-initialized TCB (taken from the free list by `OsTaskCreateChkAndGetTcb`) is recycled back so it can be reused by a subsequent task creation call.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -405,7 +405,7 @@
+ 
+ OS_SEC_ALW_INLINE INLINE void OsTaskManageFreeCb(struct TagTskCb *taskCB)
+ {
+-    /* MASKED - implement this function */
++    ListAdd(&taskCB->pendList, &g_tskCbFreeList);
+ }
+ /*
+  * 描述：创建一个任务但不进行激活
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    ListAdd(&taskCB->pendList, &g_tskCbFreeList);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskManageFreeCb.c
+[CASE] free not empty
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] count==2
+  Expected: 2
+  Actual  : 2
+  Result  : PASS
+
+[CASE] node linked
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] still one node
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+[CASE] circular links valid
+  Expected: 1
+  Actual  : 1
+  Result  : PASS
+
+Pass-Rate: 100.00%
+
+--- stderr ---
+
+
+

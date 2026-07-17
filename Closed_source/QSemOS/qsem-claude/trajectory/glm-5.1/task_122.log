@@ -1,0 +1,120 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_PerfStart` now does, mirroring the state-machine pattern established by `PRT_PerfStop`:
+
+1. **Lock** the spin lock for mutual exclusion
+2. **Validate status** — must be `PERF_STOPED`, otherwise prints an error and bails
+3. **Validate parameters** — checks `OsPerfParamValid()` (PMU registered, at least one event configured), with a diagnostic message if missing
+4. **Initialize header** — if `needStoreToBuffer` is set, writes the `PerfDataHdr` into the output buffer via `OsPerfHdrInit(sectionId)`
+5. **Start PMU** on all cores via `SMP_CALL_PERF_FUNC(OsPerfStart)`
+6. **Record state** — sets `status` to `PERF_STARTED` and captures `startTime`
+7. **Unlock** the spin lock (via the error label)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -420,7 +420,36 @@
+ 
+ void PRT_PerfStart(U32 sectionId)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++    U32 intSave;
++
++    PERF_LOCK(intSave);
++    if (g_perfCb.status != PERF_STOPED) {
++        PRT_Printf("perf start status error : 0x%x\n", g_perfCb.status);
++        goto PERF_START_ERROR;
++    }
++
++    if (OsPerfParamValid() == FALSE) {
++        PRT_Printf("forgot call `PRT_Config(...)` before instrumenting?\n");
++        goto PERF_START_ERROR;
++    }
++
++    if (g_perfCb.needStoreToBuffer) {
++        ret = OsPerfHdrInit(sectionId);
++        if (ret != OS_OK) {
++            PRT_Printf("perf header init error 0x%x\n", ret);
++            goto PERF_START_ERROR;
++        }
++    }
++
++    /* send to all cpu to start pmu */
++    SMP_CALL_PERF_FUNC(OsPerfStart);
++    g_perfCb.status = PERF_STARTED;
++    g_perfCb.startTime = OsCurCycleGet64();
++PERF_START_ERROR:
++    PERF_UNLOCK(intSave);
++
++    return;
+ }
+ 
+ void PRT_PerfStop(void)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+    U32 intSave;
+
+    PERF_LOCK(intSave);
+    if (g_perfCb.status != PERF_STOPED) {
+        PRT_Printf("perf start status error : 0x%x\n", g_perfCb.status);
+        goto PERF_START_ERROR;
+    }
+
+    if (OsPerfParamValid() == FALSE) {
+        PRT_Printf("forgot call `PRT_Config(...)` before instrumenting?\n");
+        goto PERF_START_ERROR;
+    }
+
+    if (g_perfCb.needStoreToBuffer) {
+        ret = OsPerfHdrInit(sectionId);
+        if (ret != OS_OK) {
+            PRT_Printf("perf header init error 0x%x\n", ret);
+            goto PERF_START_ERROR;
+        }
+    }
+
+    /* send to all cpu to start pmu */
+    SMP_CALL_PERF_FUNC(OsPerfStart);
+    g_perfCb.status = PERF_STARTED;
+    g_perfCb.startTime = OsCurCycleGet64();
+PERF_START_ERROR:
+    PERF_UNLOCK(intSave);
+
+    return;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfStart.c test_stubs.c
+[Invalid status] expect=1 actual=1 -> PASS
+[Not configured] expect=2 actual=2 -> PASS
+[Header write called] expect=1 actual=1 -> PASS
+[Status started] expect=1 actual=1 -> PASS
+[Start time] -> PASS
+Pass-Rate: 100.00% (5/5)
+
+--- stderr ---
+test_PRT_PerfStart.c:36:21: warning: missing braces around initializer [-Wmissing-braces]
+   36 | static Pmu g_pmux = {.events = {{0}}, .type = 2, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+test_PRT_PerfStart.c:36:21: warning: missing braces around initializer [-Wmissing-braces]
+   36 | static Pmu g_pmux = {.events = {{0}}, .type = 2, .config = pmu_cfg, .start = pmu_start, .stop = pmu_stop, .getName = name_fn};
+      |                     ^
+      |                                  {}
+
+
+

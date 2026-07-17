@@ -1,0 +1,198 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It mirrors `OsSwtmrIqrSplLock` at line 30:
+
+- **Lock** saves interrupt state, then acquires the spinlock on `g_tmrSortLink[swtmr->coreID]` (retrying if the coreID changes mid-acquisition).
+- **Unlock** gets the sort link for the swtmr's core, releases the spinlock, then restores the interrupt state.
+
+This is exactly the inverse operation and matches the expected implementation in the test fixture.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -54,7 +54,10 @@
+ 
+ OS_SEC_L4_TEXT uintptr_t OsSwtmrIqrSplUnlock(struct TagSwTmrCtrl *swtmr, uintptr_t intSave)
+ {
+-    /* MASKED - implement this function */
++    struct TagSwTmrSortLinkAttr *tmrSort = NULL;
++    tmrSort = CPU_SWTMR_SORT_LINK(swtmr->coreID);
++    OsSplUnlock(&tmrSort->spinLock);
++    OsIntRestore(intSave);
+ }
+ #else
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemain(struct TagSwTmrCtrl *swtmr)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagSwTmrSortLinkAttr *tmrSort = NULL;
+    tmrSort = CPU_SWTMR_SORT_LINK(swtmr->coreID);
+    OsSplUnlock(&tmrSort->spinLock);
+    OsIntRestore(intSave);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsSwtmrIqrSplUnlock.c test_support.c notifier_test_stubs.c
+[unlock ok               ] expect=0, actual=0 => PASS
+[unlock token ignored    ] expect=0, actual=0 => PASS
+[unlock after lock       ] expect=0, actual=0 => PASS
+[double unlock           ] expect=0, actual=0 => PASS
+[unlock other timer      ] expect=0, actual=0 => PASS
+
+OsSwtmrIqrSplUnlock Pass-Rate: 100.00% (5/5)
+
+
+--- stderr ---
+test_OsSwtmrIqrSplUnlock.c: In function ‘main’:
+test_OsSwtmrIqrSplUnlock.c:33:25: warning: unused variable ‘t2’ [-Wunused-variable]
+   33 |     struct TagSwTmrCtrl t2 = {0};
+      |                         ^~
+test_OsSwtmrIqrSplUnlock.c:13:25: warning: unused variable ‘t’ [-Wunused-variable]
+   13 |     struct TagSwTmrCtrl t = {0};
+      |                         ^
+In file included from test_support.h:4,
+                 from test_OsSwtmrIqrSplUnlock.c:4:
+auto_stub.h: At top level:
+auto_stub.h:1320:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1320 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1319 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1318:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1318 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1317:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1316:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1316 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1315:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1315 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1314:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1314 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1313:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1313 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1312:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1312 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1311:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1311 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1310:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1310 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1309:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1309 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1308:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1308 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1307:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1307 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from test_support.c:5:
+auto_stub.h:1320:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1320 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1319 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1318:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1318 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1317:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1316:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1316 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1315:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1315 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1314:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1314 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1313:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1313 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1312:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1312 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1311:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1311 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1310:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1310 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1309:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1309 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1308:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1308 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1307:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1307 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+In file included from prt_hwi.h:2,
+                 from notifier_test_stubs.c:3:
+auto_stub.h:1320:32: warning: ‘g_osRtSingleSchedClass’ defined but not used [-Wunused-variable]
+ 1320 | static struct TagScheduleClass g_osRtSingleSchedClass = {0};
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+auto_stub.h:1319:14: warning: ‘g_tskSem’ defined but not used [-Wunused-variable]
+ 1319 | static void *g_tskSem = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1318:14: warning: ‘g_semTsk’ defined but not used [-Wunused-variable]
+ 1318 | static void *g_semTsk = NULL;
+      |              ^~~~~~~~
+auto_stub.h:1317:25: warning: ‘g_runningTask’ defined but not used [-Wunused-variable]
+ 1317 | static struct TagTskCb *g_runningTask = NULL;
+      |                         ^~~~~~~~~~~~~
+auto_stub.h:1316:13: warning: ‘g_tskSortedDelay’ defined but not used [-Wunused-variable]
+ 1316 | static char g_tskSortedDelay[128];  /* placeholder */
+      |             ^~~~~~~~~~~~~~~~
+auto_stub.h:1315:27: warning: ‘g_runQueue’ defined but not used [-Wunused-variable]
+ 1315 | static struct TagOsRunQue g_runQueue[1];
+      |                           ^~~~~~~~~~
+auto_stub.h:1314:25: warning: ‘g_tskCbArray’ defined but not used [-Wunused-variable]
+ 1314 | static struct TagTskCb *g_tskCbArray = NULL;
+      |                         ^~~~~~~~~~~~
+auto_stub.h:1313:12: warning: ‘g_createTskLock’ defined but not used [-Wunused-variable]
+ 1313 | static U32 g_createTskLock = 0;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1312:12: warning: ‘g_tickNoRespondCnt’ defined but not used [-Wunused-variable]
+ 1312 | static U32 g_tickNoRespondCnt = 0;
+      |            ^~~~~~~~~~~~~~~~~~
+auto_stub.h:1311:12: warning: ‘g_uniTaskLock’ defined but not used [-Wunused-variable]
+ 1311 | static U32 g_uniTaskLock = 0;
+      |            ^~~~~~~~~~~~~
+auto_stub.h:1310:12: warning: ‘g_maxNumOfCores’ defined but not used [-Wunused-variable]
+ 1310 | static U32 g_maxNumOfCores = 1;
+      |            ^~~~~~~~~~~~~~~
+auto_stub.h:1309:12: warning: ‘g_idleTaskId’ defined but not used [-Wunused-variable]
+ 1309 | static U32 g_idleTaskId = 0;
+      |            ^~~~~~~~~~~~
+auto_stub.h:1308:12: warning: ‘g_tskMaxNum’ defined but not used [-Wunused-variable]
+ 1308 | static U32 g_tskMaxNum = 0;
+      |            ^~~~~~~~~~~
+auto_stub.h:1307:12: warning: ‘g_tskBaseId’ defined but not used [-Wunused-variable]
+ 1307 | static U32 g_tskBaseId = 0;
+      |            ^~~~~~~~~~~
+
+
+

@@ -1,0 +1,84 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what it does:
+
+1. **Validates** `f_op` is not NULL — returns `-EINVAL` if it is
+2. **Locks** `_open_mutex` for thread safety while manipulating the open files table
+3. **Calls** `_init_fd` which allocates an fd slot (using the requested `fd` number or finding a free one if `VFS_ANY_FD`), initializes the `vfs_file_t` entry with the given `f_op`, `flags`, `private_data`, and sets `mountp` to `NULL` (since bound fds aren't associated with any file system mount point)
+4. **Unlocks** the mutex and returns the fd number (or a negative error code from `_init_fd`)
+
+This follows the same pattern as `vfs_open` but without the mount-point lookup and without calling an `open` callback — bound file descriptors are device-style fds that are ready to use immediately.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -897,7 +897,13 @@
+ 
+ int vfs_bind(int fd, int flags, const vfs_file_ops_t *f_op, void *private_data)
+ {
+-    /* MASKED - implement this function */
++    if (f_op == NULL) {
++        return -EINVAL;
++    }
++    mutex_lock(&_open_mutex);
++    fd = _init_fd(fd, f_op, NULL, flags, private_data);
++    mutex_unlock(&_open_mutex);
++    return fd;
+ }
+ 
+ int vfs_normalize_path(char *buf, const char *path, size_t buflen)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-vfs
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/fs/constfs
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 123304	  45128	  79328	 247760	  3c7d0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................
+OK (40 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==361==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc61501000; bottom 0x00000043b000; size: 0x7ffc610c6000 (140721936687104)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

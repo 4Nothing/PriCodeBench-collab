@@ -1,0 +1,148 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `fib_get_destination_set` now does:
+
+1. **Acquires the table mutex** for thread-safe access
+2. **First pass** — iterates all entries, auto-invalidates expired ones (same pattern as `fib_find_entry` at line 85), and counts entries whose `global` address matches the given `prefix` via `universal_address_compare_prefix`
+3. **Returns `-EHOSTUNREACH`** with `*dst_set_size = 0` if no matching entries exist
+4. **Returns `-ENOBUFS`** with `*dst_set_size` set to the actual count if the caller's buffer is `NULL` or too small (matching the documented behavior: "If the out buffer is insufficient low or passed as NULL, the function will continue to count the number of matching entries and provide the number to the caller")
+5. **Second pass** — fills `dst_set` with each matching entry's destination address and its size
+6. **Returns `0`** on success
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -548,7 +548,75 @@
+                             fib_destination_set_entry_t *dst_set,
+                             size_t* dst_set_size)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++
++    uint64_t now = xtimer_now_usec64();
++    size_t count = 0;
++
++    for (size_t i = 0; i < table->size; ++i) {
++        /* autoinvalidate if the entry lifetime is not set to not expire */
++        if (table->data.entries[i].lifetime != FIB_LIFETIME_NO_EXPIRE) {
++            if (table->data.entries[i].lifetime < now) {
++                table->data.entries[i].lifetime = 0;
++                table->data.entries[i].global_flags = 0;
++                table->data.entries[i].next_hop_flags = 0;
++                table->data.entries[i].iface_id = KERNEL_PID_UNDEF;
++
++                if (table->data.entries[i].global != NULL) {
++                    universal_address_rem(table->data.entries[i].global);
++                    table->data.entries[i].global = NULL;
++                }
++
++                if (table->data.entries[i].next_hop != NULL) {
++                    universal_address_rem(table->data.entries[i].next_hop);
++                    table->data.entries[i].next_hop = NULL;
++                }
++            }
++        }
++
++        if (table->data.entries[i].lifetime != 0 &&
++            table->data.entries[i].global != NULL) {
++            int ret = universal_address_compare_prefix(table->data.entries[i].global,
++                                                       prefix, prefix_size << 3);
++            if (ret == UNIVERSAL_ADDRESS_EQUAL ||
++                ret == UNIVERSAL_ADDRESS_MATCHING_PREFIX) {
++                count++;
++            }
++        }
++    }
++
++    if (count == 0) {
++        *dst_set_size = 0;
++        mutex_unlock(&(table->mtx_access));
++        return -EHOSTUNREACH;
++    }
++
++    if (dst_set == NULL || *dst_set_size < count) {
++        *dst_set_size = count;
++        mutex_unlock(&(table->mtx_access));
++        return -ENOBUFS;
++    }
++
++    size_t idx = 0;
++    for (size_t i = 0; i < table->size; ++i) {
++        if (table->data.entries[i].lifetime != 0 &&
++            table->data.entries[i].global != NULL) {
++            int ret = universal_address_compare_prefix(table->data.entries[i].global,
++                                                       prefix, prefix_size << 3);
++            if (ret == UNIVERSAL_ADDRESS_EQUAL ||
++                ret == UNIVERSAL_ADDRESS_MATCHING_PREFIX) {
++                size_t addr_size = sizeof(dst_set[idx].dest);
++                universal_address_get_address(table->data.entries[i].global,
++                                              dst_set[idx].dest, &addr_size);
++                dst_set[idx].dest_size = addr_size;
++                idx++;
++            }
++        }
++    }
++
++    *dst_set_size = count;
++    mutex_unlock(&(table->mtx_access));
++    return 0;
+ }
+ 
+ void fib_init(fib_table_t *table)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 129434	  37800	  80456	 247690	  3c78a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................
+OK (20 tests)
+
+native: exiting
+
+--- stderr ---
+==391==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffeb24ff000; bottom 0x00000043b000; size: 0x7ffeb20c4000 (140731885568000)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+
