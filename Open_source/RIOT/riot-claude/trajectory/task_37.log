@@ -1,0 +1,84 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `coap_build_reply` does:
+
+1. **Delegates to `coap_build_reply_header`** with `COAP_FORMAT_NONE` and no payload pointer — this handles all the header-building logic: reply type selection (ACK for CON requests, NON otherwise), token copying, No-Response option checking (returns `-ECANCELED` if matching), extended token length support, and buffer overflow for the header itself (returns `-ENOBUFS`).
+2. **Checks remaining space** — ensures the header plus `payload_len` bytes of additional data (options, payload marker, payload) fits in `rlen` (returns `-ENOSPC` if not).
+3. **Returns `header_len + payload_len`** — matching the documented API contract so callers can subtract `payload_len` to get the actual header offset for writing options and payload.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -737,7 +737,17 @@
+ ssize_t coap_build_reply(coap_pkt_t *pkt, unsigned code,
+                          uint8_t *rbuf, unsigned rlen, unsigned payload_len)
+ {
+-    /* MASKED - implement this function */
++    ssize_t hdr_len = coap_build_reply_header(pkt, code, rbuf, rlen,
++                                              COAP_FORMAT_NONE, NULL, NULL);
++    if (hdr_len < 0) {
++        return hdr_len;
++    }
++
++    if ((unsigned)hdr_len + payload_len > rlen) {
++        return -ENOSPC;
++    }
++
++    return hdr_len + payload_len;
+ }
+ 
+ ssize_t coap_build_udp_hdr(void *buf, size_t buf_len, uint8_t type,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147012	  36040	  78120	 261172	  3fc34	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................................
+nanocoap_tests.test_nanocoap___rst_message (tests/unittests/tests-nanocoap/tests-nanocoap.c 1256) exp 4 was 8
+.
+run 37 failures 1
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcc7302000; bottom 0x00000043f000; size: 0x7ffcc6ec3000 (140723645853696)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

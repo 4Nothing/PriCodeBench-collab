@@ -1,6 +1,3 @@
 *.faiss
-# Experiment outputs
-trajectory/
-results/
-*.log
-*.bak
+__pycache__/
+*.pyc

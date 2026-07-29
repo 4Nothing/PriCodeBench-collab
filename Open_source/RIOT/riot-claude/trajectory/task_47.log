@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. The function formats `key=value` (or just `key` when no value is given) and adds it as a `COAP_OPT_URI_QUERY` option to the CoAP packet:
+
+- **val_len == 0**: Passes the key directly to `_add_opt_pkt` — no temporary buffer needed since the key is already a contiguous range.
+- **val_len > 0**: Concatenates `key`, `=`, and `val` into a stack buffer (sized to `CONFIG_NANOCOAP_URI_MAX`, 64 bytes by default), then passes that to `_add_opt_pkt`. Returns `-ENOSPC` if the combined string exceeds the buffer.
+- Asserts match the preconditions documented in the header (`nanocoap.h:1643-1644`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -1224,7 +1224,24 @@
+ ssize_t coap_opt_add_uri_query2(coap_pkt_t *pkt, const char *key, size_t key_len,
+                                 const char *val, size_t val_len)
+ {
+-    /* MASKED - implement this function */
++    assert(pkt != NULL);
++    assert(key != NULL);
++    assert(key_len > 0);
++    assert((val_len == 0) || ((val != NULL) && (val_len > 0)));
++
++    if (val_len) {
++        char buf[CONFIG_NANOCOAP_URI_MAX];
++        size_t total_len = key_len + val_len + 1;
++        if (total_len > sizeof(buf)) {
++            return -ENOSPC;
++        }
++        memcpy(buf, key, key_len);
++        buf[key_len] = '=';
++        memcpy(buf + key_len + 1, val, val_len);
++        return _add_opt_pkt(pkt, COAP_OPT_URI_QUERY, (uint8_t *)buf, total_len);
++    }
++
++    return _add_opt_pkt(pkt, COAP_OPT_URI_QUERY, (const uint8_t *)key, key_len);
+ }
+ 
+ ssize_t coap_opt_add_opaque(coap_pkt_t *pkt, uint16_t optnum, const void *val, size_t val_len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147787	  36040	  78120	 261947	  3ff3b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe1d184000; bottom 0x00000043f000; size: 0x7ffe1cd45000 (140729382096896)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x721bf623cac4 bp 0x00000043aa20 sp 0x00000043a918 T0)
+==329==The signal is caused by a READ memory access.
+==329==Hint: address points to the zero page.
+    #0 0x721bf623cac4  (/lib/x86_64-linux-gnu/libc.so.6+0x188ac4) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #1 0x40e4f1 in coap_opt_add_uri_query2 /workspace/sys/net/application_layer/nanocoap/nanocoap.c:1240
+    #2 0x4172a4 in test_nanocoap__add_uri_query2 /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:480
+    #3 0x408c02 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #4 0x408a5c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #5 0x4091b6 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #6 0x41985d in tests_nanocoap /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1333
+    #7 0x402a17 in main /workspace/tests/unittests/main.c:47
+    #8 0x40383d in main_trampoline /workspace/core/lib/init.c:60
+    #9 0x721bf6112f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x188ac4) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb) 
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

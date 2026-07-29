@@ -1,0 +1,179 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation looks solid. Here's a summary of what the function does:
+
+1. **Finds the option** by searching `pkt->options[]` for a matching `opt_num`
+2. **If not found**, returns the current packet size unchanged
+3. **Removes from buffer** — calculates the byte range and uses `memmove` to shift everything after it left
+4. **Updates metadata** — adjusts `payload`, `payload_len`, compacts the `options[]` array (shifting entries and updating offsets), and shifts the `opt_crit` bitfield
+5. **Fixes delta encoding** — the option that now follows the removed one had its delta relative to the removed option; it's rewritten with the new delta relative to the option preceding the removed one. If the new delta header is a different size from the old one, remaining buffer contents are shifted to accommodate
+6. **Returns** the new packet size, or `-EINVAL` if option parsing fails
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -1294,7 +1294,95 @@
+ 
+ ssize_t coap_opt_remove(coap_pkt_t *pkt, uint16_t opt_num)
+ {
+-    /* MASKED - implement this function */
++    /* Find the option index in the options array */
++    int idx = -1;
++
++    for (unsigned i = 0; i < pkt->options_len; i++) {
++        if (pkt->options[i].opt_num == opt_num) {
++            idx = (int)i;
++            break;
++        }
++    }
++
++    if (idx < 0) {
++        return pkt->payload - pkt->buf;
++    }
++
++    uint8_t *buf = pkt->buf;
++    uint8_t *del_start = buf + pkt->options[idx].offset;
++    uint8_t *del_end;
++    unsigned old_len = pkt->options_len;
++
++    if ((unsigned)(idx + 1) < old_len) {
++        del_end = buf + pkt->options[idx + 1].offset;
++    }
++    else {
++        del_end = pkt->payload;
++    }
++
++    size_t removed_len = del_end - del_start;
++
++    /* Shift everything after the removed option left */
++    memmove(del_start, del_end, pkt->payload - del_end);
++
++    pkt->payload -= removed_len;
++    pkt->payload_len += removed_len;
++
++    /* Compact the options array and update offsets */
++    pkt->options_len--;
++    for (unsigned i = idx; i < pkt->options_len; i++) {
++        pkt->options[i] = pkt->options[i + 1];
++        pkt->options[i].offset -= removed_len;
++    }
++
++    /* Shift the critical-option bitfield */
++    for (unsigned i = idx; i < old_len - 1; i++) {
++        if (bf_isset(pkt->opt_crit, i + 1)) {
++            bf_set(pkt->opt_crit, i);
++        }
++        else {
++            bf_unset(pkt->opt_crit, i);
++        }
++    }
++    bf_unset(pkt->opt_crit, old_len - 1);
++
++    /* Fix the delta encoding of the option that now follows the removed one */
++    if ((unsigned)idx < pkt->options_len) {
++        uint8_t *opt_start = buf + pkt->options[idx].offset;
++        uint16_t prev_opt_num = (idx > 0) ? pkt->options[idx - 1].opt_num : 0;
++        unsigned new_delta = pkt->options[idx].opt_num - prev_opt_num;
++
++        uint16_t old_delta;
++        int val_len;
++        uint8_t *val_start = _parse_option(pkt, opt_start, &old_delta, &val_len);
++        if (!val_start) {
++            return -EINVAL;
++        }
++
++        size_t old_hdr_len = val_start - opt_start;
++
++        uint8_t dummy[5] = { 0 };
++        unsigned new_hdr_len = _put_delta_optlen(dummy, 1, 4, new_delta);
++        new_hdr_len = _put_delta_optlen(dummy, new_hdr_len, 0, (unsigned)val_len);
++
++        int diff = (int)new_hdr_len - (int)old_hdr_len;
++
++        if (diff != 0) {
++            memmove(val_start + diff, val_start, pkt->payload - val_start);
++            pkt->payload += diff;
++            pkt->payload_len -= diff;
++
++            for (unsigned i = (unsigned)idx + 1; i < pkt->options_len; i++) {
++                pkt->options[i].offset += diff;
++            }
++        }
++
++        opt_start[0] = 0;
++        _put_delta_optlen(opt_start, 1, 4, new_delta);
++        _put_delta_optlen(opt_start, 0, 0, (unsigned)val_len);
++    }
++
++    return pkt->payload - pkt->buf;
+ }
+ 
+ ssize_t coap_payload_put_bytes(coap_pkt_t *pkt, const void *data, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 148069	  36040	  78120	 262229	  40055	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............
+nanocoap_tests.test_nanocoap__option_remove_delta_1 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 35 was 19
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_7 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 36 was 20
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_13 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 41 was 25
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_32 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 41 was 25
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_135 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 42 was 26
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_269 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 47 was 31
+.
+nanocoap_tests.test_nanocoap__option_remove_delta_512 (tests/unittests/tests-nanocoap/tests-nanocoap.c 562) exp 47 was 31
+.
+nanocoap_tests.test_nanocoap__option_remove_no_payload (tests/unittests/tests-nanocoap/tests-nanocoap.c 709) exp 0 was 3
+................
+run 37 failures 8
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff6dbaa000; bottom 0x00000043f000; size: 0x7fff6d76b000 (140735029882880)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

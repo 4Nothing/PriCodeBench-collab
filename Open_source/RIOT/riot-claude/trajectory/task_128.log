@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation:
+
+- Uses `fmt_strlen` to get the hex string length
+- Returns 0 for odd-length strings (per the header docs)
+- Divides the length by 2 to get the byte count
+- When `out` is non-NULL, iterates through the string 2 characters at a time, using the existing `fmt_hex_byte` helper to convert each pair to a byte
+- Returns just the byte count when `out` is NULL (standard pattern used by all other `fmt_*` functions in this file)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/fmt/fmt.c
++++ sys/fmt/fmt.c
+@@ -164,7 +164,21 @@
+ 
+ size_t fmt_hex_bytes(uint8_t *out, const char *hex)
+ {
+-    /* MASKED - implement this function */
++    size_t len = fmt_strlen(hex);
++
++    if (len & 1) {
++        return 0;
++    }
++
++    len >>= 1;
++
++    if (out) {
++        for (size_t i = 0; i < len; i++) {
++            out[i] = fmt_hex_byte(&hex[i * 2]);
++        }
++    }
++
++    return len;
+ }
+ 
+ size_t fmt_u16_hex(char *out, uint16_t val)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fmt
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 132496	  42848	  78120	 253464	  3de18	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.................................
+OK (33 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe69c26000; bottom 0x00000043d000; size: 0x7ffe697e9000 (140730668322816)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

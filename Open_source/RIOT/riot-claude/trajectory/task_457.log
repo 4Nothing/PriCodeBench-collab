@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is straightforward. `_clist_sort` already handles the circular list — it takes the head, sorts in place using bottom-up merge sort, and returns the tail (with the circle kept intact). The wrapper just needs to extract the head via `list->next->next`, call `_clist_sort`, and rewire the sentinel's `next` to point at the new tail. The empty-list case (`list->next == NULL`) is a no-op.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -438,7 +438,9 @@
+  */
+ static inline void clist_sort(clist_node_t *list, clist_cmp_func_t cmp)
+ {
+-    /* MASKED - implement this function */
++    if (list->next) {
++        list->next = _clist_sort(list->next->next, cmp);
++    }
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 134947	  51816	  96776	 283539	  45393	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==364==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdb18f7000; bottom 0x000000440000; size: 0x7ffdb14b7000 (140727577964544)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==364==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

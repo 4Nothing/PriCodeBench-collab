@@ -1,0 +1,106 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+- **Tracks partial reads** with `pos`, advancing the buffer pointer and decreasing the remaining count each time data arrives
+- **Non-blocking first attempt**: tries `tsrb_get` immediately before setting up any timer
+- **Blocking wait with timeout**: when no data is available, sets the ztimer and blocks on the mutex (signaled by either the ISR when data arrives, or the timer callback on timeout)
+- **Timeout reset**: each time data is received, the timer is removed and re-issued on the next blocking iteration — so the timeout resets per the documented contract
+- **Return semantics**: on full read, returns `count`; on timeout with partial data, returns bytes read so far; on timeout with no data, returns `-ETIMEDOUT`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/isrpipe/read_timeout/read_timeout.c
++++ sys/isrpipe/read_timeout/read_timeout.c
+@@ -60,5 +60,32 @@
+ 
+ int isrpipe_read_all_timeout(isrpipe_t *isrpipe, uint8_t *buffer, size_t count, uint32_t timeout)
+ {
+-    /* MASKED - implement this function */
++    size_t pos = 0;
++
++    _isrpipe_timeout_t _timeout = { .mutex = &isrpipe->mutex, .flag = 0 };
++    ztimer_t timer = { .callback = _cb, .arg = &_timeout };
++
++    while (pos < count) {
++        int res = tsrb_get(&isrpipe->tsrb, buffer + pos, count - pos);
++        if (res > 0) {
++            pos += res;
++            continue;
++        }
++
++        _timeout.flag = 0;
++        ztimer_set(ZTIMER_USEC, &timer, timeout);
++        while ((res = tsrb_get(&isrpipe->tsrb, buffer + pos, count - pos)) == 0) {
++            mutex_lock(&isrpipe->mutex);
++            if (_timeout.flag) {
++                if (pos == 0) {
++                    return -ETIMEDOUT;
++                }
++                return pos;
++            }
++        }
++        pos += res;
++        ztimer_remove(ZTIMER_USEC, &timer);
++    }
++
++    return pos;
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-isrpipe
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/isrpipe
+"make" -C /workspace/sys/isrpipe/read_timeout
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/tsrb
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+  96047	  34296	  82728	 213071	  3404f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+isrpipe_tests.test_read_all_timeout (tests/unittests/tests-isrpipe/tests-isrpipe-read_timeout.c 79) exp -110 was 1
+
+run 8 failures 1
+
+native: exiting
+
+--- stderr ---
+==387==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffc5cb2000; bottom 0x000000431000; size: 0x7fffc5881000 (140736507416576)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==387==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

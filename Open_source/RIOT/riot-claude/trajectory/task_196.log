@@ -1,0 +1,110 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function mirrors the same offset-tracking logic used by `ieee802154_get_src` (line 120) and `ieee802154_set_frame_hdr` (line 24):
+
+1. **Base offset = 3** (2 bytes FCF + 1 byte sequence number)
+2. **Destination address**: adds 2 (PAN) + 2/8 (short/long addr), or stays at 3 for VOID. Reserved mode returns 0 (error). PAN compression without a destination address is illegal and also returns 0.
+3. **Source address**: if not VOID, adds 2 for src PAN (unless PAN compression is set or mode is reserved). Then adds 2/8 for short/long addr. Reserved mode returns 0.
+
+This matches the frame layout written by `ieee802154_set_frame_hdr` and parsed by `ieee802154_get_src`/`ieee802154_get_dst`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -114,7 +114,41 @@
+ 
+ size_t ieee802154_get_frame_hdr_len(const uint8_t *mhr)
+ {
+-    /* MASKED - implement this function */
++    int offset = 3; /* FCF: 0-1, Seq: 2 */
++    uint8_t tmp;
++
++    tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
++        offset += 4;    /* 2 (dst PAN) + 2 (short addr) */
++    }
++    else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
++        offset += 10;   /* 2 (dst PAN) + 8 (long addr) */
++    }
++    else if (tmp != IEEE802154_FCF_DST_ADDR_VOID) {
++        return 0;       /* reserved dst addr mode */
++    }
++    else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++        return 0;       /* PAN compression without destination address */
++    }
++
++    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP) &&
++            (tmp != IEEE802154_FCF_SRC_ADDR_RESV)) {
++            offset += 2;    /* src PAN */
++        }
++    }
++    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
++        offset += 2;
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
++        offset += 8;
++    }
++    else if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        return 0;       /* reserved src addr mode */
++    }
++
++    return offset;
+ }
+ 
+ int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 154020	  36616	  78152	 268788	  419f4	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+ieee802154_tests.test_ieee802154_get_frame_hdr_len_dst0_src0 (tests/unittests/tests-ieee802154/tests-ieee802154.c 410) exp 0 was 3
+.....................................................
+run 69 failures 1
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdc6bac000; bottom 0x000000441000; size: 0x7ffdc676b000 (140727933120512)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

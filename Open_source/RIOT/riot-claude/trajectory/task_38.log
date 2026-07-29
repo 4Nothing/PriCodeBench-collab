@@ -1,0 +1,144 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what `coap_build_reply_header` does:
+
+1. **Determines the message type**: `ACK` if replying to a `CON` request, `NON` otherwise; `RST` if code is `COAP_CODE_EMPTY` (0), which also clears the token.
+2. **Checks the No-Response option**: If the sender indicated disinterest in this response class, returns `-ECANCELED` (skipped for RST messages since `code >> 5` would underflow).
+3. **Builds the UDP header** via `coap_build_udp_hdr`, passing through any error.
+4. **Adds Content-Format option** if `ct != COAP_FORMAT_NONE`, using `coap_put_option_ct`.
+5. **Adds the payload marker** (`0xFF`), returning `-ENOSPC` if there's no room.
+6. **Sets `payload` and `payload_len_max`** so the caller knows where to write payload data and how much space remains.
+7. **Updates `pkt->hdr`** to point at the response buffer (matching the existing hack in `coap_build_reply`).
+8. **Returns the header length** (UDP header + token + options + payload marker).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -637,7 +637,58 @@
+                                 uint16_t ct,
+                                 void **payload, size_t *payload_len_max)
+ {
+-    /* MASKED - implement this function */
++    unsigned tkl = coap_get_token_len(pkt);
++    unsigned type = COAP_TYPE_NON;
++
++    if (code == 0) {
++        type = COAP_TYPE_RST;
++        tkl = 0;
++    }
++    else if (coap_get_type(pkt) == COAP_TYPE_CON) {
++        type = COAP_TYPE_ACK;
++    }
++
++    if (code != 0) {
++        uint32_t no_response;
++        if (coap_opt_get_uint(pkt, COAP_OPT_NO_RESPONSE, &no_response) == 0) {
++            const uint8_t no_response_index = (code >> 5) - 1;
++            assert(no_response_index < 7);
++            const uint8_t mask = 1 << no_response_index;
++            if (no_response & mask) {
++                return -ECANCELED;
++            }
++        }
++    }
++
++    ssize_t hdr_len = coap_build_udp_hdr(buf, len, type,
++                                         coap_get_token(pkt), tkl, code,
++                                         coap_get_id(pkt));
++    if (hdr_len < 0) {
++        return hdr_len;
++    }
++
++    uint8_t *bufpos = (uint8_t *)buf + hdr_len;
++
++    if (ct != COAP_FORMAT_NONE) {
++        size_t opt_len = coap_put_option_ct(bufpos, 0, ct);
++        bufpos += opt_len;
++        hdr_len += opt_len;
++    }
++
++    if ((size_t)hdr_len >= len) {
++        return -ENOSPC;
++    }
++    *bufpos++ = COAP_PAYLOAD_MARKER;
++    hdr_len++;
++
++    if (payload) {
++        *payload = bufpos;
++    }
++    *payload_len_max = len - hdr_len;
++
++    pkt->hdr = buf;
++
++    return hdr_len;
+ }
+ 
+ ssize_t coap_reply_simple(coap_pkt_t *pkt,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147749	  36040	  78120	 261909	  3ff15	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..................................
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe5bf0f000; bottom 0x00000043f000; size: 0x7ffe5bad0000 (140730436485120)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x00000040df38 bp 0x00000043ab80 sp 0x00000043aab0 T0)
+==329==The signal is caused by a WRITE memory access.
+==329==Hint: address points to the zero page.
+    #0 0x40df38 in coap_build_reply_header /workspace/sys/net/application_layer/nanocoap/nanocoap.c:687
+    #1 0x412167 in test_nanocoap__token_length_ext_16 /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1155
+    #2 0x408c02 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x408a5c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x4091b6 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x41982f in tests_nanocoap /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1333
+    #6 0x402a17 in main /workspace/tests/unittests/main.c:47
+    #7 0x40383d in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x77764aba0f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /workspace/sys/net/application_layer/nanocoap/nanocoap.c:687 in coap_build_reply_header
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

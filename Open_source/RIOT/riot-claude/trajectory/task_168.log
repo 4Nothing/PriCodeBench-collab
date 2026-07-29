@@ -1,0 +1,110 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `gnrc_pktbuf_mark` does:
+
+1. **Validates inputs** — returns `NULL` if `pkt` is NULL, `size` is 0, `size > pkt->size`, or `pkt->data` is NULL
+2. **Locks the mutex** for thread-safe access to the static buffer
+3. **Allocates a new snip** from the static buffer via `_pktbuf_alloc`
+4. **Sets up the new snip** — its `data` points to the same address as `pkt->data` (the first `size` bytes), its `next` points to the original `pkt->next`, and its type is set
+5. **Inserts the snip** into the chain: `pkt->next = snip`
+6. **Advances `pkt`** past the marked bytes — either moving `pkt->data` forward by `size` and reducing `pkt->size`, or (when the whole packet is marked) setting `pkt->data = NULL` and `pkt->size = 0`
+7. **Unlocks** and returns the new snip
+
+Unlike the malloc-based implementation, the static version doesn't need to copy or realloc data — since all data lives in the contiguous static buffer, multiple snips can safely point to different offsets within it.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -98,7 +98,33 @@
+ 
+ gnrc_pktsnip_t *gnrc_pktbuf_mark(gnrc_pktsnip_t *pkt, size_t size, gnrc_nettype_t type)
+ {
+-    /* MASKED - implement this function */
++    gnrc_pktsnip_t *snip;
++
++    if (pkt == NULL || size == 0 || size > pkt->size || pkt->data == NULL) {
++        return NULL;
++    }
++
++    mutex_lock(&gnrc_pktbuf_mutex);
++    snip = _pktbuf_alloc(sizeof(gnrc_pktsnip_t));
++    if (snip == NULL) {
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return NULL;
++    }
++
++    _set_pktsnip(snip, pkt->next, pkt->data, size, type);
++    pkt->next = snip;
++
++    if (size == pkt->size) {
++        pkt->data = NULL;
++        pkt->size = 0;
++    }
++    else {
++        pkt->data = ((uint8_t *)pkt->data) + size;
++        pkt->size -= size;
++    }
++
++    mutex_unlock(&gnrc_pktbuf_mutex);
++    return snip;
+ }
+ 
+ int gnrc_pktbuf_realloc_data(gnrc_pktsnip_t *pkt, size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119722	  38864	  84456	 243042	  3b562	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...................
+gnrc_pktbuf_tests.test_pktbuf_mark__success_large (tests/unittests/tests-pktbuf/tests-pktbuf.c 373) exp 0 was -28
+.
+gnrc_pktbuf_tests.test_pktbuf_mark__success_aligned (tests/unittests/tests-pktbuf/tests-pktbuf.c 419) exp 0 was -28
+.
+gnrc_pktbuf_tests.test_pktbuf_mark__success_small (tests/unittests/tests-pktbuf/tests-pktbuf.c 464) exp 0 was 70
+..................
+--- stderr ---
+==347==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff7f383000; bottom 0x000000439000; size: 0x7fff7ef4a000 (140735323348992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+bash: line 1:   347 Segmentation fault      (core dumped) /tmp/build/bin/native64/tests_unittests.elf
+
+
+

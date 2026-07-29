@@ -1,0 +1,147 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `gnrc_sixlowpan_frag_vrb_add` does:
+
+1. **Precondition checks**: Asserts `base`, `out_dst` are non-NULL and `out_dst_len > 0`.
+
+2. **Duplicate check**: Uses the existing `_equal_index()` helper to check if an entry with the same `(src, src_len, tag)` already exists. If so, returns it.
+
+3. **Find empty slot**: Iterates through the static `_vrb[]` array looking for an empty entry (where `super.src_len == 0`).
+
+4. **Populate the entry**:
+   - Copies `base` fields (`src`, `src_len`, `tag`, `datagram_size`) into `super`
+   - Sets `super.dst` to the next-hop link-layer address (`out_dst`)
+   - Initializes `current_size = 0`, `ints = NULL`, and stamps `arrival` with `xtimer_now_usec()`
+   - Sets `out_netif` and generates a new `out_tag` via `gnrc_sixlowpan_frag_fb_next_tag()`
+   - Initializes SFR fields (`offset_diff = 0`, `in_netif = NULL`) when that module is compiled in
+
+5. **Full**: Returns `NULL` if no empty slot is available.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/sixlowpan/frag/vrb/gnrc_sixlowpan_frag_vrb.c
++++ sys/net/gnrc/network_layer/sixlowpan/frag/vrb/gnrc_sixlowpan_frag_vrb.c
+@@ -50,7 +50,51 @@
+         const gnrc_sixlowpan_frag_rb_base_t *base,
+         gnrc_netif_t *out_netif, const uint8_t *out_dst, size_t out_dst_len)
+ {
+-    /* MASKED - implement this function */
++    assert(base != NULL);
++    assert(out_dst != NULL);
++    assert(out_dst_len > 0);
++
++    /* Check if an entry with the same source address and tag already exists */
++    for (unsigned i = 0; i < CONFIG_GNRC_SIXLOWPAN_FRAG_VRB_SIZE; i++) {
++        if (_equal_index(&_vrb[i], base->src, base->src_len, base->tag)) {
++            DEBUG("6lo vrb: entry already exists\n");
++            return &_vrb[i];
++        }
++    }
++
++    /* Find an empty slot and populate it */
++    for (unsigned i = 0; i < CONFIG_GNRC_SIXLOWPAN_FRAG_VRB_SIZE; i++) {
++        if (gnrc_sixlowpan_frag_vrb_entry_empty(&_vrb[i])) {
++            gnrc_sixlowpan_frag_vrb_t *vrb = &_vrb[i];
++
++            memcpy(vrb->super.src, base->src, base->src_len);
++            vrb->super.src_len = base->src_len;
++            memcpy(vrb->super.dst, out_dst, out_dst_len);
++            vrb->super.dst_len = (uint8_t)out_dst_len;
++            vrb->super.tag = base->tag;
++            vrb->super.datagram_size = base->datagram_size;
++            vrb->super.current_size = 0;
++            vrb->super.ints = NULL;
++            vrb->super.arrival = xtimer_now_usec();
++            vrb->out_netif = out_netif;
++            vrb->out_tag = gnrc_sixlowpan_frag_fb_next_tag();
++#if IS_USED(MODULE_GNRC_SIXLOWPAN_FRAG_SFR)
++            vrb->offset_diff = 0;
++            vrb->in_netif = NULL;
++#endif
++
++            DEBUG("6lo vrb: added new entry (%s, %s, %u, %u)\n",
++                  gnrc_netif_addr_to_str(vrb->super.src, vrb->super.src_len,
++                                         addr_str),
++                  gnrc_netif_addr_to_str(vrb->super.dst, vrb->super.dst_len,
++                                         addr_str),
++                  (unsigned)vrb->super.datagram_size, vrb->super.tag);
++            return vrb;
++        }
++    }
++
++    DEBUG("6lo vrb: VRB full\n");
++    return NULL;
+ }
+ 
+ gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_from_route(
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_sixlowpan_frag_vrb
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/fb
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/frag/vrb
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 111589	  37488	  86760	 235837	  3993d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+vrb_tests.test_vrb_add__success (tests/unittests/tests-gnrc_sixlowpan_frag_vrb/tests-gnrc_sixlowpan_frag_vrb.c 68) res->super.ints was null.
+......
+vrb_tests.test_vrb_gc (tests/unittests/tests-gnrc_sixlowpan_frag_vrb/tests-gnrc_sixlowpan_frag_vrb.c 167) gnrc_sixlowpan_frag_vrb_get(base.src, base.src_len, base.tag) was not null.
+
+run 7 failures 2
+
+native: exiting
+
+--- stderr ---
+==480==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe13837000; bottom 0x000000437000; size: 0x7ffe13400000 (140729221382144)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

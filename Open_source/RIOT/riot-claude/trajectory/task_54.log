@@ -1,0 +1,189 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `coap_parse_udp` does:
+
+1. **Validates** the buffer has at least 4 bytes and the CoAP version byte is 1
+2. **Initializes** `coap_pkt_t` (zeros it, sets `buf` pointer)
+3. **Computes header length** — 4-byte header + extended TKL field (if `MODULE_NANOCOAP_TOKEN_EXT`) + token bytes
+4. **Validates** the buffer is long enough for the full header
+5. **Parses options** in a loop:
+   - Stops on the `0xFF` payload marker (advancing past it)
+   - Decodes each option's delta and length via `_decode_value`
+   - Stores offset and option number in `pkt->options[]`
+   - Marks critical (odd-numbered) options with `bf_set`
+   - Returns `-EBADMSG` on malformed options, `-ENOBUFS` if too many
+6. **Sets `pkt->payload`** to point to payload data (past the marker, or end of buffer)
+7. **Sets `pkt->payload_len`** to the remaining bytes
+8. **Returns `len`** — for UDP, all bytes are consumed
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -79,7 +79,75 @@
+  */
+ ssize_t coap_parse_udp(coap_pkt_t *pkt, uint8_t *buf, size_t len)
+ {
+-    /* MASKED - implement this function */
++    if (len < sizeof(coap_udp_hdr_t)) {
++        return -EBADMSG;
++    }
++
++    coap_udp_hdr_t *hdr = (coap_udp_hdr_t *)buf;
++
++    if ((hdr->ver_t_tkl >> 6) != COAP_V1) {
++        return -EBADMSG;
++    }
++
++    memset(pkt, 0, sizeof(coap_pkt_t));
++    pkt->buf = buf;
++
++    unsigned hdr_len = sizeof(coap_udp_hdr_t) + coap_hdr_tkl_ext_len(hdr)
++                     + coap_hdr_get_token_len(hdr);
++
++    if (len < hdr_len) {
++        return -EBADMSG;
++    }
++
++    uint8_t *pos = buf + hdr_len;
++    uint8_t *end = buf + len;
++    unsigned option_count = 0;
++    uint16_t option_num = 0;
++
++    while (pos < end) {
++        if (*pos == COAP_PAYLOAD_MARKER) {
++            pos++;
++            break;
++        }
++
++        if (option_count >= CONFIG_NANOCOAP_NOPTS_MAX) {
++            return -ENOBUFS;
++        }
++
++        pkt->options[option_count].offset = pos - buf;
++
++        uint8_t option_byte = *pos++;
++
++        int delta = _decode_value(option_byte >> 4, &pos, end);
++        if (delta < 0) {
++            return delta;
++        }
++
++        int opt_len = _decode_value(option_byte & 0xf, &pos, end);
++        if (opt_len < 0) {
++            return opt_len;
++        }
++
++        if ((pos + opt_len) > end) {
++            return -EBADMSG;
++        }
++
++        option_num += delta;
++        pkt->options[option_count].opt_num = option_num;
++
++        if (option_num & 1) {
++            bf_set(pkt->opt_crit, option_count);
++        }
++
++        pos += opt_len;
++        option_count++;
++    }
++
++    pkt->options_len = option_count;
++    pkt->payload = pos;
++    pkt->payload_len = end - pos;
++
++    return len;
+ }
+ 
+ int coap_match_path(const coap_resource_t *resource, const uint8_t *uri)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gcoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/application_layer/gcoap
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/sock
+"make" -C /workspace/sys/net/sock/async/event
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
+"make" -C /workspace/sys/net/transport_layer/udp
+"make" -C /workspace/sys/posix/inet
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+"make" -C /workspace/sys/net/gnrc/sock
+"make" -C /workspace/sys/net/gnrc/sock/udp
+"make" -C /workspace/sys/net/gnrc/transport_layer/udp
+   text	   data	    bss	    dec	    hex	filename
+ 166996	  44808	 129416	 341220	  534e4	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+gcoap_tests.test_gcoap__server_get_resp (tests/unittests/tests-gcoap/tests-gcoap.c 301) exp 9 was 11
+..
+gcoap_tests.test_gcoap__server_con_resp (tests/unittests/tests-gcoap/tests-gcoap.c 364) exp 9 was 11
+.
+run 11 failures 2
+
+native: exiting
+
+--- stderr ---
+==670==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd19aa1000; bottom 0x000000447000; size: 0x7ffd1965a000 (140725029543936)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

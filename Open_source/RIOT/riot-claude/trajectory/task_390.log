@@ -1,0 +1,80 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is done. Here's what `ztimer_sleep` now does:
+
+1. **Creates a timer** (`ztimer_t`) on the stack with `_callback_wakeup` as the callback and the current thread's PID as the argument
+2. **Sets the timer** on the given clock with the requested duration using `ztimer_set`
+3. **Sleeps the current thread** via `thread_sleep()`, which yields the CPU
+4. **Cleans up** with `ztimer_remove` after waking up (handles the case where the thread was woken by something other than the timer)
+
+This follows the same pattern used by `ztimer_set_wakeup` (lines 193-202) for setting up the wakeup callback, and the same set-and-cleanup pattern used by `ztimer_mutex_lock_timeout` and `ztimer_msg_receive_timeout`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer/util.c
++++ sys/ztimer/util.c
+@@ -42,7 +42,12 @@
+ 
+ void ztimer_sleep(ztimer_clock_t *clock, uint32_t duration)
+ {
+-    /* MASKED - implement this function */
++    ztimer_t t = { .callback = _callback_wakeup,
++                   .arg = (void *)((intptr_t)thread_getpid()) };
++
++    ztimer_set(clock, &t, duration);
++    thread_sleep();
++    ztimer_remove(clock, &t);
+ }
+ 
+ void ztimer_periodic_wakeup(ztimer_clock_t *clock, uint32_t *last_wakeup,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-dns_cache
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/dns
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+
+--- stderr ---
+[01m[K/workspace/sys/ztimer/util.c:[m[K In function '[01m[Kztimer_sleep[m[K':
+[01m[K/workspace/sys/ztimer/util.c:45:32:[m[K [01;31m[Kerror: [m[K'[01m[K_callback_wakeup[m[K' undeclared (first use in this function)
+   45 |     ztimer_t t = { .callback = [01;31m[K_callback_wakeup[m[K,
+      |                                [01;31m[K^~~~~~~~~~~~~~~~[m[K
+[01m[K/workspace/sys/ztimer/util.c:45:32:[m[K [01;36m[Knote: [m[Keach undeclared identifier is reported only once for each function it appears in
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/ztimer_core/util.o] Error 1
+make[3]: *** Waiting for unfinished jobs....
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/ztimer] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

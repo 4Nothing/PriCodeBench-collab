@@ -1,0 +1,103 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `PRT_PerfInit` does:
+
+1. **Status guard** — returns `OS_ERRNO_PERF_STATUS_INVALID` if already initialized (status must be `PERF_UNINIT`, which is the zero-value from BSS)
+2. **Spinlock init** — initializes `g_perfSpin` via `PRT_SplLockInit`, used by `PERF_LOCK`/`PERF_UNLOCK` throughout the module
+3. **PMU init** — calls `OsPmuInit()` which initializes HW/timed/SW PMU based on build config, propagating any error directly
+4. **Buffer init** — calls `OsPerfOutPutInit(buf, size)` which uses the caller's buffer or allocates one if `buf` is NULL; returns `OS_ERRNO_PERF_BUF_ERROR` on failure
+5. **Ready state** — sets status to `PERF_STOPED`, making the module ready for `PRT_PerfConfig` → `PRT_PerfStart`
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -344,7 +344,30 @@
+ 
+ U32 PRT_PerfInit(void *buf, U32 size)
+ {
+-    /* MASKED - implement this function */
++    U32 ret;
++
++    if (g_perfCb.status != PERF_UNINIT) {
++        return OS_ERRNO_PERF_STATUS_INVALID;
++    }
++
++    ret = PRT_SplLockInit(&g_perfSpin);
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    ret = OsPmuInit();
++    if (ret != OS_OK) {
++        return ret;
++    }
++
++    ret = OsPerfOutPutInit(buf, size);
++    if (ret != OS_OK) {
++        return OS_ERRNO_PERF_BUF_ERROR;
++    }
++
++    g_perfCb.status = PERF_STOPED;
++
++    return OS_OK;
+ }
+ 
+ U32 PRT_PerfConfig(PerfConfigAttr *attr)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 ret;
+
+    if (g_perfCb.status != PERF_UNINIT) {
+        return OS_ERRNO_PERF_STATUS_INVALID;
+    }
+
+    ret = PRT_SplLockInit(&g_perfSpin);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    ret = OsPmuInit();
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    ret = OsPerfOutPutInit(buf, size);
+    if (ret != OS_OK) {
+        return OS_ERRNO_PERF_BUF_ERROR;
+    }
+
+    g_perfCb.status = PERF_STOPED;
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_PRT_PerfInit.c test_stubs.c
+[Init OK] expect=0 actual=0 -> PASS
+[Init when already in STOPED] expect=4103 actual=4103 -> PASS
+[HW init fails] expect=4097 actual=4097 -> PASS
+[TIMED init fails] expect=4098 actual=4098 -> PASS
+[SW init fails] expect=4099 actual=4099 -> PASS
+[Buffer init fails] expect=4104 actual=4104 -> PASS
+Pass-Rate: 100.00% (6/6)
+
+--- stderr ---
+In file included from test_PRT_PerfInit.c:8:
+test_util.h:35:13: warning: 'TU_EXPECT_TRUE' defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+
+
+

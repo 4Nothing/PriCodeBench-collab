@@ -1,0 +1,93 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's a summary of what was implemented at `/workspace/sys/net/network_layer/ipv6/addr/ipv6_addr.c:92-113`:
+
+**`ipv6_addr_init_iid`** mirrors `ipv6_addr_init_prefix` but copies bits from the **least significant** end rather than the most significant end:
+
+1. **Clamps** `bits` to 128 (like `init_prefix`)
+2. **Partial byte** (if `bits % 8 != 0`): takes the upper `rem` bits of `iid[0]` and copies them to the lower `rem` bits of the partial byte in `out` (at index `16 - bytes - 1`), using a mask of `(1 << rem) - 1`
+3. **Full bytes**: copies the remaining `bytes` full bytes from `iid[1..bytes]` to `out[16-bytes..15]` (or from `iid[0]` when there's no partial byte)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr.c
+@@ -91,7 +91,24 @@
+ 
+ void ipv6_addr_init_iid(ipv6_addr_t *out, const uint8_t *iid, uint8_t bits)
+ {
+-    /* MASKED - implement this function */
++    uint8_t bytes;
++
++    if (bits > 128) {
++        bits = 128;
++    }
++
++    bytes = bits / 8;
++
++    if (bits % 8) {
++        uint8_t mask = ((1U << (bits % 8)) - 1);
++
++        out->u8[16 - bytes - 1] &= ~mask;
++        out->u8[16 - bytes - 1] |= ((iid[0] >> (8 - (bits % 8))) & mask);
++    }
++
++    if (bytes) {
++        memcpy(&out->u8[16 - bytes], &iid[!!(bits % 8)], bytes);
++    }
+ }
+ 
+ char *ipv6_addr_split_str(char *addr_str, char separator)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193898	  41928	  78152	 313978	  4ca7a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..................................................
+ipv6_addr_tests.test_ipv6_addr_init_iid (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 603) exp 1 was 0
+..........................................
+run 92 failures 1
+
+native: exiting
+
+--- stderr ---
+==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff2cff0000; bottom 0x00000044c000; size: 0x7fff2cba4000 (140733943791616)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+
