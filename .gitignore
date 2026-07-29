@@ -1,1 +1,6 @@
 *.faiss
+# Experiment outputs
+trajectory/
+results/
+*.log
+*.bak
