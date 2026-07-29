@@ -1,0 +1,13 @@
+"""RAG 全局配置"""
+import os
+from pathlib import Path
+
+EMBEDDING_MODEL = os.environ.get("RAG_EMBED_MODEL", "all-MiniLM-L6-v2")
+
+MAX_SIGNATURES = 8
+MAX_TYPES = 5
+MAX_CALL_PATTERNS = 4
+MAX_MODULE_CODE = 3
+MAX_CONTEXT_CHARS = 8000
+
+EMBED_BATCH_SIZE = 64
