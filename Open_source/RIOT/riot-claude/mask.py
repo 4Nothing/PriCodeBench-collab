@@ -38,9 +38,14 @@ def _name_at(source: str, node) -> str:
 
 
 _LIB = BENCH_ROOT / "build" / "my-languages.so"
-_C_LANG = Language(fspath(_LIB), 'c')
-_PARSER = Parser()
-_PARSER.set_language(_C_LANG)
+try:
+    import tree_sitter_c
+    _C_LANG = Language(tree_sitter_c.language())
+    _PARSER = Parser(_C_LANG)
+except (TypeError, AttributeError, ImportError):
+    _C_LANG = Language(fspath(_LIB), 'c')
+    _PARSER = Parser()
+    _PARSER.set_language(_C_LANG)
 
 
 def _parser_smoke_test():

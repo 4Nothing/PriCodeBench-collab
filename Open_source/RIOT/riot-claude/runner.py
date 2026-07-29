@@ -11,13 +11,17 @@ RIOT-Claude CLI 入口
 """
 import json
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from config import *
 from agent import ClaudeAgent
 
 
 RESULT_FILE = RESULTS_DIR / "results.jsonl"
+_current_result_file = RESULT_FILE
 
 # 默认数据集文件（从 config 读取，可通过 --data CLI 参数覆盖）
 TASK_FILES = [Path(f) for f in DEFAULT_TASK_FILES]
@@ -58,11 +62,11 @@ def load_finished_tasks():
 
     用于 --resume 模式：跳过已经成功完成的 task。
     """
-    if not RESULT_FILE.exists():
+    if not _current_result_file.exists():
         return set()
 
     finished = set()
-    with open(RESULT_FILE, "r", encoding="utf-8") as f:
+    with open(_current_result_file, "r", encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -76,14 +80,29 @@ def load_finished_tasks():
     return finished
 
 
+def load_failed_from(failed_from_path):
+    """读取 baseline 结果文件，返回所有 FAILED 的 task_id 集合。"""
+    fp = Path(failed_from_path)
+    if not fp.exists():
+        print(f"[ERROR] failed-from file not found: {fp}")
+        return set()
+    failed = set()
+    with open(fp, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not obj.get("passed"):
+                failed.add(str(obj["task_id"]))
+    return failed
+
+
 def append_result(result):
-    """将 task 结果以 JSON 格式追加写入 results.jsonl。
-
-    每行一个 JSON 对象，方便后续分析和统计。
-    """
-    RESULT_FILE.parent.mkdir(exist_ok=True)
-
-    with open(RESULT_FILE, "a", encoding="utf-8") as f:
+    _current_result_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(_current_result_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False))
         f.write("\n")
 
@@ -118,10 +137,12 @@ def run_task(agent, task, dataset_paths=None):
     return result
 
 
-def _batch_main(task_files, agent, n, resume=False, start_task_id=None):
+def _batch_main(task_files, agent, n=None, resume=False, start_task_id=None, failed_from=None):
     """批量模式：加载 task 并执行。resume 为 True 时跳过已通过的 task。
+    failed_from 指定 baseline 结果文件，只运行其中失败的 task。
     start_task_id 指定从哪个 task_id 开始（包含该 task），直观定位。"""
     finished = load_finished_tasks() if resume else set()
+    failed_set = load_failed_from(failed_from) if failed_from else set()
     tasks = []
     collecting = start_task_id is None  # 没指定 start 则从头开始收集
     start_num = int(start_task_id) if start_task_id else 0
@@ -138,18 +159,26 @@ def _batch_main(task_files, agent, n, resume=False, start_task_id=None):
                 if resume and tid in finished:
                     print(f"  [SKIP] task {tid} already finished")
                     continue
+                if failed_set and tid not in failed_set:
+                    continue
                 if not collecting:
                     if int(tid) >= start_num:
                         collecting = True
                     else:
                         continue
                 tasks.append(obj)
-                if len(tasks) >= n:
+                if n is not None and len(tasks) >= n:
                     break
-        if len(tasks) >= n:
+        if n is not None and len(tasks) >= n:
             break
 
-    print(f"Batch: {len(tasks)} tasks{', resume mode' if resume else ''}")
+    tag_parts = []
+    if resume:
+        tag_parts.append("resume mode")
+    if failed_set:
+        tag_parts.append(f"failed-only ({len(failed_set)} tasks)")
+    tag = f", {', '.join(tag_parts)}" if tag_parts else ""
+    print(f"Batch: {len(tasks)} tasks{tag}")
     print()
 
     results = []
@@ -253,15 +282,7 @@ def run_checks():
 
 
 def main():
-    """CLI 主入口。
-
-    用法:
-      python3 runner.py --task-id 1
-      python3 runner.py --batch 10
-      python3 runner.py --task-id 5 --resume
-      python3 runner.py --batch 20 --data my_tasks.jsonl
-    """
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="RIOT-Claude Benchmark Runner")
     parser.add_argument("--task-id", type=str, help="要运行的 task ID")
     parser.add_argument("--resume",
         action="store_true",
@@ -273,22 +294,74 @@ def main():
         help="JSONL 数据集文件路径（可指定多个），默认使用 riot_tasks_with_commands.c.jsonl + .h.jsonl")
     parser.add_argument("--check", action="store_true",
         help="验证所有外部依赖是否就绪（Docker, image, grammar, settings, datasets）")
+    parser.add_argument("--output", type=str, default=None,
+        help="结果输出文件路径，默认 results/results.jsonl")
+    parser.add_argument("--model", type=str, default=None,
+        help="模型名，结果写入 results/<model>/ 和 trajectory/<model>/")
+    parser.add_argument("--failed-from", type=str, default=None,
+        help="只运行 baseline 中失败的 task（传入 baseline results.jsonl 路径）")
+    parser.add_argument("--rag", action="store_true",
+        help="启用 RAG 检索增强")
+    parser.add_argument("--build-index", action="store_true",
+        help="构建 RAG 索引后退出")
+    parser.add_argument("--rag-ablation", type=str, default=None,
+        help="RAG 消融实验：signatures/types/call_patterns/module_code")
     args = parser.parse_args()
 
     if args.check:
         run_checks()
         return
 
-    if not args.task_id and not args.batch:
+    # --build-index: 构建索引后退出
+    if args.build_index:
+        from rag.build_index import build_index
+        build_index(RAG_SOURCE_DIR, RAG_DB_PATH, RAG_INDEX_DIR)
+        print(f"RAG index built at {RAG_DB_PATH}")
+        return
+
+    global _current_result_file
+
+    # RAG 初始化
+    rag_store = None
+    rag_embedder = None
+    if args.rag:
+        from rag.embedder import Embedder
+        from rag.index_store import IndexStore
+        rag_store = IndexStore(RAG_DB_PATH, RAG_INDEX_DIR)
+        rag_embedder = Embedder()
+        if args.rag_ablation:
+            rag_store.set_ablation(args.rag_ablation)
+            print(f"[RAG] Ablation mode: {args.rag_ablation}")
+
+    # 结果路径路由
+    model_traj_dir = None
+    if args.rag and args.model:
+        model_results_dir = RESULTS_DIR / "rag" / args.model
+        model_traj_dir = TRAJECTORY_DIR / "rag" / args.model
+        _current_result_file = model_results_dir / "results.jsonl"
+    elif args.model:
+        model_results_dir = RESULTS_DIR / args.model
+        model_traj_dir = TRAJECTORY_DIR / args.model
+        _current_result_file = model_results_dir / "results.jsonl"
+    elif args.output:
+        _current_result_file = Path(args.output)
+
+    # _current_result_file 的父目录必须存在
+    _current_result_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if not args.task_id and not args.batch and not args.failed_from:
         parser.error("Either --task-id or --batch is required")
 
     # 确定数据集文件
     task_files = [Path(f) for f in args.data] if args.data else TASK_FILES
 
-    agent = ClaudeAgent(RIOT_ROOT)
+    agent = ClaudeAgent(RIOT_ROOT, trajectory_dir=model_traj_dir,
+                        rag_store=rag_store, rag_embedder=rag_embedder)
 
-    if args.batch:
-        _batch_main(task_files, agent, args.batch, resume=args.resume, start_task_id=args.start)
+    if args.batch or args.failed_from:
+        _batch_main(task_files, agent, n=args.batch,
+                    resume=args.resume, start_task_id=args.start,
+                    failed_from=args.failed_from)
         return
 
     # --resume 检查：该 task 是否已成功完成
