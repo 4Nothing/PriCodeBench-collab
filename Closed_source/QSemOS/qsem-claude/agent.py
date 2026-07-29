@@ -87,9 +87,11 @@ def _docker_user_args():
 
 class QSemAgent:
 
-    def __init__(self, repo_root, trajectory_dir=None):
+    def __init__(self, repo_root, trajectory_dir=None, rag_store=None, rag_embedder=None):
         self.repo_root = Path(repo_root)
         self.trajectory_dir = Path(trajectory_dir) if trajectory_dir else TRAJECTORY_DIR
+        self.rag_store = rag_store
+        self.rag_embedder = rag_embedder
 
     # ==================================================================
     # 主入口
@@ -771,10 +773,17 @@ class QSemAgent:
     # ==================================================================
 
     def _build_prompt(self, task):
-        return TASK_PROMPT.format(
+        prompt = TASK_PROMPT.format(
             sut_function=task["sut_function"],
             source_path=task["source_path"],
         )
+        if self.rag_store and self.rag_embedder:
+            from rag.retrieve import retrieve
+            rag_context = retrieve(task["sut_function"], task["source_path"],
+                                   self.rag_store, self.rag_embedder)
+            if rag_context:
+                prompt = rag_context + chr(10) + chr(10) + prompt
+        return prompt
 
     # ==================================================================
     # 日志 / 结果

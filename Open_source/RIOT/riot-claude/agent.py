@@ -87,13 +87,16 @@ def _docker_user_args():
 
 class ClaudeAgent:
 
-    def __init__(self, repo_root):
+    def __init__(self, repo_root, trajectory_dir=None, rag_store=None, rag_embedder=None):
         """初始化 Agent。
 
         Args:
             repo_root: RIOT 仓库根目录的 Path 对象
         """
         self.repo_root = Path(repo_root)
+        self.trajectory_dir = trajectory_dir
+        self.rag_store = rag_store
+        self.rag_embedder = rag_embedder
 
     # ==================================================================
     # 主入口
@@ -528,14 +531,17 @@ class ClaudeAgent:
     # ==================================================================
 
     def _build_prompt(self, task):
-        """生成发给 Claude 的任务描述。
-
-        用 task 中的函数名和文件路径填充 prompt 模板。
-        """
-        return TASK_PROMPT.format(
+        prompt = TASK_PROMPT.format(
             sut_function=task["sut_function"],
             source_path=task["source_path"],
         )
+        if self.rag_store and self.rag_embedder:
+            from rag.retrieve import retrieve
+            rag_context = retrieve(task["sut_function"], task["source_path"],
+                                   self.rag_store, self.rag_embedder)
+            if rag_context:
+                prompt = rag_context + chr(10) + chr(10) + prompt
+        return prompt
 
     # ==================================================================
     # Docker Claude 执行
