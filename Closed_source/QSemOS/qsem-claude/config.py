@@ -42,7 +42,7 @@ WORKSPACE_BASE = Path(
 DOCKER_IMAGE = os.environ.get("QSEM_DOCKER_IMAGE", "riot-sandbox:latest")
 
 # Claude 容器的网络模式（默认 none = 彻底断网）
-CLAUDE_NETWORK_MODE = os.environ.get("QSEM_CLAUDE_NETWORK", "none")
+CLAUDE_NETWORK_MODE = os.environ.get("QSEM_CLAUDE_NETWORK", "host")
 
 # 容器资源限制
 DOCKER_PIDS_LIMIT = "256"
