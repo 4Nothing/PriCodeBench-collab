@@ -63,6 +63,9 @@ RIOT-Claude 是一个 SWE-bench 风格的自动化基准测试框架，用于在
 | `--batch N` | 批量运行前 N 个 task |
 | `--start ID` | 从指定 task_id 开始（配合 `--batch` 使用，直观跳过不需要的条目） |
 | `--resume` | 跳过 `results.jsonl` 中已通过的 task（与 `--task-id` / `--batch` 均可搭配） |
+| `--failed-from FILE` | 从已有 results.jsonl 提取失败 task 单独运行（独立批处理模式） |
+| `--rag` | 启用 RAG 检索增强，注入源码上下文到 Claude prompt |
+| `--model NAME` | 结果子目录名（配合 `--rag` 使用，如 `deepseek-v4-pro`） |
 | `--data FILE [FILE ...]` | 指定数据集文件（默认使用经 tree-sitter 验证的 `.verified.jsonl`） |
 
 **关键函数**:
@@ -236,6 +239,9 @@ docs/ examples/ samples/   → 删除，防止参考实现泄露
 | `WORKSPACE_BASE` | `~/.riot-workspaces` | 工作区根目录（可通过 `RIOT_WORKSPACE_BASE` 环境变量覆盖） |
 | `CLAUDE_SETTINGS_SRC` | 自动扫描 `/mnt/c/Users/*/.claude/settings.json` | 宿主机 Claude 配置 |
 | `CLAUDE_NETWORK_MODE` | `host` | Claude 容器网络模式 |
+| `RAG_SOURCE_DIR` | `RIOT_ROOT` | RAG 索引的源码目录 |
+| `RAG_DB_PATH` | `SCRIPT_DIR / "rag_index" / "index.db"` | RAG SQLite FTS5 索引路径 |
+| `RAG_INDEX_DIR` | `SCRIPT_DIR / "rag_index"` | RAG FAISS 向量索引目录 |
 | `DOCKER_MEMORY` / `DOCKER_CPUS` / `DOCKER_PIDS_LIMIT` | `4g` / `2` / `256` | 容器资源限制 |
 
 ***
@@ -386,6 +392,9 @@ wsl bash -c "cd /home/carl/RIOT/riot-claude && python3 runner.py --batch 20 --re
 
 # 全量
 wsl bash -c "cd /home/carl/RIOT/riot-claude && python3 runner.py --batch 538"
+
+# RAG 增强：对 baseline 失败的 task 重新运行
+wsl bash -c "cd /home/carl/RIOT/riot-claude && conda run -n riot-env python3 runner.py --rag --failed-from results/deepseek-v4-pro/results.jsonl --model deepseek-v4-pro"
 ```
 
 ***

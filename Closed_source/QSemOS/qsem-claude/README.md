@@ -62,6 +62,9 @@ conda run -n base python runner.py --batch 240 --resume
 # 从指定 task 开始
 conda run -n base python runner.py --batch 100 --start 50
 
+# RAG 增强：对 baseline 失败的 task 重新运行
+conda run -n base python runner.py --rag --failed-from results/deepseek-v4-pro/results.jsonl --model deepseek-v4-pro
+
 # 分析结果
 conda run -n base python analyze_results.py
 ```
