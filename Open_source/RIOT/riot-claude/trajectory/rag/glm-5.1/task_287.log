@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `sha512_224_init` function is now implemented following the same pattern as `sha512_init` and `sha512_256_init` in the codebase. It zeroes the bit count and sets the 8 state words to the FIPS 180-4 specified initialization constants for SHA-512/224.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/hashes/sha512_224.c
++++ sys/hashes/sha512_224.c
+@@ -24,7 +24,18 @@
+ 
+ void sha512_224_init(sha512_224_context_t *ctx)
+ {
+-    /* MASKED - implement this function */
++    /* Zero bits processed so far */
++    ctx->count[0] = ctx->count[1] = 0;
++
++    /* Magic initialization constants */
++    ctx->state[0] = 0x8C3D37C819544DA2;
++    ctx->state[1] = 0x73E1996689DCD4D6;
++    ctx->state[2] = 0x1DFAB7AE32FF9C82;
++    ctx->state[3] = 0x679DD514582F9FCF;
++    ctx->state[4] = 0x0F6D2B697BD44DA8;
++    ctx->state[5] = 0x77E36F7304C48942;
++    ctx->state[6] = 0x3F9D85A86A1D36C8;
++    ctx->state[7] = 0x1112E6AD91D692A1;
+ }
+ 
+ void sha512_224(const void *data, size_t len, void *digest)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 221513	  74296	  82656	 378465	  5c661	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...............................................................................
+OK (79 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==439==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc0b4ec000; bottom 0x00000045a000; size: 0x7ffc0b092000 (140720493633536)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

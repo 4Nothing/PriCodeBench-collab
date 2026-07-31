@@ -1,0 +1,101 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation looks correct. It processes the string from right-to-left (least significant digit first), mirroring how `bcd_buf_from_u32` processes a number's digits, producing the same BCD buffer layout. Non-digit characters are skipped, and `-ENOBUFS` is returned if the destination buffer is too small.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bcd/bcd.c
++++ sys/bcd/bcd.c
+@@ -93,5 +93,41 @@
+ 
+ int bcd_buf_from_str(const char *str, size_t len, void *dst, size_t dst_len)
+ {
+-    /* MASKED - implement this function */
++    uint8_t *tgt = dst;
++    uint8_t hex = 0;
++    uint8_t digit_count = 0;
++    uint8_t idx = 0;
++
++    memset(dst, 0, dst_len);
++
++    /* Process digits from end of string to start, same as bcd_buf_from_u32
++     * processes val from least to most significant digit.
++     * This produces identical BCD layout: least significant byte-pair first. */
++    for (int i = len - 1; i >= 0; i--) {
++        if (!_is_digit(str[i])) {
++            continue;
++        }
++
++        hex <<= 4;
++        hex += str[i] - '0';
++
++        if (++idx % 2 == 0) {
++            if (digit_count + 1 > dst_len) {
++                return -ENOBUFS;
++            }
++            *tgt++ = swap_nibbles(hex);
++            hex = 0;
++            digit_count++;
++        }
++    }
++
++    if (idx % 2) {
++        if (digit_count + 1 > dst_len) {
++            return -ENOBUFS;
++        }
++        *tgt++ = hex;
++        digit_count++;
++    }
++
++    return digit_count;
+ }
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bcd
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bcd
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+
+--- stderr ---
+[01m[K/workspace/sys/bcd/bcd.c:[m[K In function '[01m[Kbcd_buf_from_str[m[K':
+[01m[K/workspace/sys/bcd/bcd.c:115:33:[m[K [01;31m[Kerror: [m[Kcomparison of integer expressions of different signedness: '[01m[Kint[m[K' and '[01m[Ksize_t[m[K' {aka '[01m[Klong unsigned int[m[K'} [[01;31m[K-Werror=sign-compare[m[K]
+  115 |             if (digit_count + 1 [01;31m[K>[m[K dst_len) {
+      |                                 [01;31m[K^[m[K
+[01m[K/workspace/sys/bcd/bcd.c:125:29:[m[K [01;31m[Kerror: [m[Kcomparison of integer expressions of different signedness: '[01m[Kint[m[K' and '[01m[Ksize_t[m[K' {aka '[01m[Klong unsigned int[m[K'} [[01;31m[K-Werror=sign-compare[m[K]
+  125 |         if (digit_count + 1 [01;31m[K>[m[K dst_len) {
+      |                             [01;31m[K^[m[K
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/bcd/bcd.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/bcd] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

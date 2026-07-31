@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the existing patterns in the file. Here's what `fib_get_next_hop` does:
+
+1. **Acquires the mutex** - consistent with all other public FIB functions
+2. **Validates NULL pointers** - returns `-EINVAL` for NULL `iface_id`/`next_hop_size`/`next_hop_flags` (output params), and `-EFAULT` for NULL `dst`/`next_hop` (required input params) — matching the documented return codes
+3. **Calls `fib_find_entry`** to locate the best matching entry for the destination
+4. **On no match** - signals registered routing protocols with `FIB_MSG_RP_SIGNAL_UNREACHABLE_DESTINATION` (same pattern as `fib_sr_get_route`) and returns `-EHOSTUNREACH`
+5. **Copies the next hop address** using `universal_address_get_address` — returns `-ENOBUFS` if the provided buffer is too small (the function updates `next_hop_size` to the actual size needed)
+6. **Fills output params** - `iface_id` and `next_hop_flags` from the found entry
+7. **Releases the mutex** and returns 0 on success
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -494,7 +494,49 @@
+                      uint32_t *next_hop_flags, uint8_t *dst, size_t dst_size,
+                      uint32_t dst_flags)
+ {
+-    /* MASKED - implement this function */
++    mutex_lock(&(table->mtx_access));
++    DEBUG("[fib_get_next_hop]\n");
++
++    if ((iface_id == NULL) || (next_hop_size == NULL) || (next_hop_flags == NULL)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EINVAL;
++    }
++
++    if ((dst == NULL) || (next_hop == NULL)) {
++        mutex_unlock(&(table->mtx_access));
++        return -EFAULT;
++    }
++
++    size_t count = 1;
++    fib_entry_t *entry[count];
++    int ret = fib_find_entry(table, dst, dst_size, &(entry[0]), &count);
++
++    if (ret == -EHOSTUNREACH) {
++        /* trigger RPs for route discovery */
++        fib_signal_rp(table, FIB_MSG_RP_SIGNAL_UNREACHABLE_DESTINATION,
++                      dst, dst_size, dst_flags);
++        mutex_unlock(&(table->mtx_access));
++        return -EHOSTUNREACH;
++    }
++
++    if (count == 0) {
++        fib_signal_rp(table, FIB_MSG_RP_SIGNAL_UNREACHABLE_DESTINATION,
++                      dst, dst_size, dst_flags);
++        mutex_unlock(&(table->mtx_access));
++        return -EHOSTUNREACH;
++    }
++
++    if (universal_address_get_address(entry[0]->next_hop, next_hop,
++                                      next_hop_size) == NULL) {
++        mutex_unlock(&(table->mtx_access));
++        return -ENOBUFS;
++    }
++
++    *iface_id = entry[0]->iface_id;
++    *next_hop_flags = entry[0]->next_hop_flags;
++
++    mutex_unlock(&(table->mtx_access));
++    return 0;
+ }
+ 
+ int fib_get_destination_set(fib_table_t *table, uint8_t *prefix,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/div
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 128061	  37800	  80456	 246317	  3c22d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....................
+OK (20 tests)
+
+native: exiting
+
+--- stderr ---
+==397==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff7b1f8000; bottom 0x00000043b000; size: 0x7fff7adbd000 (140735254614016)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

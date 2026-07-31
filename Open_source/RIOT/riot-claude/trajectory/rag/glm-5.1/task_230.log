@@ -1,0 +1,78 @@
+============================================================
+=== Claude Session ===
+============================================================
+Implemented `mtd_write` at line 168. It follows the same pattern as `mtd_read`:
+
+1. **Validate** — check for null mtd/driver (`-ENODEV`) and bounds (`-EOVERFLOW`)
+2. **Convert address to page+offset** — using `page_shift` and `page_mask` from `page_size` (always a power of two)
+3. **Delegate** to `mtd_write_page` which handles the actual write (including read-modify-write cycles when needed)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- drivers/mtd/mtd.c
++++ drivers/mtd/mtd.c
+@@ -167,7 +167,19 @@
+ 
+ int mtd_write(mtd_dev_t *mtd, const void *src, uint32_t addr, uint32_t count)
+ {
+-    /* MASKED - implement this function */
++    if (!mtd || !mtd->driver) {
++        return -ENODEV;
++    }
++
++    if (out_of_bounds(mtd, 0, addr, count)) {
++        return -EOVERFLOW;
++    }
++
++    /* page size is always a power of two */
++    const uint32_t page_shift = bitarithm_msb(mtd->page_size);
++    const uint32_t page_mask = mtd->page_size - 1;
++
++    return mtd_write_page(mtd, src, addr >> page_shift, addr & page_mask, count);
+ }
+ 
+ #ifdef MODULE_MTD_WRITE_PAGE
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-mtd
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/mtd
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/vfs
+"make" -C /workspace/drivers/mtd
+"make" -C /workspace/drivers/mtd_emulated
+"make" -C /workspace/drivers/periph_common
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+/usr/bin/ld: /tmp/build/bin/native64/mtd/mtd.o: in function `mtd_write':
+/workspace/drivers/mtd/mtd.c:182:(.text.mtd_write+0xac): undefined reference to `mtd_write_page'
+collect2: error: ld returned 1 exit status
+make: *** [/workspace/tests/unittests/../../Makefile.include:734: /tmp/build/bin/native64/tests_unittests.elf] Error 1
+
+
+

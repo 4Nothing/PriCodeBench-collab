@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the logic:
+
+**`ieee802154_get_frame_hdr_len`** computes the IEEE 802.15.4 MAC header length by parsing the Frame Control Field (FCF):
+
+1. Starts at 3 bytes (2-byte FCF + 1-byte sequence number)
+2. Adds destination address contribution: +4 for short (2 PAN + 2 addr), +10 for long (2 PAN + 8 addr), returns 0 for reserved
+3. Adds source address contribution: +2 for short addr, +8 for long addr, returns 0 for reserved
+4. Adds 2 bytes for source PAN ID unless PAN compression is set
+5. Returns 0 for the illegal case of PAN compression with both address modes void
+
+This mirrors the offset calculation used by `ieee802154_get_src` and `ieee802154_get_dst` in the same file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -114,7 +114,46 @@
+ 
+ size_t ieee802154_get_frame_hdr_len(const uint8_t *mhr)
+ {
+-    /* MASKED - implement this function */
++    uint8_t tmp;
++    size_t len = 3; /* FCF: 2 bytes, Seq: 1 byte */
++
++    tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
++        len += 4;   /* 2 PAN + 2 short addr */
++    }
++    else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
++        len += 10;  /* 2 PAN + 8 long addr */
++    }
++    else if (tmp == IEEE802154_FCF_DST_ADDR_RESV) {
++        return 0;
++    }
++
++    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
++        len += 2;   /* 2 short addr */
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
++        len += 8;   /* 8 long addr */
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_RESV) {
++        return 0;
++    }
++
++    if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        /* source PAN ID is present unless PAN compression is set */
++        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
++            len += 2;   /* source PAN ID */
++        }
++    }
++    else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++        /* PAN compression with no destination and no source = illegal */
++        if ((mhr[1] & IEEE802154_FCF_DST_ADDR_MASK) ==
++             IEEE802154_FCF_DST_ADDR_VOID) {
++            return 0;
++        }
++    }
++
++    return len;
+ }
+ 
+ int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/sys
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 154023	  36616	  78152	 268791	  419f7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+................
+ieee802154_tests.test_ieee802154_get_frame_hdr_len_dst0_src0 (tests/unittests/tests-ieee802154/tests-ieee802154.c 410) exp 0 was 3
+......
+ieee802154_tests.test_ieee802154_get_frame_hdr_len_dst0_src2_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 454) exp 0 was 5
+..
+ieee802154_tests.test_ieee802154_get_frame_hdr_len_dst0_src8_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 469) exp 0 was 11
+.............................................
+run 69 failures 3
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdc52e4000; bottom 0x000000441000; size: 0x7ffdc4ea3000 (140727907135488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

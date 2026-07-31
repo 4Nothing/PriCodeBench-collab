@@ -1,0 +1,87 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `uuid_v3` function is now implemented. It mirrors the `uuid_v5` pattern exactly, substituting MD5 for SHA-1:
+
+1. **MD5 digest** of namespace UUID concatenated with the name bytes
+2. **Copy** the 16-byte digest directly into the UUID struct (MD5 produces 16 bytes, same as `sizeof(uuid_t)`)
+3. **Set version** bits to `UUID_V3` (3, in the upper nibble of `time_hi`)
+4. **Set reserved/variant** bits (RFC 4122 variant: top 2 bits of `clk_seq_hi_res` set to `10`)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/uuid/uuid.c
++++ sys/uuid/uuid.c
+@@ -77,7 +77,15 @@
+ 
+ void uuid_v3(uuid_t *uuid, const uuid_t *ns, const uint8_t *name, size_t len)
+ {
+-    /* MASKED - implement this function */
++    md5_ctx_t ctx;
++
++    md5_init(&ctx);
++    md5_update(&ctx, ns, sizeof(uuid_t));
++    md5_update(&ctx, name, len);
++    md5_final(&ctx, uuid);
++
++    _set_version(uuid, UUID_V3);
++    _set_reserved(uuid);
+ }
+ 
+ void uuid_v4(uuid_t *uuid)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-uuid
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/uuid
+   text	   data	    bss	    dec	    hex	filename
+ 121871	  35712	  78768	 236351	  39b3f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==444==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe3ef46000; bottom 0x000000438000; size: 0x7ffe3eb0e000 (140729950199808)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+
