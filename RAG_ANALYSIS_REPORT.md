@@ -73,23 +73,21 @@
 | Task | 函数 | 实际场景 | 点数 | 崩溃位置 |
 |------|------|----------|:---:|------|
 | 28 | `bluetil_addr_ipv6_l2ll_sprint` | 首测即崩 | 0 | 测试框架 `assertImplementationCStr`（栈溢出） |
-| 38 | `coap_build_reply_header` | 34 个通过后崩 | 34 | 用户代码 NULL 解引用 |
-| 47 | `coap_opt_add_uri_query2` | 12 个通过后崩 | 12 | 用户代码 |
-| 128 | `fmt_hex_bytes` | 6 个通过后崩 | 6 | 用户代码 |
-| 206 | `ipv6_addr_from_str` | 79 个通过后崩 | 79 | 用户代码 |
-| 209 | `ipv6_addr_match_prefix` | 38 个通过后崩 | 38 | 用户代码 NULL 解引用 |
-| 507 | `gnrc_pktqueue_remove` | 3 个通过后崩 | 3 | 用户代码 NULL 解引用 |
+| 38 | `coap_build_reply_header` | 34 个通过后崩 | 34 | 补全代码 NULL 解引用 |
+| 47 | `coap_opt_add_uri_query2` | 12 个通过后崩 | 12 | 补全代码 |
+| 128 | `fmt_hex_bytes` | 6 个通过后崩 | 6 | 补全代码 |
+| 206 | `ipv6_addr_from_str` | 79 个通过后崩 | 79 | 补全代码 |
+| 209 | `ipv6_addr_match_prefix` | 38 个通过后崩 | 38 | 补全代码 NULL 解引用 |
+| 507 | `gnrc_pktqueue_remove` | 3 个通过后崩 | 3 | 补全代码 NULL 解引用 |
 
-**GLM 基线（8 个）：**
+**GLM 基线（6 个，另 task_197/207 已修正为 test_failure）：**
 
 | Task | 实际场景 | 详情 |
 |------|----------|------|
 | 28 | 首测即崩 | 同 DS |
 | 38 | 34 通过后崩 | 同 DS |
 | 53 | 14 通过后崩 | ASan |
-| 197 | 测试正常跑完 | `run 69 failures 4`，应归类为 test_failure |
 | 201 | 19 通过后崩 | ASan |
-| 207 | 测试正常跑完 | `run 92 failures 1`，应归类为 test_failure |
 | 209 | 38 通过后崩 | ASan |
 | 507 | 3 通过后崩 | ASan |
 
@@ -105,14 +103,12 @@
 | 209 | 38 通过后崩 | 38 |
 | 507 | 3 通过后崩 | 3 |
 
-**GLM-RAG（6 个）：**
+**GLM-RAG（4 个，另 task_197/207 已修正为 test_failure）：**
 
 | Task | 实际场景 | 详情 |
 |------|----------|------|
 | 28 | 首测即崩 | ASan |
-| 197 | 测试正常跑完 | `run 69 failures 4`，应归 test_failure |
 | 201 | 编译失败 | 无点号，编译阶段就挂了 |
-| 207 | 测试正常跑完 | `run 92 failures 1`，应归 test_failure |
 | 209 | 38 通过后崩 | ASan |
 | 507 | 3 通过后崩 | ASan |
 
@@ -121,7 +117,7 @@
 `test_not_executed` 这个分类名不准确，实际是两种场景：
 
 1. **ASan/SIGSEGV 崩溃（多数）**：测试跑了部分后崩溃（有点号输出），应归为 `crash`
-2. **harness 解析失败（task_197、207）**：测试正常跑完输出 `run N failures M`，harness 不认识此格式，实际应归 `test_failure`
+2. **harness 解析失败**：测试正常跑完输出 `run N failures M`，harness 不认识此格式。典型 case 为 task_197/207（已修正为 `test_failure`）
 
-task_28 稍特殊——崩溃在测试框架内部（`assertImplementationCStr` 栈溢出），不是用户代码的问题，但同样属于 crash。
+task_28 稍特殊——崩溃在测试框架内部（`assertImplementationCStr` 栈溢出），不是补全代码的问题，但同样属于 crash。
 
