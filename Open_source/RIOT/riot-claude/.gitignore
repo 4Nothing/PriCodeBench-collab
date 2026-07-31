@@ -1,0 +1,2 @@
+# Un-ignore results directory (overrides RIOT/.gitignore "results/" rule)
+!results/
