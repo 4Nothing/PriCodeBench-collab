@@ -9,12 +9,23 @@ Claude Code 驱动的闭源嵌入式操作系统内核函数补全 benchmark。�
 
 | 模型 | QSemOS 通过率 | RIOT 通过率 |
 |------|:---:|:---:|
-| DS-v4-pro | **82.8%** (197/238) | 90.7% (488/538) |
-| GLM-5.1 | **79.4%** (189/238) | — |
+| DS-v4-pro | **83.1%** (197/237) | 90.7% (488/538) |
+| GLM-5.1 | **81.4%** (193/237) | 88.3% (475/538) |
 
-DS-v4-pro 在 QSemOS（闭源）上的通过率比 RIOT（开源）低 7.8 个百分点——头文件和 API 文档不可见直接拉低了模型表现。
+DS-v4-pro 在 QSemOS（闭源）上的通过率比 RIOT（开源）低 7.6 个百分点——头文件和 API 文档不可见直接拉低了模型表现。
 
 > **评估框架修正**: 原始 harness 的 crash regex `(?:Segmentation\s+fault|Aborted|\bpanic\b)` 将 17 例实际通过的 QSemOS 测试误判为 crash（ipc/signal 10 + kernel/task 7）——测试输出含 "signal" 关键字被正则误匹配。whitebox 重检 `Pass-Rate: 100%` + `0 FAILs` 后已修正为 PASS。RIOT 同理，7 例 `test_not_executed` 因 regex 不匹配 AddressSanitizer 的 `SEGV`/`ABORTING` 格式。两套 benchmark 均应改用 exit code 判定。当前通过率基于修正后结果。
+
+## RAG 增强实验
+
+对 baseline 失败的 task 启用 RAG 重新运行：
+
+| 模型 | 总任务 | 通过 | 失败 | 回收率 |
+|---|---|---|---|---|
+| DS-v4-pro | 40 | 27 (67.5%) | 13 (32.5%) | 67.5% |
+| GLM-5.1 | 44 | 30 (68.2%) | 14 (31.8%) | 68.2% |
+
+闭源场景下 RAG 回收率 ~68%，远超 RIOT 开源场景的 ~42%。API 签名和类型不在模型训练数据中时，RAG 补齐的边际收益最大。
 
 ## 失败根因分类
 

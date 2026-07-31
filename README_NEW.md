@@ -73,7 +73,7 @@ research/
 
 | 模型 | RIOT (开源) | QSemOS (闭源) |
 |---|---|---|
-| DeepSeek V4 Pro | 18/50 (36.0%) | 26/40 (65.0%) |
-| GLM 5.1 | 待运行 | 待运行 |
+| DeepSeek V4 Pro | 18/50 (36.0%) | 27/40 (67.5%) |
+| GLM 5.1 | 30/63 (47.6%) | 30/44 (68.2%) |
 
 RAG 索引架构：SQLite FTS5（精确匹配）+ FAISS（语义检索），embedding 模型 `all-MiniLM-L6-v2`。
