@@ -2,7 +2,7 @@
 
 Claude Code 驱动的闭源嵌入式操作系统内核函数补全 benchmark。模型看源码 + 头文件，补全被 mask 的函数体，编译跑测试。
 
-**数据集**: 238 个 OS 内核函数（剔除 2 个上下文不可获取的字符串字面量任务），覆盖任务调度、中断、IPC、同步、定时器、性能监控、动态模块加载 7 个功能域。
+**数据集**: 237 个 OS 内核函数（剔除 3 个上下文不可获取的字符串字面量任务: task 1, 5, 133），覆盖任务调度、中断、IPC、同步、定时器、性能监控、动态模块加载 7 个功能域。
 **对比基准**: RIOT OS（开源 IoT 操作系统，538 个函数）。
 
 ## 结果
@@ -29,7 +29,7 @@ DS-v4-pro 在 QSemOS（闭源）上的通过率比 RIOT（开源）低 7.6 个�
 
 ## 失败根因分类
 
-QSemOS（90 例失败，已剔除 2 个上下文不可获取任务，已修正 17 例 harness crash regex 误判）+ RIOT（44 例失败）归入三个大类。
+QSemOS（DS 40 + GLM 44 = 84 例失败，已剔除 3 个上下文不可获取任务: task 1, 5, 133，已修正 17 例 harness crash regex 误判）+ RIOT（DS 44 + GLM 56 = 100 例 whitebox 分类）归入三个大类。
 
 ### 一、幻觉（QSemOS 23 / RIOT ~10，全部编译失败）
 
@@ -171,8 +171,8 @@ qsem-claude/
 ├── whitebox_riot.py               # RIOT 失败根因自动分类
 │
 ├── results/
-│   ├── deepseek-v4-pro/results.jsonl   # 240 tasks
-│   └── glm-5.1/results.jsonl           # 240 tasks
+│   ├── deepseek-v4-pro/results.jsonl   # 237 tasks
+│   └── glm-5.1/results.jsonl           # 237 tasks
 │
 └── trajectory/
     ├── deepseek-v4-pro/task_*.log      # 每个 task 的完整 Claude 交互日志
@@ -221,7 +221,7 @@ conda run -n base python analyze_results.py
 | | QSemOS | RIOT |
 |------|------|------|
 | 评估对象 | 闭源嵌入式 OS kernel | 开源 IoT OS |
-| 任务数 | 240 | 538 |
+| 任务数 | 237 | 538 |
 | 模型可见 API 文档 | 无（头文件需推断） | 全部可见 |
 | 隔离方式 | chmod 444 + tree-sitter mask | Docker + git reset |
 | 内存管理/文件系统/网络 | 不涉及 | 涉及 |
