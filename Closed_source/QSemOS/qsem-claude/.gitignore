@@ -1,6 +1,3 @@
-# Un-ignore results directory (overrides RIOT/.gitignore "results/" rule)
-!results/
-
 # Ignore RAG experiment outputs (they are transient, not to be committed)
 results/rag/
 trajectory/rag/
