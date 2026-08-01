@@ -135,8 +135,8 @@ class IndexStore:
     def commit(self):
         self._conn.commit()
         # Rebuild FTS content
-        self._conn.execute("INSERT INTO signatures(signatures_fts) VALUES('rebuild')")
-        self._conn.execute("INSERT INTO types(types_fts) VALUES('rebuild')")
+        self._conn.execute("INSERT INTO signatures_fts(signatures_fts) VALUES('rebuild')")
+        self._conn.execute("INSERT INTO types_fts(types_fts) VALUES('rebuild')")
 
     def insert_signature(self, func_name, file_path, signature, return_type,
                          params, doc_comment, source_file):
@@ -186,8 +186,8 @@ class IndexStore:
         cur = self._conn.cursor()
         try:
             cur.execute(
-                "SELECT s.func_name, s.source_text, s.return_type, s.params, s.doc, "
-                "s.file_path, s.module "
+                "SELECT s.func_name, s.signature, s.return_type, s.params, "
+                "s.doc_comment, s.file_path, s.source_file "
                 "FROM signatures s WHERE s.id IN ("
                 "  SELECT rowid FROM signatures_fts WHERE signatures_fts MATCH ?"
                 ") LIMIT ?",
@@ -204,7 +204,7 @@ class IndexStore:
         cur = self._conn.cursor()
         try:
             cur.execute(
-                "SELECT t.type_name, t.kind, t.members_text, t.file_path, t.module "
+                "SELECT t.type_name, t.kind, t.definition, t.file_path, t.source_file "
                 "FROM types t WHERE t.id IN ("
                 "  SELECT rowid FROM types_fts WHERE types_fts MATCH ?"
                 ") LIMIT ?",
@@ -215,16 +215,16 @@ class IndexStore:
             return []
 
     def get_all_call_patterns(self):
-        """Return all call-pattern rows: (id, func_name, file_path, code_snippet, line_number, module)."""
+        """Return all call-pattern rows: (id, func_name, file_path, snippet, source_file)."""
         cur = self._conn.cursor()
-        cur.execute("SELECT id, func_name, file_path, code_snippet, line_number, module "
+        cur.execute("SELECT id, func_name, file_path, snippet, source_file "
                     "FROM call_patterns")
         return cur.fetchall()
 
     def get_all_module_code(self):
-        """Return all module-code rows: (id, func_name, file_path, code_snippet, module)."""
+        """Return all module-code rows: (id, file_path, chunk_id, snippet, source_file)."""
         cur = self._conn.cursor()
-        cur.execute("SELECT id, func_name, file_path, code_snippet, module "
+        cur.execute("SELECT id, file_path, chunk_id, snippet, source_file "
                     "FROM module_code")
         return cur.fetchall()
 
@@ -252,13 +252,13 @@ class IndexStore:
 
     def get_call_pattern_by_id(self, row_id):
         cur = self._conn.cursor()
-        cur.execute("SELECT id, func_name, file_path, code_snippet, line_number, module "
+        cur.execute("SELECT id, func_name, file_path, snippet, source_file "
                     "FROM call_patterns WHERE id = ?", (row_id,))
         return cur.fetchone()
 
     def get_module_code_by_id(self, row_id):
         cur = self._conn.cursor()
-        cur.execute("SELECT id, func_name, file_path, code_snippet, module "
+        cur.execute("SELECT id, file_path, chunk_id, snippet, source_file "
                     "FROM module_code WHERE id = ?", (row_id,))
         return cur.fetchone()
 

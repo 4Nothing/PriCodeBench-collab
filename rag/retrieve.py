@@ -8,6 +8,7 @@ Output: formatted context text injected before the task prompt.
 """
 import re
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from rag.config import (
@@ -74,7 +75,7 @@ def _round1_signatures(func_name, store):
     results = []
     seen_sigs = set()
     for row in rows:
-        r_func_name, source_text, return_type, params, doc, file_path, module = row
+        r_func_name, source_text, return_type, params, doc, file_path, source_file = row
         # Deduplicate identical signatures
         sig_key = source_text.strip()
         if sig_key in seen_sigs:
@@ -84,7 +85,7 @@ def _round1_signatures(func_name, store):
             "type": "signature",
             "func_name": r_func_name,
             "file": file_path,
-            "source": module,
+            "source": source_file,
             "content": source_text,
             "return_type": return_type or "",
             "params": params or "",
@@ -111,8 +112,8 @@ def _round1_types(struct_names, func_name, source_path, store):
     results = []
     seen_defs = set()
     for row in rows:
-        type_name, kind, members_text, file_path, module = row
-        def_key = members_text.strip()[:200]
+        type_name, kind, definition, file_path, source_file = row
+        def_key = definition.strip()[:200]
         if def_key in seen_defs:
             continue
         seen_defs.add(def_key)
@@ -121,8 +122,8 @@ def _round1_types(struct_names, func_name, source_path, store):
             "name": type_name,
             "kind": kind,
             "file": file_path,
-            "source": module,
-            "content": members_text,
+            "source": source_file,
+            "content": definition,
         })
         if len(results) >= MAX_TYPES:
             break
@@ -142,7 +143,7 @@ def _round2_dense(func_name, source_path, store, embedder):
         row = store.get_call_pattern_by_id(row_id)
         if row is None:
             continue
-        _, cp_func_name, file_path, code_snippet, line_number, module = row
+        _, cp_func_name, file_path, code_snippet, source_file = row
         snippet_key = code_snippet.strip()[:200]
         if snippet_key in seen_snippets:
             continue
@@ -151,7 +152,7 @@ def _round2_dense(func_name, source_path, store, embedder):
             "type": "call_pattern",
             "func_name": cp_func_name,
             "file": file_path,
-            "source": module,
+            "source": source_file,
             "content": code_snippet,
             "score": score,
         })
@@ -164,7 +165,7 @@ def _round2_dense(func_name, source_path, store, embedder):
         row = store.get_module_code_by_id(row_id)
         if row is None:
             continue
-        _, func_name, file_path, code_snippet, module = row
+        _, file_path, chunk_id, code_snippet, source_file = row
         snippet_key = code_snippet.strip()[:200]
         if snippet_key in seen_snippets:
             continue
@@ -172,8 +173,8 @@ def _round2_dense(func_name, source_path, store, embedder):
         results.append({
             "type": "module_code",
             "file": file_path,
-            "chunk": 0,
-            "source": module,
+            "chunk": chunk_id,
+            "source": source_file,
             "content": code_snippet,
             "score": score,
         })
@@ -181,6 +182,116 @@ def _round2_dense(func_name, source_path, store, embedder):
             break
 
     return results
+
+
+# ---- tree-sitter helpers (for precise function body stripping) ----
+
+_TS_PARSER = None
+
+
+def _get_ts_parser():
+    """Lazily initialize tree-sitter C parser, supporting dual API versions."""
+    global _TS_PARSER
+    if _TS_PARSER is not None:
+        return _TS_PARSER
+    try:
+        import tree_sitter_c
+        from tree_sitter import Language, Parser
+        _C_LANG = Language(tree_sitter_c.language())
+        _TS_PARSER = Parser(_C_LANG)
+    except Exception:
+        from tree_sitter import Language, Parser
+        import tree_sitter_c
+        pkg_dir = Path(tree_sitter_c.__file__).parent
+        for pattern in ["*.so", "*.dll", "*.dylib", "**/*.so"]:
+            for f in pkg_dir.glob(pattern):
+                if f.is_file():
+                    _C_LANG = Language(str(f), "c")
+                    _TS_PARSER = Parser()
+                    _TS_PARSER.set_language(_C_LANG)
+                    return _TS_PARSER
+        raise FileNotFoundError("Cannot find tree-sitter C grammar .so/.dll")
+    return _TS_PARSER
+
+
+def _char_offset(text, byte_offset):
+    """Convert UTF-8 byte offset to character offset."""
+    return len(text.encode('utf-8')[:byte_offset].decode('utf-8', 'replace'))
+
+
+def _find_declarator_id(node):
+    """Recursively find the identifier node in a function declarator."""
+    if node.type == 'identifier':
+        return node
+    child = node.child_by_field_name('declarator')
+    if child:
+        result = _find_declarator_id(child)
+        if result:
+            return result
+    for child in node.children:
+        result = _find_declarator_id(child)
+        if result:
+            return result
+    return None
+
+
+def _path_matches(file_path, source_path):
+    """Check if two paths refer to the same file, handling different base prefixes."""
+    if not file_path or not source_path:
+        return False
+    fp = os.path.normpath(file_path)
+    sp = os.path.normpath(source_path)
+    if fp == sp:
+        return True
+    if fp.endswith(sp) or sp.endswith(fp):
+        return True
+    return False
+
+
+def _is_target_self(hit, sut_function, source_path):
+    """Check if a retrieval hit is the target function's own signature (oracle leak)."""
+    t = hit.get("type")
+    if t == "signature" and hit.get("func_name") == sut_function:
+        if _path_matches(hit.get("file"), source_path):
+            return True
+    return False
+
+
+@lru_cache(maxsize=256)
+def _strip_target_body(chunk_text, sut_function):
+    """Strip the target function's body from a chunk, replace with placeholder."""
+    if sut_function not in chunk_text:
+        return chunk_text
+
+    parser = _get_ts_parser()
+    tree = parser.parse(bytes(chunk_text, 'utf8'))
+
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == 'function_definition':
+            declarator = node.child_by_field_name('declarator')
+            if declarator:
+                id_node = _find_declarator_id(declarator)
+                if id_node:
+                    name = chunk_text[
+                        _char_offset(chunk_text, id_node.start_byte):
+                        _char_offset(chunk_text, id_node.end_byte)
+                    ]
+                    if name == sut_function:
+                        body = node.child_by_field_name('body')
+                        if body is None:
+                            return chunk_text
+                        start = _char_offset(chunk_text, body.start_byte + 1)
+                        end = _char_offset(chunk_text, body.end_byte - 1)
+                        return (
+                            chunk_text[:start]
+                            + '\n    /* CODE OMITTED */\n'
+                            + chunk_text[end:]
+                        )
+        stack.extend(reversed(node.children))
+
+    return chunk_text
 
 
 def _format_context(round1, round2, target_file):
@@ -268,6 +379,18 @@ def retrieve(sut_function, source_path, store, embedder):
 
     # Round 2: dense semantic
     round2 = _round2_dense(sut_function, source_path, store, embedder)
+
+    # Filter out oracle leaks (target function's own signature)
+    round1 = [r for r in round1 if not _is_target_self(r, sut_function, source_path)]
+    round2 = [r for r in round2 if not _is_target_self(r, sut_function, source_path)]
+
+    # Strip target function body from module code chunks, preserve sibling context
+    for r in round1 + round2:
+        if r.get("content"):
+            try:
+                r["content"] = _strip_target_body(r["content"], sut_function)
+            except Exception:
+                pass  # tree-sitter may fail on malformed code; keep original
 
     if not round1 and not round2:
         return None

@@ -65,7 +65,7 @@ def _get_parser():
         from tree_sitter import Language, Parser
         _C_LANG = Language(tree_sitter_c.language())
         _PARSER = Parser(_C_LANG)
-    except (TypeError, AttributeError):
+    except Exception:
         # tree-sitter < 0.24: Language(path, name)
         from tree_sitter import Language, Parser
         so_path = _find_grammar_so()
@@ -292,7 +292,10 @@ def _extract_module_chunks(root_node, source_bytes, rel_path):
     if not func_starts:
         # No functions: take whole file as one chunk
         chunks.append((0, "header", "\n".join(lines)))
-        return chunks
+        return [
+            {"file_path": rel_path, "chunk_id": i, "snippet": text}
+            for i, (_, _, text) in enumerate(chunks)
+        ]
 
     # Header chunk (before first function)
     first_func = func_starts[0]
