@@ -1,0 +1,97 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `OsTaskPrioritySetCheck` now does at `src/core/kernel/task/smp/prt_task_priority.c:55`:
+
+1. **PID overflow check** — validates the task handle is within bounds using `CHECK_TSK_PID_OVERFLOW`, returning `OS_ERRNO_TSK_ID_INVALID` on failure. This mirrors `PRT_TaskGetPriority` (line 27).
+
+2. **Priority bounds check** — validates `taskPrio <= OS_TSK_PRIORITY_LOWEST`, returning `OS_ERRNO_TSK_PRIOR_ERROR` on failure. This mirrors the pattern used in `OsTaskCreateParaCheck` (`prt_task_init.c:244`) and `PRT_TaskYield` (`prt_task_lock.c:166`).
+
+3. Returns `OS_OK` if both checks pass, allowing `PRT_TaskSetPriority` to proceed with acquiring locks, the `g_checkPrioritySet` callback, and applying the priority change.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_priority.c
++++ src/core/kernel/task/smp/prt_task_priority.c
+@@ -54,7 +54,17 @@
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsTaskPrioritySetCheck(TskHandle taskPid, TskPrior taskPrio)
+ {
+-    /* MASKED - implement this function */
++    if (CHECK_TSK_PID_OVERFLOW(taskPid))
++    {
++        return OS_ERRNO_TSK_ID_INVALID;
++    }
++
++    if (taskPrio > OS_TSK_PRIORITY_LOWEST)
++    {
++        return OS_ERRNO_TSK_PRIOR_ERROR;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_ALW_INLINE INLINE U32 OsSemPrioBListLock(struct TagTskCb *taskCb)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (CHECK_TSK_PID_OVERFLOW(taskPid))
+    {
+        return OS_ERRNO_TSK_ID_INVALID;
+    }
+
+    if (taskPrio > OS_TSK_PRIORITY_LOWEST)
+    {
+        return OS_ERRNO_TSK_PRIOR_ERROR;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTaskPrioritySetCheck.c
+[CASE] prio within range
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] prio out of range
+  Expected: 4100
+  Actual  : 4100
+  Result  : PASS
+
+[CASE] pid overflow
+  Expected: 4097
+  Actual  : 4097
+  Result  : PASS
+
+[CASE] operate idle
+  Expected: 4101
+  Actual  : 0
+  Result  : FAIL
+
+[CASE] boundary lowest ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+[CASE] boundary highest ok
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 83.33% (5/6)
+
+--- stderr ---
+
+
+

@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `OsLogUpdateTail` does:
+
+1. **Retry loop** — the lock is released before this function is called, so concurrent cores may race on `tailPtr`. If tail changes between the read and write, the loop retries.
+
+2. **Buffer-full check** — the logical ring has `2 * BUFFER_BLOCK_NUM` positions (physical slots doubled, with valid flags distinguishing wraps). When `currTail - currHead >= 2 * BUFFER_BLOCK_NUM`, the buffer is full, so we advance `headPtr` by 1 to drop the oldest entry.
+
+3. **Tail-unchanged check** — the best-effort "CAS" pattern referenced by the existing comments ("多核可以用原子操作cmpxchg替换"). If tail hasn't been modified since we read it, we commit the increment and return.
+
+4. **Returns 0** with the old tail value written via `*tail`. The caller uses this to compute `logIndex` and the valid flag.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/utility/log/prt_log.c
++++ src/utility/log/prt_log.c
+@@ -169,7 +169,24 @@
+ 
+ static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
+ {
+-    /* MASKED - implement this function */
++    U32 currTail, currHead;
++    volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
++    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
++
++    do {
++        currTail = OsAtomicReadU32(tailPtr);
++        currHead = OsAtomicReadU32(headPtr);
++
++        if (currTail - currHead >= 2 * BUFFER_BLOCK_NUM) {
++            OsAtomicSetU32(headPtr, currHead + 1);
++        }
++
++        if (currTail == OsAtomicReadU32(tailPtr)) {
++            OsAtomicSetU32(tailPtr, currTail + 1);
++            *tail = currTail;
++            return 0;
++        }
++    } while (1);
+ }
+ 
+ static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 currTail, currHead;
+    volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
+    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
+
+    do {
+        currTail = OsAtomicReadU32(tailPtr);
+        currHead = OsAtomicReadU32(headPtr);
+
+        if (currTail - currHead >= 2 * BUFFER_BLOCK_NUM) {
+            OsAtomicSetU32(headPtr, currHead + 1);
+        }
+
+        if (currTail == OsAtomicReadU32(tailPtr)) {
+            OsAtomicSetU32(tailPtr, currTail + 1);
+            *tail = currTail;
+            return 0;
+        }
+    } while (1);
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsLogUpdateTail.c
+[CASE] normal returns 0
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+[CASE] outTail equals old tail
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] mem tail advanced
+  Expected: 0x1
+  Actual  : 0x1
+  Result  : PASS
+
+[CASE] tail<head error
+  Expected: 0xFFFFFFFFFFFFFFFF
+  Actual  : 0x0
+  Result  : FAIL
+
+[CASE] >=head+N error
+  Expected: 0xFFFFFFFFFFFFFFFF
+  Actual  : 0x0
+  Result  : FAIL
+
+[CASE] wrap ok
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+[CASE] advance again ok
+  Expected: 0x0
+  Actual  : 0x0
+  Result  : PASS
+
+Pass-Rate: 71.43% (5/7)
+
+--- stderr ---
+test_OsLogUpdateTail.c: In function 'print_result':
+test_OsLogUpdateTail.c:41:29: warning: format '%lX' expects argument of type 'long unsigned int', but argument 2 has type 'long long int' [-Wformat=]
+   41 |     printf("  Expected: 0x%lX\n", (long long)expected);
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+test_OsLogUpdateTail.c:42:29: warning: format '%lX' expects argument of type 'long unsigned int', but argument 2 has type 'long long int' [-Wformat=]
+   42 |     printf("  Actual  : 0x%lX\n", (long long)((U32)actual));
+      |                           ~~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |     |
+      |                             |     long long int
+      |                             long unsigned int
+      |                           %llX
+
+
+

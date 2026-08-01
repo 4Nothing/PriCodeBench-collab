@@ -1,0 +1,123 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function iterates over the query string, splitting on `&` for individual parameters and `=` for name/value pairs within each parameter. Key behaviors:
+
+- Returns `0` if query is NULL or empty
+- Skips empty parameters (e.g., between consecutive `&` separators)
+- For parameters without `=`, the name is the whole parameter and value stays NULL/zero (as guaranteed by the caller's memset)
+- Returns `-2` when the actual parameter count exceeds `params_len`, but still fills the first `params_len` entries
+- Returns the number of filled entries (cast to `int`) on success
+- Uses the existing `_strchrb` helper for bounds-safe character search on non-null-terminated buffers
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/uri_parser/uri_parser.c
++++ sys/uri_parser/uri_parser.c
+@@ -348,5 +348,51 @@
+                            uri_parser_query_param_t *params,
+                            size_t params_len)
+ {
+-    /* MASKED - implement this function */
+-}
++    assert(uri != NULL);
++    assert(params != NULL);
++
++    if ((uri->query == NULL) || (uri->query_len == 0)) {
++        return 0;
++    }
++
++    const char *query = uri->query;
++    const char *query_end = query + uri->query_len;
++    size_t count = 0;
++
++    const char *p = query;
++    while (p < query_end) {
++        const char *amp = _strchrb(p, query_end, '&');
++        const char *param_end = amp ? amp : query_end;
++
++        if (p == param_end) {
++            p = param_end + 1;
++            continue;
++        }
++
++        if (count < params_len) {
++            const char *eq = _strchrb(p, param_end, '=');
++
++            params[count].name = p;
++            if (eq) {
++                params[count].name_len = eq - p;
++                params[count].value = eq + 1;
++                params[count].value_len = param_end - (eq + 1);
++            }
++            else {
++                params[count].name_len = param_end - p;
++            }
++        }
++        count++;
++
++        if (!amp) {
++            break;
++        }
++        p = amp + 1;
++    }
++
++    if (count > params_len) {
++        return -2;
++    }
++
++    return (int)count;
++}
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-uri_parser
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/uri_parser
+   text	   data	    bss	    dec	    hex	filename
+ 107584	  40848	  78400	 226832	  37610	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+query_split_tests.test_split_query__broken_input (tests/unittests/tests-uri_parser/tests-uri_parser.c 591) exp -1 was 0
+..
+run 10 failures 1
+
+native: exiting
+
+--- stderr ---
+==336==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe6fb14000; bottom 0x000000436000; size: 0x7ffe6f6de000 (140730767892480)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,134 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `coap_build_reply_header` does:
+
+1. **Determines message type**: ACK for CON requests, NON for others, RST for empty code (0)
+2. **Checks No-Response option**: If the request carries `COAP_OPT_NO_RESPONSE` and the bit corresponding to this response code class is set, returns `-ECANCELED` to suppress the reply. Skipped for RST (code=0) to avoid UB from the shift index.
+3. **Builds UDP header** via `coap_build_udp_hdr` with the correct type, token, code, and message ID
+4. **Adds Content-Format option** via `coap_opt_add_format` if `ct != COAP_FORMAT_NONE` (and not RST)
+5. **Finalizes options** via `coap_opt_finish` — writes the payload marker (`0xFF`) for normal messages, or just sets `payload_len = 0` for RST
+6. **Sets output pointers**: `*payload` to the first writable payload byte, `*payload_len_max` to the remaining buffer space
+7. **Returns** total header length (UDP header + options + payload marker)
+
+The logic mirrors the existing `coap_build_reply` (lines 678-721) but separates header construction from payload writing, so callers like `coap_reply_simple` can write the payload directly into the buffer.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -637,7 +637,59 @@
+                                 uint16_t ct,
+                                 void **payload, size_t *payload_len_max)
+ {
+-    /* MASKED - implement this function */
++    unsigned tkl = coap_get_token_len(pkt);
++    unsigned type = COAP_TYPE_NON;
++
++    if (!code) {
++        type = COAP_TYPE_RST;
++        tkl = 0;
++    }
++    else if (coap_get_type(pkt) == COAP_TYPE_CON) {
++        type = COAP_TYPE_ACK;
++    }
++
++    if (code) {
++        uint32_t no_response;
++        if (coap_opt_get_uint(pkt, COAP_OPT_NO_RESPONSE, &no_response) == 0) {
++            const uint8_t no_response_index = (code >> 5) - 1;
++            assert(no_response_index < 7);
++            const uint8_t mask = 1 << no_response_index;
++            if (no_response & mask) {
++                return -ECANCELED;
++            }
++        }
++    }
++
++    ssize_t hdr_len = coap_build_udp_hdr(buf, len, type, coap_get_token(pkt),
++                                         tkl, code, coap_get_id(pkt));
++    if (hdr_len <= 0) {
++        return hdr_len;
++    }
++
++    coap_pkt_t pdu;
++    coap_pkt_init(&pdu, buf, len, hdr_len);
++
++    if (code && ct != COAP_FORMAT_NONE) {
++        ssize_t opt_res = coap_opt_add_format(&pdu, ct);
++        if (opt_res < 0) {
++            return opt_res;
++        }
++    }
++
++    ssize_t total_hdr_len = coap_opt_finish(&pdu,
++                                code ? COAP_OPT_FINISH_PAYLOAD : 0);
++    if (total_hdr_len < 0) {
++        return total_hdr_len;
++    }
++
++    if (payload) {
++        *payload = pdu.payload;
++    }
++    if (payload_len_max) {
++        *payload_len_max = pdu.payload_len;
++    }
++
++    return total_hdr_len;
+ }
+ 
+ ssize_t coap_reply_simple(coap_pkt_t *pkt,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147519	  36040	  78120	 261679	  3fe2f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..................................
+nanocoap_tests.test_nanocoap__token_length_ext_16 (tests/unittests/tests-nanocoap/tests-nanocoap.c 1157) exp 21 was 23
+.
+nanocoap_tests.test_nanocoap__token_length_ext_269 (tests/unittests/tests-nanocoap/tests-nanocoap.c 1207) exp 275 was 277
+..
+run 37 failures 2
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe0ba3c000; bottom 0x00000043f000; size: 0x7ffe0b5fd000 (140729089249280)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

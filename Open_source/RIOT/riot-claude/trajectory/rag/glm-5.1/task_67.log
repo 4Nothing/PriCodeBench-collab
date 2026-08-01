@@ -1,0 +1,91 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's what it does:
+
+1. **Computes the current chunk length** using `_get_cur_len(rb)`, which correctly handles the wrap-around case in the ring buffer
+2. **If `keep` is true**: tries to find a free slot via `_get_free_chunk(rb)`. On success, stores the chunk's start pointer and length in the chunk metadata arrays, clears `cur_start`, and returns the length (non-zero = success to callers like `crb_add_chunk`)
+3. **If `keep` is false or no free slot exists**: rewinds `cur` back to `cur_start` (discarding the written bytes), clears `cur_start`, and returns 0 (failure)
+
+This matches the documented contract (`@return size of chunk if stored, 0 if no space`), and correctly serves both call sites: `crb_add_chunk` (where the return value acts as a success/failure bool) and `crb_start_chunk` (which calls it with `keep=false` to discard a stale unfinished chunk).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/chunked_ringbuffer/chunked_ringbuffer.c
++++ sys/chunked_ringbuffer/chunked_ringbuffer.c
+@@ -89,7 +89,22 @@
+ 
+ unsigned crb_end_chunk(chunk_ringbuf_t *rb, bool keep)
+ {
+-    /* MASKED - implement this function */
++    unsigned len = _get_cur_len(rb);
++
++    if (keep) {
++        int idx = _get_free_chunk(rb);
++        if (idx >= 0) {
++            rb->chunk_start[idx] = rb->cur_start;
++            rb->chunk_len[idx] = len;
++            rb->cur_start = NULL;
++            return len;
++        }
++    }
++
++    /* discard chunk: rewind cur pointer to undo the written bytes */
++    rb->cur = rb->cur_start;
++    rb->cur_start = NULL;
++    return 0;
+ }
+ 
+ bool crb_get_chunk_size(chunk_ringbuf_t *rb, size_t *len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/chunked_ringbuffer
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  83769	  32600	  78120	 194489	  2f7b9	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.
+crb_tests.test_crb_add_and_consume (tests/unittests/tests-chunked_ringbuffer/tests-chunked_ringbuffer.c 32) crb_add_chunk(&cb, "one", 4)
+.
+run 2 failures 1
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff87bfc000; bottom 0x00000042e000; size: 0x7fff877ce000 (140735466496000)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

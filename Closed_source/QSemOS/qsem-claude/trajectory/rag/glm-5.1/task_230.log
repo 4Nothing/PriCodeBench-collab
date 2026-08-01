@@ -1,0 +1,101 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**`OsDynModuleProcessRelocationSection`** (`prt_dynmodule.c:329-354`):
+
+1. Parses the ELF section headers from the module's raw data
+2. Iterates through all sections looking for relocation sections (`SHT_RELA` / `SHT_REL` — i.e. `.rela.dyn`, `.rela.plt`, `.rel.dyn`, `.rel.plt`)
+3. For each relocation section, follows the `sh_link` chain to locate the symbol table (`.dynsym`) and string table (`.dynstr`)
+4. Iterates through each relocation entry and delegates to the existing helper `OsDynModuleRelocatePrepare` to resolve symbols and apply the relocation
+5. On non-x86_64 architectures, invalidates data and instruction caches after all relocations are applied
+6. Returns `OS_MODULE_OK` on success, or propagates the error code from a failed relocation
+
+The pattern follows the same ELF parsing conventions used by `OsDynModuleSaveSymTab` (lines 343-426) and `OsDynModuleRelocatePrepare` (lines 283-327) in the same file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/extend/dlmodule/prt_dynmodule.c
++++ src/core/extend/dlmodule/prt_dynmodule.c
+@@ -328,7 +328,29 @@
+ 
+ static U32 OsDynModuleProcessRelocationSection(struct DynModuleUnitInfo *unitInfo)
+ {
+-    /* MASKED - implement this function */
++    U32 i, j, ret;
++    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
++    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
++    uintptr_t reloc;
++    for (i = 0; i < elfInfo->e_shnum; i++) {
++        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
++            continue;
++        }
++        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
++        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
++        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
++        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
++            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
++            if (ret != OS_MODULE_OK) {
++                return ret;
++            }
++        }
++    }
++#ifndef OS_ARCH_X86_64
++    os_asm_invalidate_dcache_all();
++    os_asm_invalidate_icache_all();
++#endif
++    return OS_MODULE_OK;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 i, j, ret;
+    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
+    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
+    uintptr_t reloc;
+    for (i = 0; i < elfInfo->e_shnum; i++) {
+        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
+            continue;
+        }
+        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
+        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
+        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
+        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
+            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
+            if (ret != OS_MODULE_OK) {
+                return ret;
+            }
+        }
+    }
+#ifndef OS_ARCH_X86_64
+    os_asm_invalidate_dcache_all();
+    os_asm_invalidate_icache_all();
+#endif
+    return OS_MODULE_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsDynModuleProcessRelocationSection.c
+[CASE] ELF no sections
+  Expected: 0
+  Actual  : 0
+  Result  : PASS
+
+Pass-Rate: 100.00% (1/1)
+
+--- stderr ---
+
+
+

@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented at `sys/fmt/fmt.c:165`. It:
+
+1. Computes the output length as `strlen(hex) / 2` (2 hex chars per byte)
+2. If `out` is non-NULL, iterates through the hex string in pairs, converting each pair via the existing `fmt_hex_byte` helper
+3. Returns the byte count — consistent with the other `fmt_*` functions that accept NULL `out` to just compute length
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/fmt/fmt.c
++++ sys/fmt/fmt.c
+@@ -164,7 +164,15 @@
+ 
+ size_t fmt_hex_bytes(uint8_t *out, const char *hex)
+ {
+-    /* MASKED - implement this function */
++    size_t len = fmt_strlen(hex) / 2;
++
++    if (out) {
++        for (size_t i = 0; i < len; i++) {
++            out[i] = fmt_hex_byte(&hex[i * 2]);
++        }
++    }
++
++    return len;
+ }
+ 
+ size_t fmt_u16_hex(char *out, uint16_t val)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fmt
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 132487	  42848	  78120	 253455	  3de0f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffea9088000; bottom 0x00000043d000; size: 0x7ffea8c4b000 (140731729883136)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+=================================================================
+==329==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x749fd7f002a1 at pc 0x00000040a719 bp 0x0000004386d0 sp 0x0000004386c0
+WRITE of size 1 at 0x749fd7f002a1 thread T0
+    #0 0x40a718 in fmt_hex_bytes /workspace/sys/fmt/fmt.c:171
+    #1 0x413761 in test_fmt_hex_bytes /workspace/tests/unittests/tests-fmt/tests-fmt.c:203
+    #2 0x408ba2 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x4089fc in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x409156 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x414f3e in tests_fmt /workspace/tests/unittests/tests-fmt/tests-fmt.c:1077
+    #6 0x4029b7 in main /workspace/tests/unittests/main.c:47
+    #7 0x4037dd in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x749fd9ecef7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+Address 0x749fd7f002a1 is located in stack of thread T0 at offset 33 in frame
+    #0 0x41361d in test_fmt_hex_bytes /workspace/tests/unittests/tests-fmt/tests-fmt.c:190
+
+  This frame has 3 object(s):
+    [32, 33) 'val' (line 191) <== Memory access at offset 33 overflows this variable
+    [48, 49) 'val1' (line 215)
+    [64, 67) 'val3' (line 235)
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /workspace/sys/fmt/fmt.c:171 in fmt_hex_bytes
+Shadow bytes around the buggy address:
+  0x749fd7f00000: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x749fd7f00080: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x749fd7f00100: f1 f1 f1 f1 f1 f1 00 00 00 00 00 f3 f3 f3 f3 f3
+  0x749fd7f00180: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x749fd7f00200: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+=>0x749fd7f00280: f1 f1 f1 f1[01]f2 01 f2 03 f3 f3 f3 00 00 00 00
+  0x749fd7f00300: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x749fd7f00380: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x749fd7f00400: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x749fd7f00480: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x749fd7f00500: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

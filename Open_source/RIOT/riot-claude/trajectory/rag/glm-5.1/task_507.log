@@ -1,0 +1,75 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established patterns:
+
+1. **`LL_DELETE(*queue, node)`** — removes `node` from the singly-linked list headed by `*queue`. If `node` is the head, `*queue` is updated to point to the next element.
+2. **`node->next = NULL`** — clears the removed node's next pointer, matching the call pattern from the RAG context.
+3. **`return node`** — returns the removed node as documented in the function's Doxygen comment. The null-guard (`if (node)`) handles the case where `gnrc_pktqueue_remove_head` is called on an empty queue (where `*queue` is `NULL`).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/gnrc/pktqueue.h
++++ sys/include/net/gnrc/pktqueue.h
+@@ -59,7 +59,11 @@
+  */
+ static inline gnrc_pktqueue_t *gnrc_pktqueue_remove(gnrc_pktqueue_t **queue, gnrc_pktqueue_t *node)
+ {
+-    /* MASKED - implement this function */
++    if (node) {
++        LL_DELETE(*queue, node);
++        node->next = NULL;
++    }
++    return node;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktqueue
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  84473	  32232	  78208	 194913	  2f961	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....
+OK (5 tests)
+
+native: exiting
+
+--- stderr ---
+==322==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe97665000; bottom 0x00000042e000; size: 0x7ffe97237000 (140731434102784)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

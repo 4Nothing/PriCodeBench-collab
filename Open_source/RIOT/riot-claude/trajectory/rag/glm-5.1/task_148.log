@@ -1,0 +1,137 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `gnrc_ipv6_nib_nc_set` does:
+
+1. **Validates preconditions**: Asserts that `ipv6` is non-NULL and `l2addr_len` is within bounds. When `CONFIG_GNRC_IPV6_NIB_ARSM` is disabled, validates that `ipv6` is link-local (returning `-EINVAL` if not).
+
+2. **Acquires the NIB lock** via `_nib_acquire()`.
+
+3. **Creates or retrieves a neighbor cache entry** using `_nib_nc_add()` with `GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED` — this makes the entry "persistent" (not subject to NUD state machine or GC removal). Returns `-ENOMEM` if no space is available.
+
+4. **Stores the L2 address** (when `CONFIG_GNRC_IPV6_NIB_ARSM` is enabled) by copying `l2addr` and `l2addr_len` into the on-link entry.
+
+5. **Releases the NIB lock** and returns 0 on success.
+
+The implementation follows the same pattern used by `gnrc_ipv6_nib_pl_set` and the internal `_nib_nc_add`/`_nib_nc_get` functions, respecting all documented preconditions and return values from the header at `sys/include/net/gnrc/ipv6/nib/nc.h:233`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_nc.c
+@@ -31,7 +31,31 @@
+ int gnrc_ipv6_nib_nc_set(const ipv6_addr_t *ipv6, unsigned iface,
+                          const uint8_t *l2addr, size_t l2addr_len)
+ {
+-    /* MASKED - implement this function */
++    _nib_onl_entry_t *node;
++
++    assert(ipv6 != NULL);
++    assert(l2addr_len <= CONFIG_GNRC_IPV6_NIB_L2ADDR_MAX_LEN);
++
++#if !IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
++    if (!ipv6_addr_is_link_local(ipv6)) {
++        return -EINVAL;
++    }
++    (void)l2addr;
++    (void)l2addr_len;
++#endif
++
++    _nib_acquire();
++    node = _nib_nc_add(ipv6, iface, GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED);
++    if (node == NULL) {
++        _nib_release();
++        return -ENOMEM;
++    }
++#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
++    memcpy(node->l2addr, l2addr, l2addr_len);
++    node->l2addr_len = l2addr_len;
++#endif
++    _nib_release();
++    return 0;
+ }
+ 
+ #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_6LN)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313055	  72304	  92296	 477655	  749d7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................................
+tests.test_nib_nc_set__ENOMEM_diff_addr (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-nc.c 52) exp -12 was 0
+.
+tests.test_nib_nc_set__ENOMEM_diff_iface (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-nc.c 73) exp -12 was 0
+.
+tests.test_nib_nc_set__ENOMEM_diff_addr_iface (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-nc.c 96) exp -12 was 0
+.
+tests.test_nib_nc_set__success (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-nc.c 122) exp 1536 was 0
+.......................
+run 152 failures 4
+
+native: exiting
+
+--- stderr ---
+==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff403d9000; bottom 0x000000470000; size: 0x7fff3ff69000 (140734266511360)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

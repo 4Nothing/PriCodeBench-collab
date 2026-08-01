@@ -1,0 +1,174 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+Parses a DER-encoded `ECPrivateKey` as defined in **RFC5915 Section 3**:
+
+```
+ECPrivateKey ::= SEQUENCE {
+    version        INTEGER { ecPrivkeyVer1(1) },
+    privateKey     OCTET STRING,
+    parameters [0] ECParameters OPTIONAL,
+    publicKey  [1] BIT STRING OPTIONAL
+}
+```
+
+The function:
+
+1. **DER-decodes** the input buffer into an ASN.1 tree (same pattern as `credman_load_private_key` and `credman_load_public_key`)
+2. **Validates** the outer SEQUENCE, the version INTEGER, and the privateKey OCTET STRING
+3. **Stores** `cred->params.ecdsa.private_key` pointing to the raw private key bytes
+4. **Skips** the optional `parameters [0]` (context tag `0xA0`) if present
+5. **Optionally parses** the public key from `publicKey [1]` (context tag `0xA1`) by delegating to the existing `_parse_ecc_point` helper — this handles uncompressed ECC point format from the wrapped BIT STRING
+6. Returns `CREDMAN_OK` on success, `CREDMAN_INVALID` on any parsing error
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/credman/credman.c
++++ sys/net/credman/credman.c
+@@ -272,7 +272,83 @@
+ 
+ int credman_load_private_ecc_key(const void *buf, size_t buf_len, credman_credential_t *cred)
+ {
+-    /* MASKED - implement this function */
++    asn1_tree objects[CONFIG_CREDMAN_MAX_ASN1_OBJ];
++    asn1_tree ec_priv_key;
++
++    assert(buf);
++    assert(cred);
++
++    int obj_count = der_object_count((uint8_t *)buf, buf_len);
++    if (obj_count <= 0) {
++        DEBUG("credman: could not calculate the number of elements within the key\n");
++        return CREDMAN_INVALID;
++    }
++
++    if (obj_count > CONFIG_CREDMAN_MAX_ASN1_OBJ) {
++        DEBUG("credman: not enough ASN.1 objects to decode key.\n");
++        DEBUG("credman: current max is %d, and we need %d\n",
++              CONFIG_CREDMAN_MAX_ASN1_OBJ, obj_count);
++        return CREDMAN_INVALID;
++    }
++
++    if (der_decode((uint8_t *)buf, buf_len, &ec_priv_key, objects, obj_count) < 0) {
++        DEBUG("credman: could not parse the ECC private key\n");
++        return CREDMAN_INVALID;
++    }
++
++    /*
++     * From https://tools.ietf.org/html/rfc5915#section-3
++     *
++     * ECPrivateKey ::= SEQUENCE {
++     *      version        INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
++     *      privateKey     OCTET STRING,
++     *      parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
++     *      publicKey  [1] BIT STRING OPTIONAL
++     * }
++     */
++
++    /* the outer container is an 'ECPrivateKey', which should be a SEQUENCE */
++    if (ec_priv_key.type != ASN1_TYPE_SEQUENCE) {
++        DEBUG("credman: the ECC private key should be contained in an ASN.1 SEQUENCE\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to version */
++    asn1_tree *node = ec_priv_key.child;
++
++    if (!node || node->type != ASN1_TYPE_INTEGER) {
++        DEBUG("credman: invalid ECC private key version\n");
++        return CREDMAN_INVALID;
++    }
++
++    /* point to privateKey */
++    node = node->next;
++    if (!node || node->type != ASN1_TYPE_OCTET_STRING || !node->data || !node->length) {
++        DEBUG("credman: no private key found\n");
++        return CREDMAN_INVALID;
++    }
++
++    cred->params.ecdsa.private_key = node->data;
++
++    /* check for optional parameters [0] and publicKey [1] */
++    node = node->next;
++
++    /* parameters [0] is optional, skip if present */
++    if (node && node->type == ASN1_CONTEXT_TAG(0)) {
++        node = node->next;
++    }
++
++    /* publicKey [1] is optional */
++    if (node && node->type == ASN1_CONTEXT_TAG(1)) {
++        if (!node->child) {
++            DEBUG("credman: invalid public key in ECC private key\n");
++            return CREDMAN_INVALID;
++        }
++        return _parse_ecc_point(node->child, &cred->params.ecdsa.public_key.x,
++                                &cred->params.ecdsa.public_key.y);
++    }
++
++    return CREDMAN_OK;
+ }
+ 
+ static int _parse_ecc_point(const asn1_tree *key, const void **x, const void **y)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+rm -Rf /tmp/build/pkg/tiny-asn1
+mkdir -p $(dirname /tmp/build/pkg/tiny-asn1)
+cp -a /workspace/build/pkg/tiny-asn1/ /tmp/build/pkg/tiny-asn1
+touch /tmp/build/pkg/tiny-asn1/.prepared
+"make" -C /workspace/pkg/tiny-asn1/ 
+"make" -C /tmp/build/pkg/tiny-asn1/src -f /workspace/Makefile.base MODULE=tiny-asn1
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-credman
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/credman
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  94672	  32840	  78440	 205952	  32480	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.......
+credman_tests.test_credman_load_private_key_from_buffer (tests/unittests/tests-credman/tests-credman.c 330) exp 0 was 2
+.
+credman_tests.test_credman_load_private_ecc_key_from_buffer (tests/unittests/tests-credman/tests-credman.c 345) exp 0 was 2
+
+run 8 failures 2
+
+native: exiting
+
+--- stderr ---
+==380==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe9dc62000; bottom 0x000000431000; size: 0x7ffe9d831000 (140731541032960)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

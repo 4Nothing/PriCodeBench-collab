@@ -1,0 +1,69 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. Gets the current TCB via `OsGetCurrentTcb()` (the established pattern used elsewhere in this file, e.g., line 186)
+2. Returns `NULL` if there's no running task
+3. Falls back to `libc_global_locale` if the task's `locale` field hasn't been set yet — matching the initialization at line 390
+4. Returns `&taskCb->locale` — a pointer the caller can dereference (via `CURRENT_LOCALE` macro) or write through (via `uselocale.c`)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task_init.c
++++ src/core/kernel/task/smp/prt_task_init.c
+@@ -473,5 +473,16 @@
+ #if defined(OS_OPTION_LOCALE)
+ OS_SEC_L4_TEXT locale_t *PRT_LocaleCurrent(void)
+ {
+-    /* MASKED - implement this function */
+-}#endif+    struct TagTskCb *taskCb = OsGetCurrentTcb();
++
++    if (taskCb == NULL) {
++        return NULL;
++    }
++
++    if (taskCb->locale == NULL) {
++        taskCb->locale = (locale_t)libc_global_locale;
++    }
++
++    return &taskCb->locale;
++}
++#endif
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    struct TagTskCb *taskCb = OsGetCurrentTcb();
+
+    if (taskCb == NULL) {
+        return NULL;
+    }
+
+    if (taskCb->locale == NULL) {
+        taskCb->locale = (locale_t)libc_global_locale;
+    }
+
+    return &taskCb->locale;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LocaleCurrent.c
+
+--- stderr ---
+bash: line 1:    23 Segmentation fault      (core dumped) ./test
+
+
+

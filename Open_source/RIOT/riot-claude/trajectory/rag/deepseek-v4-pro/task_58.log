@@ -1,0 +1,131 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what `coding_xor_recover` does:
+
+1. **`_unmix(data, len)`** — reverses the matrix transpose to restore the original byte ordering (undoing `_mix` from `coding_xor_generate`).
+
+2. **`_recover_blocks(...)`** — attempts to recover each missing data block by XORing the parity byte with the other bytes in the same parity group (3 bytes per parity byte). This succeeds when the neighboring bytes' blocks are present.
+
+3. **Parity recovery** (when `recover_parity` is true) — for each missing parity block, checks whether all 3 corresponding data blocks are present. If so, calls `_gen_parity` on that data range to recompute the parity bytes, and marks the parity block as recovered in the bitfield.
+
+The mapping between parity blocks and data blocks follows from the parity structure: each parity byte covers `CONFIG_CODING_XOR_CHECK_BYTES` (3) data bytes, so a parity block of `block_size` bytes covers `3 * block_size` data bytes = 3 data blocks.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/coding/xor.c
++++ sys/coding/xor.c
+@@ -173,7 +173,57 @@
+ bool coding_xor_recover(void *data, size_t len, uint8_t *parity,
+                         uint8_t *bitfield, size_t block_size, bool recover_parity)
+ {
+-    /* MASKED - implement this function */
++    _unmix(data, len);
++
++    bool success = _recover_blocks(data, len, parity, bitfield, block_size);
++
++    if (recover_parity) {
++        const size_t num_data_blocks = len / block_size;
++        const size_t parity_len = CODING_XOR_PARITY_LEN(len);
++        const size_t num_parity_blocks = (parity_len + block_size - 1) / block_size;
++
++        for (size_t p = 0; p < num_parity_blocks; p++) {
++            if (bf_isset(bitfield, num_data_blocks + p)) {
++                continue;
++            }
++
++            size_t data_block_start = p * CONFIG_CODING_XOR_CHECK_BYTES;
++            size_t data_block_end = data_block_start + CONFIG_CODING_XOR_CHECK_BYTES;
++            if (data_block_end > num_data_blocks) {
++                data_block_end = num_data_blocks;
++            }
++
++            bool all_present = true;
++            for (size_t d = data_block_start; d < data_block_end; d++) {
++                if (!bf_isset(bitfield, d)) {
++                    all_present = false;
++                    break;
++                }
++            }
++
++            if (!all_present) {
++                continue;
++            }
++
++            size_t data_offset = p * block_size * CONFIG_CODING_XOR_CHECK_BYTES;
++            size_t data_len = block_size * CONFIG_CODING_XOR_CHECK_BYTES;
++            if (data_offset + data_len > len) {
++                data_len = len - data_offset;
++            }
++
++            size_t par_offset = p * block_size;
++            size_t par_len = block_size;
++            if (par_offset + par_len > parity_len) {
++                par_len = parity_len - par_offset;
++            }
++
++            _gen_parity((uint8_t *)data + data_offset, data_len,
++                        parity + par_offset);
++            bf_set(bitfield, num_data_blocks + p);
++        }
++    }
++
++    return success;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-coding
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/bitfield
+"make" -C /workspace/sys/coding
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  83497	  31696	  78120	 193313	  2f321	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+coding_xor_tests.test_coding_xor_recovery (tests/unittests/tests-coding/tests-coding-xor.c 69) exp "0123456789AB" was "0"
+...
+coding_xor_tests.test_coding_xor_recovery_large (tests/unittests/tests-coding/tests-coding-xor.c 170) exp 192 was 67
+
+run 5 failures 2
+
+native: exiting
+
+--- stderr ---
+==339==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffceb2cf000; bottom 0x00000042e000; size: 0x7ffceaea1000 (140724249694208)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

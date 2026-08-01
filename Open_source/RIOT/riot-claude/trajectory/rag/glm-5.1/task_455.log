@@ -1,0 +1,90 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is implemented. Here's what it does:
+
+- **Empty list**: returns `NULL`
+- **Single element**: clears `list->next` and returns the node (same pattern as `clist_lpop`)
+- **Multiple elements**: traverses from the last node forward to find the predecessor (node whose `next` equals the last), rewires the predecessor to skip past the last, updates `list->next` to point to the predecessor, and returns the popped last node
+
+The logic follows the existing patterns in the file — the single-element check mirrors `clist_lpop` (line 174), and the predecessor-finding loop matches the style used in `clist_find_before` (line 269). The O(n) complexity matches the doc comment at line 28.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- core/lib/include/clist.h
++++ core/lib/include/clist.h
+@@ -243,7 +243,22 @@
+  */
+ static inline clist_node_t *clist_rpop(clist_node_t *list)
+ {
+-    /* MASKED - implement this function */
++    if (list->next) {
++        clist_node_t *last = list->next;
++        if (last == last->next) {
++            list->next = NULL;
++        }
++        else {
++            clist_node_t *pos = last;
++            do {
++                pos = pos->next;
++            } while (pos->next != last);
++            pos->next = last->next;
++            list->next = pos;
++        }
++        return last;
++    }
++    return NULL;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-core
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 134949	  51816	  96776	 283541	  45395	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..............................................................................................................
+OK (110 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==364==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd86f67000; bottom 0x000000440000; size: 0x7ffd86b27000 (140726863294464)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==364==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

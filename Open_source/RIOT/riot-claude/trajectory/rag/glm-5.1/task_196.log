@@ -1,0 +1,125 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**Parses the IEEE 802.15.4 frame header** to compute its length, following the same logic used by the existing `ieee802154_get_src` and `ieee802154_get_dst` functions in the same file:
+
+1. **FCF (2 bytes) + Sequence Number (1 byte)** = base offset of 3
+2. **Destination addressing** — reads `mhr[1]` bits 3-2:
+   - SHORT: +4 (2 PAN + 2 addr), LONG: +10 (2 PAN + 8 addr), VOID: +0
+   - PAN compression with no dst addr → returns 0 (invalid)
+3. **Source addressing** — reads `mhr[1]` bits 7-6:
+   - If present and PAN compression not set: +2 for source PAN
+   - SHORT: +2, LONG: +8 for source address
+   - Reserved mode → returns 0 (invalid)
+4. **Validity check**: both addresses void is only legal for beacon/ACK frames
+
+Returns `0` for any invalid frame, consistent with the caller pattern (`mhr_len == 0` means "Unexpected MHR").
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -114,7 +114,50 @@
+ 
+ size_t ieee802154_get_frame_hdr_len(const uint8_t *mhr)
+ {
+-    /* MASKED - implement this function */
++    int offset = 3; /* FCF: 0-1, Seq: 2 */
++    uint8_t tmp;
++    uint8_t type = mhr[0] & IEEE802154_FCF_TYPE_MASK;
++
++    tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
++        offset += 4;
++    }
++    else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
++        offset += 10;
++    }
++    else if (tmp != IEEE802154_FCF_DST_ADDR_VOID) {
++        return 0;
++    }
++    else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++        /* PAN compression, but no destination address => illegal state */
++        return 0;
++    }
++
++    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP) &&
++            (tmp != IEEE802154_FCF_SRC_ADDR_RESV)) {
++            offset += 2;
++        }
++    }
++    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
++        offset += 2;
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
++        offset += 8;
++    }
++    else if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        return 0;
++    }
++
++    /* both addr modes void is only valid for beacon and ACK frames */
++    if ((type != IEEE802154_FCF_TYPE_BEACON) &&
++        (type != IEEE802154_FCF_TYPE_ACK) &&
++        (offset == 3)) {
++        return 0;
++    }
++
++    return offset;
+ }
+ 
+ int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 154017	  36616	  78152	 268785	  419f1	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................................................
+OK (69 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd23b43000; bottom 0x000000441000; size: 0x7ffd23702000 (140725198004224)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

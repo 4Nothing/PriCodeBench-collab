@@ -1,0 +1,227 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **Validates `src_len`/`dst_len`** — only accepts 0, 2 (short address), or 8 (long address), returning 0 on invalid lengths or NULL pointers with non-zero lengths
+2. **Clears ACK_REQ** if `dst` is NULL (prevents network flooding as specified in the docstring)
+3. **Rejects PAN compression without a destination address** (illegal per the 802.15.4 standard, matching the check in `ieee802154_get_frame_hdr_len`)
+4. **Writes the header fields** in the correct order:
+   - FCF byte 0: the `flags` parameter
+   - FCF byte 1: frame version 1 | destination addressing mode | source addressing mode
+   - Sequence number
+   - Destination PAN (LE) + address (network byte order, stored LE on wire)
+   - Source PAN (LE, omitted when PAN compression is active) + source address
+5. **Returns total header size** on success, 0 on error
+
+The byte order matches the existing `ieee802154_get_dst` and `ieee802154_get_src` functions, ensuring correct round-trip behavior — a header built by `set` can be parsed by `get` and vice versa.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -26,7 +26,102 @@
+                                 le_uint16_t src_pan, le_uint16_t dst_pan,
+                                 uint8_t flags, uint8_t seq)
+ {
+-    /* MASKED - implement this function */
++    uint8_t dst_mode, src_mode;
++    size_t pos = 0;
++
++    switch (src_len) {
++    case 0:
++        src_mode = IEEE802154_FCF_SRC_ADDR_VOID;
++        break;
++    case IEEE802154_SHORT_ADDRESS_LEN:
++        if (src == NULL) {
++            return 0;
++        }
++        src_mode = IEEE802154_FCF_SRC_ADDR_SHORT;
++        break;
++    case IEEE802154_LONG_ADDRESS_LEN:
++        if (src == NULL) {
++            return 0;
++        }
++        src_mode = IEEE802154_FCF_SRC_ADDR_LONG;
++        break;
++    default:
++        return 0;
++    }
++
++    switch (dst_len) {
++    case 0:
++        dst_mode = IEEE802154_FCF_DST_ADDR_VOID;
++        break;
++    case IEEE802154_SHORT_ADDRESS_LEN:
++        if (dst == NULL) {
++            return 0;
++        }
++        dst_mode = IEEE802154_FCF_DST_ADDR_SHORT;
++        break;
++    case IEEE802154_LONG_ADDRESS_LEN:
++        if (dst == NULL) {
++            return 0;
++        }
++        dst_mode = IEEE802154_FCF_DST_ADDR_LONG;
++        break;
++    default:
++        return 0;
++    }
++
++    if (dst == NULL) {
++        flags &= ~IEEE802154_FCF_ACK_REQ;
++    }
++
++    if ((flags & IEEE802154_FCF_PAN_COMP) &&
++        (dst_mode == IEEE802154_FCF_DST_ADDR_VOID)) {
++        return 0;
++    }
++
++    /* FCF byte 0 */
++    buf[pos++] = flags;
++
++    /* FCF byte 1: frame version 1 | dst addr mode | src addr mode */
++    buf[pos++] = IEEE802154_FCF_VERS_V1 | dst_mode | src_mode;
++
++    /* Sequence number */
++    buf[pos++] = seq;
++
++    /* Destination PAN ID and address */
++    if (dst_mode != IEEE802154_FCF_DST_ADDR_VOID) {
++        buf[pos++] = dst_pan.u8[0];
++        buf[pos++] = dst_pan.u8[1];
++
++        if (dst_mode == IEEE802154_FCF_DST_ADDR_SHORT) {
++            buf[pos++] = dst[1];
++            buf[pos++] = dst[0];
++        }
++        else {
++            for (int i = 7; i >= 0; i--) {
++                buf[pos++] = dst[i];
++            }
++        }
++    }
++
++    /* Source PAN ID and address */
++    if (src_mode != IEEE802154_FCF_SRC_ADDR_VOID) {
++        if (!(flags & IEEE802154_FCF_PAN_COMP)) {
++            buf[pos++] = src_pan.u8[0];
++            buf[pos++] = src_pan.u8[1];
++        }
++
++        if (src_mode == IEEE802154_FCF_SRC_ADDR_SHORT) {
++            buf[pos++] = src[1];
++            buf[pos++] = src[0];
++        }
++        else if (src_mode == IEEE802154_FCF_SRC_ADDR_LONG) {
++            for (int i = 7; i >= 0; i--) {
++                buf[pos++] = src[i];
++            }
++        }
++    }
++
++    return pos;
+ }
+ 
+ size_t ieee802154_get_frame_hdr_len(const uint8_t *mhr)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 153823	  36608	  78152	 268583	  41927	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe39621000; bottom 0x000000441000; size: 0x7ffe391e0000 (140729856688128)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+=================================================================
+==329==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7ef39d4002a2 at pc 0x00000040a1f1 bp 0x00000043cba0 sp 0x00000043cb90
+WRITE of size 1 at 0x7ef39d4002a2 thread T0
+    #0 0x40a1f0 in ieee802154_set_frame_hdr /workspace/sys/net/link_layer/ieee802154/ieee802154.c:88
+    #1 0x41a96b in test_ieee802154_set_frame_hdr_flags0_non_beacon_non_ack /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:46
+    #2 0x408926 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x408780 in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x408eda in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x41ac22 in tests_ieee802154 /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:1245
+    #6 0x402977 in main /workspace/tests/unittests/main.c:47
+    #7 0x40379d in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x7ef39f50cf7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+Address 0x7ef39d4002a2 is located in stack of thread T0 at offset 34 in frame
+    #0 0x41a8dd in test_ieee802154_set_frame_hdr_flags0_non_beacon_non_ack /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:40
+
+  This frame has 1 object(s):
+    [32, 34) 'res' (line 44) <== Memory access at offset 34 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /workspace/sys/net/link_layer/ieee802154/ieee802154.c:88 in ieee802154_set_frame_hdr
+Shadow bytes around the buggy address:
+  0x7ef39d400000: f1 f1 f1 f1 04 f3 f3 f3 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7ef39d400080: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7ef39d400100: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7ef39d400180: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7ef39d400200: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+=>0x7ef39d400280: f1 f1 f1 f1[02]f3 f3 f3 00 00 00 00 00 00 00 00
+  0x7ef39d400300: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7ef39d400380: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7ef39d400400: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7ef39d400480: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7ef39d400500: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==329==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
+
+
+

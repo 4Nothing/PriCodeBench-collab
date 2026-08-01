@@ -1,0 +1,124 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what the function does:
+
+- **`is_default_route` detection**: Uses the same logic as `gnrc_ipv6_nib_ft_add` — `dst == NULL`, `dst_len == 0`, or `dst` is the unspecified address
+- **Default route branch**: Removes the primary default router (`_prime_def_router`) via `_nib_drl_remove`, then clears the pointer. The null guard handles the case where no default route exists.
+- **Non-default route branch** (under `CONFIG_GNRC_IPV6_NIB_ROUTER`): Iterates all off-link entries looking for one with `_FT` mode, matching `pfx_len` and `pfx` address. Removes it via `_nib_ft_remove` (which cancels the route timeout timer and clears the `_FT` mode bit).
+- **Locking**: Acquires/releases the NIB mutex around the operation, matching the pattern of every other public function in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_ft.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_ft.c
+@@ -97,7 +97,31 @@
+ 
+ void gnrc_ipv6_nib_ft_del(const ipv6_addr_t *dst, unsigned dst_len)
+ {
+-    /* MASKED - implement this function */
++    bool is_default_route = ((dst == NULL) || (dst_len == 0) ||
++                             ipv6_addr_is_unspecified(dst));
++
++    _nib_acquire();
++    if (is_default_route) {
++        if (_prime_def_router != NULL) {
++            _nib_drl_remove(_prime_def_router);
++            _prime_def_router = NULL;
++        }
++    }
++#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER)
++    else {
++        _nib_offl_entry_t *entry = NULL;
++
++        while ((entry = _nib_offl_iter(entry))) {
++            if ((entry->mode & _FT) &&
++                (entry->pfx_len == dst_len) &&
++                ipv6_addr_equal(&entry->pfx, dst)) {
++                _nib_ft_remove(entry);
++                break;
++            }
++        }
++    }
++#endif
++    _nib_release();
+ }
+ 
+ bool gnrc_ipv6_nib_ft_iter(const ipv6_addr_t *next_hop, unsigned iface,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313272	  72304	  92296	 477872	  74ab0	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............................................................................................................................
+tests.test_nib_ft_iter__empty_pref_route_in_the_middle (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-ft.c 708) ipv6_addr_match_prefix(&fte.dst, &route) >= GLOBAL_PREFIX_LEN
+...........................
+run 152 failures 1
+
+native: exiting
+
+--- stderr ---
+==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe765d7000; bottom 0x000000470000; size: 0x7ffe76167000 (140730879602688)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

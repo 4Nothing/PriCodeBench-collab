@@ -1,0 +1,47 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented at `src/extended/perf/prt_perf.c:311-314`. It reads the current core ID via `PRT_GetCoreID()` and increments the per-core `count` in the `Event` struct by the given `value`. This matches the call patterns in both `prt_perf_sw_pmu.c` (which checks `event->count[PRT_GetCoreID()] % event->period` after the call) and `prt_perf_timed_pmu.c` (which calls `OsPerfHandleOverFlow` after updating the count).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/extended/perf/prt_perf.c
++++ src/extended/perf/prt_perf.c
+@@ -310,7 +310,8 @@
+ 
+ void OsPerfUpdateEventCount(Event *event, U32 value)
+ {
+-    /* MASKED - implement this function */
++    U32 cpuid = PRT_GetCoreID();
++    event->count[cpuid] += value;
+ }
+ 
+ void OsPerfHandleOverFlow(Event *event, PerfRegs *regs)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 cpuid = PRT_GetCoreID();
+    event->count[cpuid] += value;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I. -Wl,--allow-multiple-definition -o test test_OsPerfUpdateEventCount.c test_stubs.c
+
+--- stderr ---
+In file included from test_OsPerfUpdateEventCount.c:2:
+test_util.h:35:13: warning: 'TU_EXPECT_TRUE' defined but not used [-Wunused-function]
+   35 | static void TU_EXPECT_TRUE(int condition, const char *name)
+      |             ^~~~~~~~~~~~~~
+bash: line 1:    25 Segmentation fault      (core dumped) ./test
+
+
+

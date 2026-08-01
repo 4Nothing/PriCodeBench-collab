@@ -1,0 +1,108 @@
+============================================================
+=== Claude Session ===
+============================================================
+The function is now implemented. It follows the same logic as `coap_build_udp_hdr` (the non-deprecated replacement), adapted for the legacy API:
+
+- **TKL encoding**: Handles three cases — inline (0-12 bytes), 1-byte extended (13-268 bytes), and 2-byte extended (>268 bytes), all gated on `MODULE_NANOCOAP_TOKEN_EXT`
+- **Header fields**: Sets version (`COAP_V1`), type, token length nybble, code, and message ID (in network byte order)
+- **Token placement**: Copies the token after the header and optional extended TKL field, using `coap_hdr_data_ptr()` for correct positioning, with the same overlapping-buffer guard as `coap_build_udp_hdr`
+- **Return**: Total header length (`sizeof(coap_udp_hdr_t) + token_len + tkl_ext_len`)
+
+Key difference from `coap_build_udp_hdr`: no buffer size validation — the caller is responsible for ensuring the buffer is large enough (as documented in the function comment).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/nanocoap.h
++++ sys/include/net/nanocoap.h
+@@ -2223,7 +2223,40 @@
+ static inline ssize_t coap_build_hdr(coap_udp_hdr_t *hdr, unsigned type, const void *token,
+                                      size_t token_len, unsigned code, uint16_t id)
+ {
+-    /* MASKED - implement this function */
++    assert(!(type & ~0x3));
++
++    uint16_t tkl_ext;
++    uint8_t tkl_ext_len, tkl;
++
++    if (token_len > 268 && IS_USED(MODULE_NANOCOAP_TOKEN_EXT)) {
++        tkl_ext_len = 2;
++        tkl_ext = htons(token_len - 269);
++        tkl = 14;
++    }
++    else if (token_len > 12 && IS_USED(MODULE_NANOCOAP_TOKEN_EXT)) {
++        tkl_ext_len = 1;
++        tkl_ext = token_len - 13;
++        tkl = 13;
++    }
++    else {
++        tkl = token_len;
++        tkl_ext_len = 0;
++    }
++
++    hdr->ver_t_tkl = (COAP_V1 << 6) | (type << 4) | tkl;
++    hdr->code = code;
++    hdr->id = htons(id);
++
++    if (tkl_ext_len) {
++        memcpy((uint8_t *)(hdr + 1), &tkl_ext, tkl_ext_len);
++    }
++
++    void *token_dest = coap_hdr_data_ptr(hdr);
++    if (token_dest != token) {
++        memcpy(token_dest, token, token_len);
++    }
++
++    return sizeof(coap_udp_hdr_t) + token_len + tkl_ext_len;
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 148566	  36040	  78120	 262726	  40246	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdae53f000; bottom 0x00000043f000; size: 0x7ffdae100000 (140727523737600)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

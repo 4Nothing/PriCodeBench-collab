@@ -59,5 +59,5 @@ ALLOWED_CLAUDE_ENV = {
 
 # ---- RAG ----
 RAG_SOURCE_DIR = QSemOS_ROOT / "src"
-RAG_DB_PATH = SCRIPT_DIR / "rag_index" / "index.db"
-RAG_INDEX_DIR = SCRIPT_DIR / "rag_index"
+RAG_DB_PATH = Path(os.environ.get("RAG_DB_PATH", SCRIPT_DIR / "rag_index" / "index.db"))
+RAG_INDEX_DIR = Path(os.environ.get("RAG_INDEX_DIR", SCRIPT_DIR / "rag_index"))

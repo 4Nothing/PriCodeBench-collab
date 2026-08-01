@@ -85,5 +85,5 @@ CONDA_INIT = ""               # Shell 初始化（Docker 模式下不需要）
 
 # ---- RAG ----
 RAG_SOURCE_DIR = RIOT_ROOT
-RAG_DB_PATH = SCRIPT_DIR / "rag_index" / "index.db"
-RAG_INDEX_DIR = SCRIPT_DIR / "rag_index"
+RAG_DB_PATH = Path(os.environ.get("RAG_DB_PATH", SCRIPT_DIR / "rag_index" / "index.db"))
+RAG_INDEX_DIR = Path(os.environ.get("RAG_INDEX_DIR", SCRIPT_DIR / "rag_index"))

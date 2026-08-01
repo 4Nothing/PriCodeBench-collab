@@ -1,0 +1,127 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the established iterator pattern used by sibling functions (`gnrc_ipv6_nib_pl_iter`, `gnrc_ipv6_nib_nc_iter`):
+
+1. Cast `*state` to the internal `_nib_abr_entry_t *` type
+2. Acquire the NIB mutex lock (`_nib_acquire()`)
+3. Call the existing internal iterator `_nib_abr_iter()` which walks the `_abrs[]` static array, skipping empty (unspecified address) slots
+4. If an entry is found, copy the three public fields (`addr`, `version`, `valid_until_ms`) from the internal struct to the public `gnrc_ipv6_nib_abr_t`
+5. Release the lock (`_nib_release()`)
+6. Store the internal pointer back in `*state` for the next call
+7. Return `true` while entries remain, `false` when exhausted
+
+The `string.h` include was added for `memcpy` (used to copy the IPv6 address).
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/network_layer/ipv6/nib/nib_abr.c
++++ sys/net/gnrc/network_layer/ipv6/nib/nib_abr.c
+@@ -15,6 +15,7 @@
+ 
+ #include <assert.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <kernel_defines.h>
+ 
+ #include "net/gnrc/ipv6/nib/abr.h"
+@@ -72,7 +73,18 @@
+ 
+ bool gnrc_ipv6_nib_abr_iter(void **state, gnrc_ipv6_nib_abr_t *entry)
+ {
+-    /* MASKED - implement this function */
++    _nib_abr_entry_t *abr = *state;
++
++    _nib_acquire();
++    abr = _nib_abr_iter(abr);
++    if (abr) {
++        memcpy(&entry->addr, &abr->addr, sizeof(entry->addr));
++        entry->version = abr->version;
++        entry->valid_until_ms = abr->valid_until_ms;
++    }
++    _nib_release();
++    *state = abr;
++    return (*state != NULL);
+ }
+ 
+ void gnrc_ipv6_nib_abr_print(gnrc_ipv6_nib_abr_t *abr)
+
+
+============================================================
+=== ILLEGAL MODIFICATIONS ===
+============================================================
+integrity violation: code outside target function changed
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-gnrc_ipv6_nib
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/evtimer
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/net/link_layer/l2util
+"make" -C /workspace/sys/net/netif
+"make" -C /workspace/sys/net/network_layer/icmpv6
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/net/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 313125	  72304	  92296	 477725	  74a1d	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........................................................................................................................................................
+OK (152 tests)
+
+native: exiting
+
+--- stderr ---
+==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffde56b3000; bottom 0x000000470000; size: 0x7ffde5243000 (140728447807488)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

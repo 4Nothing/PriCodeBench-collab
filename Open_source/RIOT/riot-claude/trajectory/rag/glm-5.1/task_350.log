@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `uuid_v3` function is now implemented. It mirrors `uuid_v5` (lines 90–104) but uses MD5 instead of SHA1:
+
+- `md5_ctx_t` instead of `sha1_context`
+- `md5_init/update/final` instead of `sha1_init/update/final`
+- MD5 produces a 16-byte digest (same as `sizeof(uuid_t)`), so `uuid` is passed directly to `md5_final` — no intermediate buffer needed
+- Sets version to `UUID_V3` instead of `UUID_V5`
+- Still calls `_set_reserved` (RFC 4122 requires it for both v3 and v5)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/uuid/uuid.c
++++ sys/uuid/uuid.c
+@@ -77,7 +77,15 @@
+ 
+ void uuid_v3(uuid_t *uuid, const uuid_t *ns, const uint8_t *name, size_t len)
+ {
+-    /* MASKED - implement this function */
++    md5_ctx_t ctx;
++
++    md5_init(&ctx);
++    md5_update(&ctx, ns, sizeof(uuid_t));
++    md5_update(&ctx, name, len);
++    md5_final(&ctx, uuid);
++
++    _set_version(uuid, UUID_V3);
++    _set_reserved(uuid);
+ }
+ 
+ void uuid_v4(uuid_t *uuid)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-uuid
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/fmt
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/luid
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/uuid
+   text	   data	    bss	    dec	    hex	filename
+ 121871	  35712	  78768	 236351	  39b3f	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+....
+OK (4 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==443==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe600ca000; bottom 0x000000438000; size: 0x7ffe5fc92000 (140730505437184)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

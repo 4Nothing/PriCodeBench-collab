@@ -1,0 +1,97 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors the pattern from `dns_cache_add`:
+
+- Computes `hash` from the domain name and `now` from ztimer (both needed for expiration check)
+- Takes the mutex and iterates the cache, skipping entries that don't match on hash, are expired, are empty, or have the wrong address family
+- When `fam_len` is 0 (AF_UNSPEC), any address length is accepted
+- On hit, copies the address to `addr_out` and returns the length (4 for IPv4, 16 for IPv6)
+- Returns 0 if no matching entry is found
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/dns/cache.c
++++ sys/net/application_layer/dns/cache.c
+@@ -120,7 +120,32 @@
+ 
+ int dns_cache_query(const char *domain_name, void *addr_out, int family)
+ {
+-    /* MASKED - implement this function */
++    uint32_t now = ztimer_now(ZTIMER_MSEC) / MS_PER_SEC;
++    uint32_t hash = _hash(domain_name, strlen(domain_name));
++    uint8_t fam_len = _addr_len(family);
++    int res = 0;
++
++    mutex_lock(&cache_mutex);
++    for (unsigned i = 0; i < CONFIG_DNS_CACHE_SIZE; ++i) {
++        if (cache[i].hash != hash) {
++            continue;
++        }
++        if (now > cache[i].expires || _is_empty(i)) {
++            continue;
++        }
++        uint8_t len = _get_len(i);
++        if (fam_len && len != fam_len) {
++            continue;
++        }
++
++        DEBUG("dns_cache[%u] hit\n", i);
++        memcpy(addr_out, &cache[i].addr, len);
++        res = len;
++        break;
++    }
++    mutex_unlock(&cache_mutex);
++
++    return res;
+ }
+ 
+ static void _add_entry(uint8_t i, uint32_t hash, const void *addr_out,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-dns_cache
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/dns
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/ztimer
+
+--- stderr ---
+[01m[K/workspace/sys/net/application_layer/dns/cache.c:93:13:[m[K [01;31m[Kerror: [m[K'[01m[K_set_empty[m[K' defined but not used [[01;31m[K-Werror=unused-function[m[K]
+   93 | static void [01;31m[K_set_empty[m[K(unsigned idx)
+      |             [01;31m[K^~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/dns/cache.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/net/application_layer/dns] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

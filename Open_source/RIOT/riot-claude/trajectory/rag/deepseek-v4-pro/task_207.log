@@ -1,0 +1,88 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pattern as `ipv6_addr_init_prefix` (the inverse operation):
+- Caps `bits` at 128
+- Copies the full bytes from `iid` to the end of `out` via `memcpy`
+- For the partial byte (when `bits` is not a multiple of 8), clears the least-significant bits at the boundary byte and sets them from the most-significant bits of the remaining IID byte
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/ipv6/addr/ipv6_addr.c
++++ sys/net/network_layer/ipv6/addr/ipv6_addr.c
+@@ -91,7 +91,22 @@
+ 
+ void ipv6_addr_init_iid(ipv6_addr_t *out, const uint8_t *iid, uint8_t bits)
+ {
+-    /* MASKED - implement this function */
++    uint8_t bytes;
++
++    if (bits > 128) {
++        bits = 128;
++    }
++
++    bytes = bits / 8;
++
++    memcpy(&out->u8[16 - bytes], iid, bytes);
++
++    if (bits % 8) {
++        uint8_t mask = 0xff >> (8 - (bits - (bytes * 8)));
++
++        out->u8[16 - bytes - 1] &= ~mask;
++        out->u8[16 - bytes - 1] |= (iid[bytes] >> (8 - (bits - (bytes * 8)))) & mask;
++    }
+ }
+ 
+ char *ipv6_addr_split_str(char *addr_str, char separator)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 193888	  41928	  78152	 313968	  4ca70	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..................................................
+ipv6_addr_tests.test_ipv6_addr_init_iid (tests/unittests/tests-ipv6_addr/tests-ipv6_addr.c 603) exp 1 was 0
+..........................................
+run 92 failures 1
+
+native: exiting
+
+--- stderr ---
+==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff48e72000; bottom 0x00000044c000; size: 0x7fff48a26000 (140734411988992)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

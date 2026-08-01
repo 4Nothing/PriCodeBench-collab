@@ -1,0 +1,81 @@
+============================================================
+=== Claude Session ===
+============================================================
+The `bloom_del` function now:
+1. **Clears the bitfield** — if `bloom->a` is non-NULL, it zeros out all bytes using `memset` with `ROUND(bloom->m)` (convert bits to byte count)
+2. **Resets all fields** — sets `a` and `hash` pointers to NULL, `m` and `k` to 0
+
+This mirrors `bloom_init` in reverse: where init populates the struct from parameters, del cleans up the bitfield and nullifies the struct state. The `string.h` include (for `memset`) and the `ROUND` macro were already available in the file.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/bloom/bloom.c
++++ sys/bloom/bloom.c
+@@ -33,7 +33,13 @@
+ 
+ void bloom_del(bloom_t *bloom)
+ {
+-    /* MASKED - implement this function */
++    if (bloom->a) {
++        memset(bloom->a, 0, ROUND(bloom->m));
++    }
++    bloom->a = NULL;
++    bloom->hash = NULL;
++    bloom->m = 0;
++    bloom->k = 0;
+ }
+ 
+ void bloom_add(bloom_t *bloom, const uint8_t *buf, size_t len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-bloom
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/bloom
+"make" -C /workspace/sys/crypto
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/hashes
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 177394	 106688	  78728	 362810	  5893a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..
+OK (2 tests)
+
+native: exiting
+
+--- stderr ---
+/bin/sh: 1: hexdump: not found
+==410==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcb700b000; bottom 0x000000457000; size: 0x7ffcb6bb4000 (140723374211072)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

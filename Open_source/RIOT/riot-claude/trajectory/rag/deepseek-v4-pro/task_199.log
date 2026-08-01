@@ -1,0 +1,95 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of the logic:
+
+- **32-bit internal accumulator** to defer carry folding until the end
+- **`accum_len` odd**: the first byte of `buf` is the low byte of a 16-bit word whose high byte was added by the previous slice — it's added directly without shifting, then processing continues from `buf[1]`
+- **Pair processing**: remaining bytes are summed as 16-bit words `(buf[i] << 8) | buf[i+1]`
+- **Trailing byte**: if one byte remains after pairing, it's added as `byte << 8` (the high byte). When this is the end of the domain, the low byte is implicitly zero, giving correct RFC 1071 zero-padding
+- **Carry folding**: after all additions, carries in bits 16+ are folded back into the low 16 bits until no carry remains
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/crosslayer/inet_csum/inet_csum.c
++++ sys/net/crosslayer/inet_csum/inet_csum.c
+@@ -24,7 +24,28 @@
+ 
+ uint16_t inet_csum_slice(uint16_t sum, const uint8_t *buf, uint16_t len, size_t accum_len)
+ {
+-    /* MASKED - implement this function */
++    uint32_t acc = sum;
++    size_t pos = 0;
++
++    if ((accum_len & 1) && len) {
++        acc += buf[0];
++        pos = 1;
++    }
++
++    while (pos + 1 < len) {
++        acc += ((uint16_t)buf[pos] << 8) | buf[pos + 1];
++        pos += 2;
++    }
++
++    if (pos < len) {
++        acc += (uint16_t)buf[pos] << 8;
++    }
++
++    while (acc >> 16) {
++        acc = (acc & 0xFFFF) + (acc >> 16);
++    }
++
++    return (uint16_t)acc;
+ }
+ 
+ /** @} */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-inet_csum
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/crosslayer/inet_csum
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+  78834	  31536	  78120	 188490	  2e04a	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+........
+OK (8 tests)
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffd315f000; bottom 0x00000042d000; size: 0x7fffd2d32000 (140736730439680)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

@@ -1,0 +1,96 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation mirrors `_ztimer_acquire` (lines 54-73) exactly:
+
+- **Disables IRQs** for the duration, matching the acquire path
+- **Decrements `clock->users`** — when it reaches 0, calls `clock->ops->stop(clock)` (with a NULL guard, same as `start` in acquire)
+- **Returns `true`** when the last user released the clock (callers at lines 125 and 454 use this to skip further `_ztimer_update` calls — once the clock is stopped, there's nothing to update)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/ztimer/core.c
++++ sys/ztimer/core.c
+@@ -87,7 +87,23 @@
+ 
+ bool ztimer_release(ztimer_clock_t *clock)
+ {
+-    /* MASKED - implement this function */
++    bool no_clock_user_left = false;
++    unsigned state = irq_disable();
++
++    DEBUG("ztimer_release(): %p: %" PRIu16 " user(s)\n",
++          (void *)clock, (uint16_t)(clock->users - 1));
++
++    if (--clock->users == 0) {
++        if (clock->ops->stop) {
++            clock->ops->stop(clock);
++        }
++
++        no_clock_user_left = true;
++    }
++
++    irq_restore(state);
++
++    return no_clock_user_left;
+ }
+ #endif /* MODULE_ZTIMER_ONDEMAND */
+ 
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ztimer
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+   text	   data	    bss	    dec	    hex	filename
+ 110583	  34200	  78120	 222903	  366b7	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.............
+ztimer_tests.test_ztimer_ondemand_acquire_ops_unsupported (tests/unittests/tests-ztimer/tests-ztimer-ondemand.c 72) exp 0 was 1
+.
+ztimer_tests.test_ztimer_ondemand_acquire_release_extend (tests/unittests/tests-ztimer/tests-ztimer-ondemand.c 91) exp 0 was 1
+.
+ztimer_tests.test_ztimer_ondemand_timers (tests/unittests/tests-ztimer/tests-ztimer-ondemand.c 145) exp 0 was 1
+.
+run 16 failures 3
+
+native: exiting
+
+--- stderr ---
+==363==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdff87e000; bottom 0x000000436000; size: 0x7ffdff448000 (140728886132736)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+==363==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!
+
+
+

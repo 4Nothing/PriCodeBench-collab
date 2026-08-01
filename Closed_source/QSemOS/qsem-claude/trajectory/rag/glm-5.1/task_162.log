@@ -1,0 +1,78 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+- **`timeout == OS_NO_WAIT` check**: When the caller passes 0 ("don't wait") but the semaphore count is already 0 (we know this because `OsSemPendNotNeedSche` returned FALSE before calling this function), return `OS_ERRNO_SEM_UNAVAILABLE` immediately instead of going through an unnecessary block/schedule/timeout cycle.
+
+- **`OS_TASK_LOCK_DATA != 0` check**: When task scheduling is locked, the task cannot block. Return `OS_ERRNO_SEM_PEND_IN_LOCK` to prevent trying to suspend the current task. This is the same pattern used by the queue (`prt_queue.c:71`), signal (`prt_signal.c:57`), and rwlock (`prt_rwlock.c:187`) modules.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/ipc/sem/prt_sem.c
++++ src/core/ipc/sem/prt_sem.c
+@@ -362,7 +362,17 @@
+ 
+ OS_SEC_L0_TEXT U32 OsSemPendParaCheck(U32 timeout)
+ {
+-    /* MASKED - implement this function */
++    if (timeout == OS_NO_WAIT)
++    {
++        return OS_ERRNO_SEM_UNAVAILABLE;
++    }
++
++    if (OS_TASK_LOCK_DATA != 0)
++    {
++        return OS_ERRNO_SEM_PEND_IN_LOCK;
++    }
++
++    return OS_OK;
+ }
+ 
+ OS_SEC_L0_TEXT bool OsSemPendNotNeedSche(struct TagSemCb *semPended, struct TagTskCb *runTsk)
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    if (timeout == OS_NO_WAIT)
+    {
+        return OS_ERRNO_SEM_UNAVAILABLE;
+    }
+
+    if (OS_TASK_LOCK_DATA != 0)
+    {
+        return OS_ERRNO_SEM_PEND_IN_LOCK;
+    }
+
+    return OS_OK;
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendParaCheck.c test_stubs.c notifier_test_stubs.c
+
+--- stderr ---
+In file included from test_OsSemPendParaCheck.c:2:
+test_helpers.h:14:28: warning: 'struct TagTskCb' declared inside parameter list will not be visible outside of this definition or declaration
+   14 | void test_init_task(struct TagTskCb *tcb, U32 pid, U32 prio);
+      |                            ^~~~~~~~
+test_helpers.h:15:27: warning: 'struct TagSemCb' declared inside parameter list will not be visible outside of this definition or declaration
+   15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
+      |                           ^~~~~~~~
+In file included from test_OsSemPendParaCheck.c:4:
+func_under_test.c: In function 'OsSemPendParaCheck':
+func_under_test.c:3:20: error: 'OS_NO_WAIT' undeclared (first use in this function)
+    3 |     if (timeout == OS_NO_WAIT)
+      |                    ^~~~~~~~~~
+func_under_test.c:3:20: note: each undeclared identifier is reported only once for each function it appears in
+make: *** [Makefile:13: test] Error 1
+
+
+

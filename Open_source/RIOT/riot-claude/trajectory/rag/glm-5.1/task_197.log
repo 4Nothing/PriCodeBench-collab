@@ -1,0 +1,133 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `ieee802154_get_src` does:
+
+1. **Asserts** `src` and `src_pan` are non-NULL (mirrors `get_dst` style, `sys/net/link_layer/ieee802154/ieee802154.c:171`)
+2. **Skips destination fields** — starts at offset 3 (2-byte FCF + 1-byte Seq), then advances past the destination PAN and address based on the destination addressing mode in `mhr[1]` (SHORT → +4 bytes, LONG → +10 bytes)
+3. **Parses the source address** — reads source PAN ID (2 bytes, little-endian) unless PAN compression is set (meaning src PAN equals dst PAN, already read by `get_dst`), then reads the address bytes in reverse wire order (little-endian). Returns `2` for short address, `8` for long address, or `0` for no source (VOID mode)
+4. **Error handling** — returns `-EINVAL` for reserved addressing modes, or illegal PAN compression without a destination address
+
+The function follows the same logic and conventions as the neighboring `ieee802154_get_dst` (line 171) and is consistent with the frame header structure laid out by `ieee802154_set_frame_hdr` and validated by `ieee802154_get_frame_hdr_len`.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/link_layer/ieee802154/ieee802154.c
++++ sys/net/link_layer/ieee802154/ieee802154.c
+@@ -165,7 +165,53 @@
+ 
+ int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
+ {
+-    /* MASKED - implement this function */
++    int offset = 3; /* FCF: 0-1, Seq: 2 */
++    uint8_t tmp;
++
++    assert((src != NULL) && (src_pan != NULL));
++
++    /* skip destination address fields */
++    tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
++        offset += 4;    /* 2 byte dst PAN + 2 byte short addr */
++    }
++    else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
++        offset += 10;   /* 2 byte dst PAN + 8 byte long addr */
++    }
++    else if (tmp != IEEE802154_FCF_DST_ADDR_VOID) {
++        return -EINVAL;
++    }
++    else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++        /* PAN compression but no destination address => illegal */
++        return -EINVAL;
++    }
++
++    /* read source address */
++    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
++        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
++            src_pan->u8[0] = mhr[offset++];
++            src_pan->u8[1] = mhr[offset++];
++        }
++        src[1] = mhr[offset++];
++        src[0] = mhr[offset++];
++        return 2;
++    }
++    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
++        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
++            src_pan->u8[0] = mhr[offset++];
++            src_pan->u8[1] = mhr[offset++];
++        }
++        for (int i = 7; i >= 0; i--) {
++            src[i] = mhr[offset++];
++        }
++        return 8;
++    }
++    else if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
++        return -EINVAL;
++    }
++
++    return 0;
+ }
+ 
+ int ieee802154_get_dst(const uint8_t *mhr, uint8_t *dst, le_uint16_t *dst_pan)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ieee802154
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/link_layer/ieee802154
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 153859	  36616	  78152	 268627	  41953	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+ieee802154_tests.test_ieee802154_get_src_dst2_src0_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 623) exp 10099 was 0
+..
+ieee802154_tests.test_ieee802154_get_src_dst2_src2_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 665) exp 10099 was 0
+..
+ieee802154_tests.test_ieee802154_get_src_dst2_src8_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 713) exp 10098 was 0
+..
+ieee802154_tests.test_ieee802154_get_src_dst8_src0_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 748) exp 10099 was 0
+..
+ieee802154_tests.test_ieee802154_get_src_dst8_src2_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 796) exp 10098 was 0
+..
+ieee802154_tests.test_ieee802154_get_src_dst8_src8_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 850) exp 10098 was 0
+......................
+run 69 failures 6
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff529db000; bottom 0x000000441000; size: 0x7fff5259a000 (140734574993408)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

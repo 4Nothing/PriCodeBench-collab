@@ -1,6 +1,6 @@
 # Un-ignore results directory (overrides RIOT/.gitignore "results/" rule)
 !results/
 
-# Ignore RAG experiment outputs (they are transient, not to be committed)
-results/rag/
-trajectory/rag/
+# RAG experiment outputs are committed (results are verified clean)
+# RAG indices are generated artifacts (too large for GitHub, rebuild with --build-index)
+rag_index/

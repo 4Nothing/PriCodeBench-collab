@@ -1,0 +1,89 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation follows the same pattern used by `vfs_fsync`, `vfs_fstat`, and other functions in the file:
+
+1. Validate the fd with `_fd_is_valid` — returns a negative error code if invalid
+2. Look up the `vfs_file_t` pointer from the open files table
+3. Check if the file system driver provides `lseek` — if not, return `-EINVAL`
+4. Delegate to the driver's `lseek` callback
+
+The `_fd_is_valid` return type is `int`, which implicitly converts to `off_t` for the error-path return — this is consistent with how other functions in this file handle the same pattern.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/vfs/vfs.c
++++ sys/vfs/vfs.c
+@@ -244,7 +244,16 @@
+ 
+ off_t vfs_lseek(int fd, off_t off, int whence)
+ {
+-    /* MASKED - implement this function */
++    DEBUG("vfs_lseek: %d, %ld, %d\n", fd, (long)off, whence);
++    int res = _fd_is_valid(fd);
++    if (res < 0) {
++        return res;
++    }
++    vfs_file_t *filp = &_vfs_open_files[fd];
++    if (filp->f_op->lseek == NULL) {
++        return -EINVAL;
++    }
++    return filp->f_op->lseek(filp, off, whence);
+ }
+ 
+ int vfs_open(const char *name, int flags, mode_t mode)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-mtd
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/mtd
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/mtd
+"make" -C /workspace/sys/libc
+"make" -C /workspace/cpu/native/vfs
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/drivers/mtd_emulated
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/vfs
+   text	   data	    bss	    dec	    hex	filename
+ 104003	  33560	  79168	 216731	  34e9b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+......
+OK (6 tests)
+
+native: exiting
+
+--- stderr ---
+/usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
+==363==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc64430000; bottom 0x000000433000; size: 0x7ffc63ffd000 (140721986195456)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

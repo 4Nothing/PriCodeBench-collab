@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+Done. The implementation checks:
+1. The first 10 bytes (80-bit `::/80` prefix) are all zeros, using `memcmp` against `ipv6_addr_unspecified` — same pattern as the existing `ipv6_addr_is_ipv4_compat` at line 312.
+2. Bytes 10 and 11 are `0xFF`, which is the `0xFFFF` marker that distinguishes IPv4-mapped (`::FFFF:0:0/96`) from IPv4-compatible (`::/96`) per RFC 4291 §2.5.5.2.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/include/net/ipv6/addr.h
++++ sys/include/net/ipv6/addr.h
+@@ -327,7 +327,8 @@
+  */
+ static inline bool ipv6_addr_is_ipv4_mapped(const ipv6_addr_t *addr)
+ {
+-    /* MASKED - implement this function */
++    return (memcmp(addr, &ipv6_addr_unspecified, 10) == 0) &&
++           (addr->u8[10] == 0xFF) && (addr->u8[11] == 0xFF);
+ }
+ 
+ /**
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-ipv6_addr
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
+   text	   data	    bss	    dec	    hex	filename
+ 193819	  41928	  78152	 313899	  4ca2b	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............................................................................................
+OK (92 tests)
+
+native: exiting
+
+--- stderr ---
+==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff2e964000; bottom 0x00000044c000; size: 0x7fff2e518000 (140733970481152)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

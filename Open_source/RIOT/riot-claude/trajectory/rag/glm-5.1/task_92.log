@@ -1,0 +1,99 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `dns_cache_query` does:
+
+- Computes the current time (seconds) and fletcher32 hash of the domain name, using the same helpers as `dns_cache_add`
+- Locks the cache mutex and iterates all entries
+- Skips entries where the hash doesn't match, the entry is empty, or the TTL has expired
+- Checks address family compatibility: `AF_INET` only matches 4-byte (v4) entries, `AF_INET6` only matches 16-byte (v6) entries, and `AF_UNSPEC` matches either
+- On a hit: copies the address out, unlocks, and returns the address length (the caller in `sock_dns`, `sock_dodtls`, and `gcoap` treats any positive return value as success)
+- On a miss: returns 0 (consistent with the stub in `cache.h`)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/dns/cache.c
++++ sys/net/application_layer/dns/cache.c
+@@ -120,7 +120,30 @@
+ 
+ int dns_cache_query(const char *domain_name, void *addr_out, int family)
+ {
+-    /* MASKED - implement this function */
++    uint32_t now = ztimer_now(ZTIMER_MSEC) / MS_PER_SEC;
++    uint32_t hash = _hash(domain_name, strlen(domain_name));
++
++    mutex_lock(&cache_mutex);
++    for (unsigned i = 0; i < CONFIG_DNS_CACHE_SIZE; ++i) {
++        if (cache[i].hash != hash || _is_empty(i)) {
++            continue;
++        }
++        if (now > cache[i].expires) {
++            continue;
++        }
++        uint8_t len = _get_len(i);
++        if (family == AF_INET && len != sizeof(ipv4_addr_t)) {
++            continue;
++        }
++        if (family == AF_INET6 && len != sizeof(ipv6_addr_t)) {
++            continue;
++        }
++        memcpy(addr_out, &cache[i].addr, len);
++        mutex_unlock(&cache_mutex);
++        return len;
++    }
++    mutex_unlock(&cache_mutex);
++    return 0;
+ }
+ 
+ static void _add_entry(uint8_t i, uint32_t hash, const void *addr_out,
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-dns_cache
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/checksum
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/dns
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/ztimer
+
+--- stderr ---
+[01m[K/workspace/sys/net/application_layer/dns/cache.c:98:16:[m[K [01;31m[Kerror: [m[K'[01m[K_addr_len[m[K' defined but not used [[01;31m[K-Werror=unused-function[m[K]
+   98 | static uint8_t [01;31m[K_addr_len[m[K(int family)
+      |                [01;31m[K^~~~~~~~~[m[K
+[01m[K/workspace/sys/net/application_layer/dns/cache.c:93:13:[m[K [01;31m[Kerror: [m[K'[01m[K_set_empty[m[K' defined but not used [[01;31m[K-Werror=unused-function[m[K]
+   93 | static void [01;31m[K_set_empty[m[K(unsigned idx)
+      |             [01;31m[K^~~~~~~~~~[m[K
+cc1: all warnings being treated as errors
+make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/dns/cache.o] Error 1
+make[2]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys/net/application_layer/dns] Error 2
+make[2]: *** Waiting for unfinished jobs....
+make[1]: *** [/workspace/Makefile.base:31: ALL--/workspace/sys] Error 2
+make[1]: *** Waiting for unfinished jobs....
+make: *** [/workspace/tests/unittests/../../Makefile.include:743: application_tests_unittests.module] Error 2
+
+
+

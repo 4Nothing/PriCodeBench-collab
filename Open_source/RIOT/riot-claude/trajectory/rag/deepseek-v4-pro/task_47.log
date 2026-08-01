@@ -1,0 +1,102 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. Takes a `key` (with explicit `key_len`) and optional `val` (with explicit `val_len`)
+2. Builds a query string on the stack (using the existing `CONFIG_NANOCOAP_URI_MAX` buffer size of 64 bytes)
+3. If only a key is provided (`val == NULL` or `val_len == 0`), the query is just `"key"`
+4. If a value is also provided, the query is `"key=value"`
+5. Adds the result as a `COAP_OPT_URI_QUERY` option via `_add_opt_pkt`
+6. Returns the option length on success, or `-ENOSPC` if the query string is too large or the packet is full
+
+This matches the existing inline wrapper `coap_opt_add_uri_query` in `nanocoap.h` which delegates to this function:
+```c
+coap_opt_add_uri_query2(pkt, key, strlen(key), val, val ? strlen(val) : 0);
+```
+
+And it follows the same pattern used by `coap_opt_add_opaque` (line 1250) and the internal option-adding helpers.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/application_layer/nanocoap/nanocoap.c
++++ sys/net/application_layer/nanocoap/nanocoap.c
+@@ -1224,7 +1224,27 @@
+ ssize_t coap_opt_add_uri_query2(coap_pkt_t *pkt, const char *key, size_t key_len,
+                                 const char *val, size_t val_len)
+ {
+-    /* MASKED - implement this function */
++    assert(key);
++    assert(key_len);
++
++    char qstr[CONFIG_NANOCOAP_URI_MAX];
++
++    if (key_len > sizeof(qstr)) {
++        return -ENOSPC;
++    }
++    memcpy(qstr, key, key_len);
++
++    size_t qlen = key_len;
++    if (val && val_len) {
++        if ((qlen + 1 + val_len) > sizeof(qstr)) {
++            return -ENOSPC;
++        }
++        qstr[qlen++] = '=';
++        memcpy(&qstr[qlen], val, val_len);
++        qlen += val_len;
++    }
++
++    return _add_opt_pkt(pkt, COAP_OPT_URI_QUERY, qstr, qlen);
+ }
+ 
+ ssize_t coap_opt_add_opaque(coap_pkt_t *pkt, uint16_t optnum, const void *val, size_t val_len)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-nanocoap
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/application_layer/nanocoap
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+ 147761	  36040	  78120	 261921	  3ff21	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+.....................................
+OK (37 tests)
+
+native: exiting
+
+--- stderr ---
+==330==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd4774a000; bottom 0x00000043f000; size: 0x7ffd4730b000 (140725797826560)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

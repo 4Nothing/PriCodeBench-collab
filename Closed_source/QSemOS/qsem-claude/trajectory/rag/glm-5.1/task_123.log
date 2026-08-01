@@ -1,0 +1,71 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+1. **`OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD)`** — Iterates over all registered multi-hook callbacks for the `OS_HOOK_IDLE_PERIOD` type, executing each one. This is the per-iteration idle hook (called every loop), as opposed to `OS_SHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PREFIX)` in `OsTskIdleBgd` which is the single-shot prefix hook called once before entering the idle loop.
+
+2. **`g_taskCoreSleep`** — Reads the global core sleep function pointer. If a platform-specific sleep function has been registered (non-NULL), it invokes it to put the CPU into a low-power state during idle.
+
+The pattern follows the existing conventions in the codebase: `OsTskIdleBgd` (the idle background task) calls `OS_SHOOK_ACTIVATE_PARA0` for the prefix hook once, then enters an infinite loop calling `OsIdleTaskExe()` each iteration, which fires the period hook and optionally invokes the core sleep function.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/task/smp/prt_task.c
++++ src/core/kernel/task/smp/prt_task.c
+@@ -39,7 +39,14 @@
+  */
+ OS_SEC_L2_TEXT void OsIdleTaskExe(void)
+ {
+-    /* MASKED - implement this function */
++    OsVoidFunc coreSleep;
++
++    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD);
++
++    coreSleep = g_taskCoreSleep;
++    if (coreSleep != NULL) {
++        coreSleep();
++    }
+ }
+ OS_SEC_L2_TEXT void OsTskIdleBgd(void)
+ {
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    OsVoidFunc coreSleep;
+
+    OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD);
+
+    coreSleep = g_taskCoreSleep;
+    if (coreSleep != NULL) {
+        coreSleep();
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I../../common -I.  -o test_OsIdleTaskExe test_OsIdleTaskExe.c test_stubs.c notifier_test_stubs.c
+ln -sf test_OsIdleTaskExe test
+PASS: NULL coreSleep no call (expected 0, got 0)
+PASS: dummy called once (expected 1, got 1)
+PASS: dummy called twice (expected 2, got 2)
+PASS: no increment after NULL (expected 2, got 2)
+PASS: called after reassign (expected 3, got 3)
+
+=== Test Summary ===
+Passes: 5
+Failures: 0
+All tests passed!
+
+--- stderr ---
+
+
+

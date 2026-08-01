@@ -1,0 +1,112 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is in place. Here's the logic of `rtc_localtime` at `sys/rtc_utils/rtc_utils.c:196`:
+
+1. **Extract time-of-day** — Successive division/modulo by 60, 60, 24 to get `tm_sec`, `tm_min`, `tm_hour`, leaving total days since epoch.
+2. **Find the year** — Starting from `RIOT_EPOCH`, repeatedly subtract 365 or 366 days (using `_is_leap_year()`) from `days` until the remainder is less than a full year.
+3. **Find month and day** — Iterate through months, subtracting each month's length (via `_month_length()`) from the remaining `days`, then set `tm_mday = days + 1`.
+
+This is the exact inverse of `rtc_mktime`, using the same private helpers (`_is_leap_year`, `_month_length`) and the same `RIOT_EPOCH` constant, so round-trip conversion is consistent.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/rtc_utils/rtc_utils.c
++++ sys/rtc_utils/rtc_utils.c
+@@ -195,7 +195,39 @@
+ 
+ void rtc_localtime(uint32_t time, struct tm *t)
+ {
+-    /* MASKED - implement this function */
++    unsigned year = RIOT_EPOCH;
++
++    t->tm_sec = time % 60;
++    time /= 60;
++    t->tm_min = time % 60;
++    time /= 60;
++    t->tm_hour = time % 24;
++    time /= 24;
++
++    unsigned days = time;
++
++    while (1) {
++        unsigned days_in_year = 365 + _is_leap_year(year);
++        if (days < days_in_year) {
++            break;
++        }
++        days -= days_in_year;
++        year++;
++    }
++
++    t->tm_year = year - 1900;
++    t->tm_mon = 0;
++
++    while (1) {
++        unsigned mlen = _month_length(t->tm_mon, year);
++        if (days < mlen) {
++            break;
++        }
++        days -= mlen;
++        t->tm_mon++;
++    }
++
++    t->tm_mday = days + 1;
+ }
+ 
+ #define RETURN_IF_DIFFERENT(a, b, member)   \
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-rtc
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/rtc_utils
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+   text	   data	    bss	    dec	    hex	filename
+  91517	  32088	  78120	 201725	  313fd	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+..........
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 3 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 1 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 5 was 0
+
+run 10 failures 3
+
+native: exiting
+
+--- stderr ---
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe2f30b000; bottom 0x000000430000; size: 0x7ffe2eedb000 (140729685749760)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

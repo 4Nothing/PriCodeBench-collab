@@ -1,0 +1,201 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's a summary of what `fib_sr_get_route` does:
+
+1. **Parameter validation** — returns `-EFAULT` if any required pointer is NULL
+2. **Iteration cursor handling** — if `*fib_sr` is non-NULL, starts searching from the next entry after it in the headers array (after validating it belongs to the table)
+3. **Exact match search** — scans source route headers for a `sr_dest` matching `dst`, cleaning up expired entries inline
+4. **Partial route fallback** — if no exact match, calls `_fib_create_sr_from_partial` to create a new source route from any existing route that passes through `dst`
+5. **Hop counting and buffer checking** — computes `hop_count` and `req_element_size` from the matched route's path; returns `-ENOBUFS` with updated sizing if the caller's buffer is too small
+6. **Address copying** — writes hop addresses into `addr_list` in forward order, then swaps in-place if `reverse` is true
+7. **Output** — stores `iface_id`, `flags`, element counts, updates `*fib_sr` for iteration, and returns `0` (flags matched expected) or `1` (flags differ)
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/network_layer/fib/fib.c
++++ sys/net/network_layer/fib/fib.c
+@@ -1303,7 +1303,127 @@
+                      uint8_t *addr_list, size_t *addr_list_elements, size_t *element_size,
+                      bool reverse, fib_sr_t **fib_sr)
+ {
+-    /* MASKED - implement this function */
++    if ((table == NULL) || (dst == NULL) || (sr_iface_id == NULL) ||
++        (sr_flags == NULL) || (addr_list == NULL) ||
++        (addr_list_elements == NULL) || (element_size == NULL)) {
++        return -EFAULT;
++    }
++
++    mutex_lock(&(table->mtx_access));
++
++    uint32_t expected_flags = *sr_flags;
++    size_t start = 0;
++
++    if ((fib_sr != NULL) && (*fib_sr != NULL)) {
++        if (fib_is_sr_in_table(table, *fib_sr) == -ENOENT) {
++            mutex_unlock(&(table->mtx_access));
++            return -EFAULT;
++        }
++        start = (*fib_sr - &table->data.source_routes->headers[0]) + 1;
++    }
++
++    fib_sr_t *match = NULL;
++
++    for (size_t i = start; i < table->size; ++i) {
++        fib_sr_t *candidate = &table->data.source_routes->headers[i];
++
++        if (candidate->sr_lifetime == 0) {
++            continue;
++        }
++
++        if (candidate->sr_lifetime != FIB_LIFETIME_NO_EXPIRE) {
++            if ((int64_t)(candidate->sr_lifetime - xtimer_now_usec64()) < 0) {
++                candidate->sr_lifetime = 0;
++                if (candidate->sr_path != NULL) {
++                    fib_sr_entry_t *elt = NULL;
++                    LL_FOREACH(candidate->sr_path, elt) {
++                        universal_address_rem(elt->address);
++                    }
++                    candidate->sr_path = NULL;
++                }
++                continue;
++            }
++        }
++
++        if (candidate->sr_dest != NULL) {
++            size_t addr_size_match = dst_size << 3;
++            if (UNIVERSAL_ADDRESS_EQUAL == universal_address_compare(
++                    candidate->sr_dest->address, dst, &addr_size_match)) {
++                match = candidate;
++                break;
++            }
++        }
++    }
++
++    if (match == NULL) {
++        int check_free_entry = -1;
++
++        for (size_t i = 0; i < table->size; ++i) {
++            if (table->data.source_routes->headers[i].sr_lifetime == 0) {
++                check_free_entry = (int)i;
++                break;
++            }
++        }
++
++        int partial_error = -EHOSTUNREACH;
++        match = _fib_create_sr_from_partial(table, dst, dst_size,
++                                            check_free_entry, &partial_error);
++        if (match == NULL) {
++            mutex_unlock(&(table->mtx_access));
++            return partial_error;
++        }
++    }
++
++    size_t hop_count = 0;
++    size_t req_element_size = 0;
++    fib_sr_entry_t *elt = match->sr_path;
++
++    while (elt != NULL) {
++        hop_count++;
++        if (elt->address->address_size > req_element_size) {
++            req_element_size = elt->address->address_size;
++        }
++        elt = elt->next;
++    }
++
++    if ((*addr_list_elements < hop_count) || (*element_size < req_element_size)) {
++        *addr_list_elements = hop_count;
++        *element_size = req_element_size;
++        mutex_unlock(&(table->mtx_access));
++        return -ENOBUFS;
++    }
++
++    elt = match->sr_path;
++    for (size_t idx = 0; idx < hop_count; ++idx) {
++        uint8_t *slot = &addr_list[idx * (*element_size)];
++        size_t slot_size = *element_size;
++        universal_address_get_address(elt->address, slot, &slot_size);
++        elt = elt->next;
++    }
++
++    if (reverse) {
++        for (size_t i = 0; i < hop_count / 2; ++i) {
++            uint8_t *a = &addr_list[i * (*element_size)];
++            uint8_t *b = &addr_list[(hop_count - 1 - i) * (*element_size)];
++            for (size_t j = 0; j < *element_size; ++j) {
++                uint8_t tmp = a[j];
++                a[j] = b[j];
++                b[j] = tmp;
++            }
++        }
++    }
++
++    *sr_iface_id = match->sr_iface_id;
++    *sr_flags = match->sr_flags;
++    *addr_list_elements = hop_count;
++    *element_size = req_element_size;
++
++    if (fib_sr != NULL) {
++        *fib_sr = match;
++    }
++
++    mutex_unlock(&(table->mtx_access));
++    return (expected_flags == match->sr_flags) ? 0 : 1;
+ }
+ 
+ /* print functions */
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-fib_sr
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/div
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/frac
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/network_layer/fib
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/universal_address
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/ztimer64
+   text	   data	    bss	    dec	    hex	filename
+ 127036	  36808	  86856	 250700	  3d34c	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+............
+OK (12 tests)
+
+native: exiting
+
+--- stderr ---
+==397==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdd7359000; bottom 0x000000439000; size: 0x7ffdd6f20000 (140728209637376)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+
+
+

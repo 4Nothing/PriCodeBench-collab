@@ -1,0 +1,115 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the function does:
+
+**`gnrc_pktbuf_mark`** marks off the first `size` bytes of a packet snip's data into a new header snip that gets inserted after `pkt` in the snip chain.
+
+Key details:
+- **Input validation** — returns `NULL` if `pkt` is `NULL`, `size` is 0, `size > pkt->size`, or `pkt->data` is `NULL` (consistent with the header doc's preconditions)
+- **New snip allocation** — uses `_pktbuf_alloc` to allocate a `gnrc_pktsnip_t` from the static buffer
+- **`size == pkt->size`** — the new header takes all of `pkt`'s data; `pkt` becomes a zero-data anchor (`data=NULL`, `size=0`)
+- **`size < pkt->size`** — the new header gets the first `size` bytes (same data pointer), and `pkt`'s data pointer advances by `size` with reduced size. No copying is needed since both parts share the original static buffer allocation; the free list will merge adjacent blocks when each part is freed independently.
+- Mutex is held throughout, matching the pattern of all other public functions in the module
+
+
+============================================================
+=== Diff ===
+============================================================
+--- sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
++++ sys/net/gnrc/pktbuf_static/gnrc_pktbuf_static.c
+@@ -98,7 +98,39 @@
+ 
+ gnrc_pktsnip_t *gnrc_pktbuf_mark(gnrc_pktsnip_t *pkt, size_t size, gnrc_nettype_t type)
+ {
+-    /* MASKED - implement this function */
++    gnrc_pktsnip_t *header;
++
++    mutex_lock(&gnrc_pktbuf_mutex);
++
++    if ((pkt == NULL) || (size == 0) || (size > pkt->size) || (pkt->data == NULL)) {
++        DEBUG("pktbuf: size == 0 (was %" PRIuSIZE ") or pkt == NULL (was %p) or "
++              "size > pkt->size (was %" PRIuSIZE ") or pkt->data == NULL (was %p)\n",
++              size, (void *)pkt, (pkt ? pkt->size : 0),
++              (pkt ? pkt->data : NULL));
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return NULL;
++    }
++
++    header = _pktbuf_alloc(sizeof(gnrc_pktsnip_t));
++    if (header == NULL) {
++        DEBUG("pktbuf: error allocating new packet snip\n");
++        mutex_unlock(&gnrc_pktbuf_mutex);
++        return NULL;
++    }
++
++    if (pkt->size == size) {
++        _set_pktsnip(header, pkt->next, pkt->data, size, type);
++        _set_pktsnip(pkt, header, NULL, 0, pkt->type);
++    }
++    else {
++        _set_pktsnip(header, pkt->next, pkt->data, size, type);
++        pkt->data = ((uint8_t *)pkt->data) + size;
++        pkt->size -= size;
++        pkt->next = header;
++    }
++
++    mutex_unlock(&gnrc_pktbuf_mutex);
++    return header;
+ }
+ 
+ int gnrc_pktbuf_realloc_data(gnrc_pktsnip_t *pkt, size_t size)
+
+
+
+
+============================================================
+=== Harness Verify ===
+============================================================
+Building application "tests_unittests" for "native64" with CPU "native".
+
+"make" -C /workspace/boards
+"make" -C /workspace/boards/native64
+"make" -C /workspace/core
+"make" -C /workspace/core/lib
+"make" -C /workspace/cpu/native
+"make" -C /workspace/drivers
+"make" -C /workspace/sys
+"make" -C /workspace/tests/unittests/tests-pktbuf
+"make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/net/gnrc
+"make" -C /workspace/sys/stdio
+"make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/pktbuf
+"make" -C /workspace/sys/net/gnrc/pktbuf_static
+   text	   data	    bss	    dec	    hex	filename
+ 119944	  38864	  84456	 243264	  3b640	/tmp/build/bin/native64/tests_unittests.elf
+RIOT native interrupts/signals initialized.
+TZ not set, setting UTC
+RIOT native64 board initialized.
+RIOT native hardware initialization complete.
+
+main(): This is RIOT! (Version: 2026.01)
+...................
+gnrc_pktbuf_tests.test_pktbuf_mark__success_large (tests/unittests/tests-pktbuf/tests-pktbuf.c 373) exp 0 was -28
+.
+gnrc_pktbuf_tests.test_pktbuf_mark__success_aligned (tests/unittests/tests-pktbuf/tests-pktbuf.c 419) exp 0 was -28
+.
+gnrc_pktbuf_tests.test_pktbuf_mark__success_small (tests/unittests/tests-pktbuf/tests-pktbuf.c 464) exp 0 was 70
+..................
+--- stderr ---
+==347==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcc5860000; bottom 0x000000439000; size: 0x7ffcc5427000 (140723617951744)
+False positive error reports may follow
+For details see https://github.com/google/sanitizers/issues/189
+bash: line 1:   347 Segmentation fault      (core dumped) /tmp/build/bin/native64/tests_unittests.elf
+
+
+

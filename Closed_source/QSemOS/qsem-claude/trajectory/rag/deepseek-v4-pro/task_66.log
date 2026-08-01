@@ -1,0 +1,85 @@
+============================================================
+=== Claude Session ===
+============================================================
+The implementation is complete. Here's what the non-SMP `OsSwTmrGetRemain` does:
+
+It decodes `idxRollNum` into two components using the same macros already used elsewhere in the file:
+- **`UWSORTINDEX`** (upper 6 bits) — the slot index within the 64-entry sort-link wheel
+- **`UWROLLNUM`** (lower 26 bits) — the rotation count
+
+Then calculates remaining ticks based on the cursor's position relative to the timer's slot:
+
+| Condition | Meaning | Remaining ticks |
+|---|---|---|
+| `cursor < idx` | Timer's slot lies ahead in the current rotation | `(rollNum * 64) + (idx - cursor)` |
+| `cursor == idx` | Timer is in the current slot; needs a full rotation | `(rollNum + 1) * 64` |
+| `cursor > idx` | Cursor passed the slot; slot wraps to next rotation | `((rollNum + 1) * 64) - (cursor - idx)` |
+
+This mirrors the SMP version (which computes `expectedTick - g_uniTicks`) and matches the reference implementations in the test stubs across the codebase.
+
+
+============================================================
+=== Diff ===
+============================================================
+--- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
++++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
+@@ -62,7 +62,16 @@
+ #else
+ OS_SEC_L4_TEXT U32 OsSwTmrGetRemain(struct TagSwTmrCtrl *swtmr)
+ {
+-    /* MASKED - implement this function */
++    U32 idx = UWSORTINDEX(swtmr->idxRollNum);
++    U32 cursor = g_tmrSortLink.cursor;
++    U32 rollNum = UWROLLNUM(swtmr->idxRollNum);
++    if (cursor < idx) {
++        return (rollNum * OS_SWTMR_SORTLINK_LEN) + (idx - cursor);
++    } else if (cursor == idx) {
++        return (rollNum + 1) * OS_SWTMR_SORTLINK_LEN;
++    } else {
++        return ((rollNum + 1) * OS_SWTMR_SORTLINK_LEN) - (cursor - idx);
++    }
+ }
+ #endif
+ /*
+
+
+
+
+============================================================
+=== Injected Body ===
+============================================================
+
+    U32 idx = UWSORTINDEX(swtmr->idxRollNum);
+    U32 cursor = g_tmrSortLink.cursor;
+    U32 rollNum = UWROLLNUM(swtmr->idxRollNum);
+    if (cursor < idx) {
+        return (rollNum * OS_SWTMR_SORTLINK_LEN) + (idx - cursor);
+    } else if (cursor == idx) {
+        return (rollNum + 1) * OS_SWTMR_SORTLINK_LEN;
+    } else {
+        return ((rollNum + 1) * OS_SWTMR_SORTLINK_LEN) - (cursor - idx);
+    }
+
+
+============================================================
+=== Test Output ===
+============================================================
+gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_OsSwTmrGetRemain test_OsSwTmrGetRemain.c test_support.c notifier_test_stubs.c
+ln -sf test_OsSwTmrGetRemain test
+[cursor=0, idx=50        ] expect=50, actual=50 => PASS
+[cursor=49, idx=50       ] expect=1, actual=1 => PASS
+[cursor=50, idx=50       ] expect=64, actual=64 => PASS
+[cursor=60, idx=50       ] expect=54, actual=54 => PASS
+[roll=1, idx=10, cur=0   ] expect=74, actual=74 => PASS
+
+OsSwTmrGetRemain Pass-Rate: 100.00% (5/5)
+
+
+--- stderr ---
+test_OsSwTmrGetRemain.c: In function 'main':
+test_OsSwTmrGetRemain.c:15:5: warning: implicit declaration of function 'OsSwTmrStart' [-Wimplicit-function-declaration]
+   15 |     OsSwTmrStart(&t1, 50);
+      |     ^~~~~~~~~~~~
+
+
+
