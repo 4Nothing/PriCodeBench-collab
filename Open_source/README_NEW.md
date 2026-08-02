@@ -147,9 +147,9 @@ python3 analyze_results.py
 | 模型 | 总任务 | 通过 | 回收率 |
 |------|:---:|:---:|:---:|
 | DeepSeek V4 Pro | 50 | 18 | 36.0% |
-| GLM 5.1 | 63 | 30 | 47.6% |
+| GLM 5.1 | 63 | 31 | 49.2% |
 
-RAG 将函数签名、类型定义、调用模式作为上下文提供给模型。GLM 比 DS 更受益于 RAG（47.6% vs 36.0%）。详见 `RAG_ANALYSIS_REPORT.md`。
+RAG 将函数签名、类型定义、调用模式作为上下文提供给模型。GLM 比 DS 更受益于 RAG（49.2% vs 36.0%）。详见 `RAG_ANALYSIS_REPORT.md`。
 
 ---
 
