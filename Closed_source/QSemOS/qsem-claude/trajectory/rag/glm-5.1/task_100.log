@@ -1,12 +1,10 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. The function now:
+The implementation is complete. Here's what the function does:
 
-- Stores the hardware interrupt number (`OS_IRQ2HWI(arg)`) into `g_defHandlerHwiNum` — recording which interrupt fired without a registered handler
-- Calls `OS_REPORT_ERROR(OS_ERRNO_HWI_UNCREATED)` — reporting the uncreated-interrupt error through the system error handler
-
-This matches the function's documented purpose: "硬中断默认注册钩子，会触发致命错误" (default hard-interrupt hook that triggers a fatal error).
+- **`g_defHandlerHwiNum = OS_IRQ2HWI(arg)`** — Records which hardware interrupt number fired without a registered handler. The `arg` parameter is the IRQ number (set by `OsHwiDescFieldInit` which pairs every interrupt with `OsHwiDefaultHandler` as the default), and `OS_IRQ2HWI` converts it back to the hardware interrupt number.
+- **`OS_REPORT_ERROR(OS_ERRNO_HWI_UNCREATED)`** — Reports the fatal error indicating an interrupt was triggered without a corresponding registered handler.
 
 
 ============================================================

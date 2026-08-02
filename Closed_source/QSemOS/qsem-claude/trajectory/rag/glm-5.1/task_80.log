@@ -1,16 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is in place. The function:
+The implementation is complete. Here's a summary of what `OsSigWaitProcPendingSignal` does:
 
-1. Iterates the task's `sigInfoList` to find a pending signal matching the wait set
-2. Copies the signal info into the output `info` parameter via `memcpy_s`
-3. Clears the pending bit for that signal
-4. Removes the node from the list and frees the memory
-5. Clears `sigWaitMask` since the signal has been received
-6. Returns `OS_OK`
+1. **Iterates** the task's `sigInfoList` linked list of pending signals
+2. **Finds** the first signal whose `si_signo` matches any signal in the requested `set` (checked via `sigMask` & bitwise AND)
+3. **Copies** the matched signal's info into the caller's `*info` buffer using `memcpy_s`
+4. **Clears** the pending bit for that signal from `sigPending`
+5. **Removes** the info node from the list and frees its memory
+6. **Clears** `sigWaitMask` to 0, marking the wait as satisfied
+7. **Returns** `OS_OK`
 
-This matches the pattern used in `OsHandleOneSignal` (line 140) and the call sites in `PRT_SignalWait` (lines 344-349, 361-364) where the function is expected to consume one pending signal from the set, populate `info`, and clean up the pending state.
+This matches the pattern used by `OsHandleOneSignal` (lines 140-165) for consuming a pending signal, and is called from `PRT_SignalWait` both when pending signals exist immediately and after the task resumes from waiting.
 
 
 ============================================================
@@ -18,23 +19,21 @@ This matches the pattern used in `OsHandleOneSignal` (line 140) and the call sit
 ============================================================
 --- src/core/ipc/signal/prt_signal.c
 +++ src/core/ipc/signal/prt_signal.c
-@@ -83,7 +83,25 @@
+@@ -83,7 +83,23 @@
  
  OS_SEC_ALW_INLINE INLINE U32 OsSigWaitProcPendingSignal(struct TagTskCb *runTsk, const signalSet *set, signalInfo *info)
  {
 -    /* MASKED - implement this function */
 +    sigInfoNode *infoNode = NULL;
-+    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist)
-+    {
-+        if ((sigMask(infoNode->siginfo.si_signo) & *set) == 0)
-+        {
++    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist) {
++        if ((sigMask(infoNode->siginfo.si_signo) & *set) == 0) {
 +            continue;
 +        }
 +
-+        (void)memcpy_s(info, sizeof(signalInfo), &infoNode->siginfo, sizeof(signalInfo));
++        (void)memcpy_s(info, sizeof(signalInfo), &(infoNode->siginfo), sizeof(signalInfo));
 +
 +        runTsk->sigPending &= ~sigMask(infoNode->siginfo.si_signo);
-+        ListDelete(&infoNode->siglist);
++        ListDelete(&(infoNode->siglist));
 +        PRT_MemFree((U32)OS_MID_SIGNAL, infoNode);
 +        break;
 +    }
@@ -54,17 +53,15 @@ This matches the pattern used in `OsHandleOneSignal` (line 140) and the call sit
 ============================================================
 
     sigInfoNode *infoNode = NULL;
-    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist)
-    {
-        if ((sigMask(infoNode->siginfo.si_signo) & *set) == 0)
-        {
+    LIST_FOR_EACH(infoNode, &runTsk->sigInfoList, sigInfoNode, siglist) {
+        if ((sigMask(infoNode->siginfo.si_signo) & *set) == 0) {
             continue;
         }
 
-        (void)memcpy_s(info, sizeof(signalInfo), &infoNode->siginfo, sizeof(signalInfo));
+        (void)memcpy_s(info, sizeof(signalInfo), &(infoNode->siginfo), sizeof(signalInfo));
 
         runTsk->sigPending &= ~sigMask(infoNode->siginfo.si_signo);
-        ListDelete(&infoNode->siglist);
+        ListDelete(&(infoNode->siglist));
         PRT_MemFree((U32)OS_MID_SIGNAL, infoNode);
         break;
     }

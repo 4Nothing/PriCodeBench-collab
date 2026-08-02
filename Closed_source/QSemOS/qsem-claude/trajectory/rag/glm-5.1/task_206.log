@@ -1,15 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `OsLogUpdateTail` does:
+The implementation is in place. Here's what the function does:
 
-1. **Retry loop** — the lock is released before this function is called, so concurrent cores may race on `tailPtr`. If tail changes between the read and write, the loop retries.
+1. **`OsLogGetTailAndHead`** — atomically reads the current head and tail pointers from shared memory (using the double-read-of-tail pattern to guard against concurrent tail modifications).
 
-2. **Buffer-full check** — the logical ring has `2 * BUFFER_BLOCK_NUM` positions (physical slots doubled, with valid flags distinguishing wraps). When `currTail - currHead >= 2 * BUFFER_BLOCK_NUM`, the buffer is full, so we advance `headPtr` by 1 to drop the oldest entry.
+2. **`*tail = currTail`** — returns the current tail position to the caller, which `OsLog` uses to compute the physical buffer index and valid flag.
 
-3. **Tail-unchanged check** — the best-effort "CAS" pattern referenced by the existing comments ("多核可以用原子操作cmpxchg替换"). If tail hasn't been modified since we read it, we commit the increment and return.
+3. **`newTail = currTail + 1`** — advances the tail. The `U32` type allows natural wraparound, and the consumer side handles overflow detection/compensation via `log_worker_fix_overflow`.
 
-4. **Returns 0** with the old tail value written via `*tail`. The caller uses this to compute `logIndex` and the valid flag.
+4. **Buffer-full guard** — if advancing the tail would leave more than `BUFFER_BLOCK_NUM` outstanding entries (which is the physical block count and the limit validated by the consumer), the head is advanced by one to drop the oldest unread entry. This prevents a new log from overwriting a block that hasn't been read yet (since only `BUFFER_BLOCK_NUM` physical blocks exist, but each is used twice per full odd/even cycle).
+
+5. Both pointers are written back via `OsAtomicSetU32` (volatile store with fence) to ensure visibility to the host-side consumer.
 
 
 ============================================================
@@ -22,24 +24,24 @@ The implementation is complete. Here's what `OsLogUpdateTail` does:
  static OS_SEC_L2_TEXT U32 OsLogUpdateTail(U32 *tail)
  {
 -    /* MASKED - implement this function */
-+    U32 currTail, currHead;
++    U32 head, currTail;
 +    volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
 +    volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
 +
-+    do {
-+        currTail = OsAtomicReadU32(tailPtr);
-+        currHead = OsAtomicReadU32(headPtr);
++    OsLogGetTailAndHead(&head, &currTail);
 +
-+        if (currTail - currHead >= 2 * BUFFER_BLOCK_NUM) {
-+            OsAtomicSetU32(headPtr, currHead + 1);
-+        }
++    *tail = currTail;
 +
-+        if (currTail == OsAtomicReadU32(tailPtr)) {
-+            OsAtomicSetU32(tailPtr, currTail + 1);
-+            *tail = currTail;
-+            return 0;
-+        }
-+    } while (1);
++    U32 newTail = currTail + 1;
++
++    if (newTail - head > BUFFER_BLOCK_NUM) {
++        head = head + 1;
++        OsAtomicSetU32(headPtr, head);
++    }
++
++    OsAtomicSetU32(tailPtr, newTail);
++
++    return 0;
  }
  
  static OS_SEC_L2_TEXT U32 OsLog(enum OsLogLevel level, enum OsLogFacility facility, const char *str, size_t strLen)
@@ -51,24 +53,24 @@ The implementation is complete. Here's what `OsLogUpdateTail` does:
 === Injected Body ===
 ============================================================
 
-    U32 currTail, currHead;
+    U32 head, currTail;
     volatile U32 *const headPtr = (U32 *)(g_logMemBase + HEAD_PTR_OFFSET);
     volatile U32 *const tailPtr = (U32 *)(g_logMemBase + TAIL_PTR_OFFSET);
 
-    do {
-        currTail = OsAtomicReadU32(tailPtr);
-        currHead = OsAtomicReadU32(headPtr);
+    OsLogGetTailAndHead(&head, &currTail);
 
-        if (currTail - currHead >= 2 * BUFFER_BLOCK_NUM) {
-            OsAtomicSetU32(headPtr, currHead + 1);
-        }
+    *tail = currTail;
 
-        if (currTail == OsAtomicReadU32(tailPtr)) {
-            OsAtomicSetU32(tailPtr, currTail + 1);
-            *tail = currTail;
-            return 0;
-        }
-    } while (1);
+    U32 newTail = currTail + 1;
+
+    if (newTail - head > BUFFER_BLOCK_NUM) {
+        head = head + 1;
+        OsAtomicSetU32(headPtr, head);
+    }
+
+    OsAtomicSetU32(tailPtr, newTail);
+
+    return 0;
 
 
 ============================================================

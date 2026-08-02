@@ -1,11 +1,10 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. The function initializes the spinlock to the unlocked state (`OS_SPINLOCK_UNLOCK` = 0) and returns `OS_OK` (= 0), consistent with:
+The implementation is complete. Here's what `PRT_SplLockInit` now does:
 
-- The struct `PrtSpinLock` definition where `rawLock` is the only field (`uapi/prt_atomic.h:132-135`)
-- The arch-level `OsSplLockInit` which calls `OsSpinLockInitInner` to set `*lockVar = OS_SPINLOCK_UNLOCK` and returns `OS_OK`
-- All callers which check `ret != OS_OK` or `if (ret)` expecting 0 for success
+1. **NULL pointer check** — returns `OS_ERRNO_SPL_ALLOC_ADDR_INVALID` if `spinLock` is NULL, matching the error code declared in `prt_atomic.h` (line 91)
+2. **Delegates to `OsSplLockInit`** — the architecture-specific inline function (defined in `os_cpu_armv8_external.h` / `os_cpu_armv7_r_external.h`) which calls `OsSpinLockInitInner` on `spinLock->rawLock` to set it to the unlocked state (0) and returns `OS_OK`
 
 
 ============================================================
@@ -13,13 +12,15 @@ The implementation is complete. The function initializes the spinlock to the unl
 ============================================================
 --- src/core/kernel/spinlock/prt_spinlock.c
 +++ src/core/kernel/spinlock/prt_spinlock.c
-@@ -30,7 +30,8 @@
+@@ -30,7 +30,10 @@
  
  OS_SEC_L4_TEXT U32 PRT_SplLockInit(struct PrtSpinLock *spinLock)
  {
 -    /* MASKED - implement this function */
-+    spinLock->rawLock = OS_SPINLOCK_UNLOCK;
-+    return OS_OK;
++    if (spinLock == NULL) {
++        return OS_ERRNO_SPL_ALLOC_ADDR_INVALID;
++    }
++    return OsSplLockInit(spinLock);
  }
  #endif
  
@@ -31,8 +32,10 @@ The implementation is complete. The function initializes the spinlock to the unl
 === Injected Body ===
 ============================================================
 
-    spinLock->rawLock = OS_SPINLOCK_UNLOCK;
-    return OS_OK;
+    if (spinLock == NULL) {
+        return OS_ERRNO_SPL_ALLOC_ADDR_INVALID;
+    }
+    return OsSplLockInit(spinLock);
 
 
 ============================================================
@@ -40,6 +43,7 @@ The implementation is complete. The function initializes the spinlock to the unl
 ============================================================
 gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test_PRT_SplLockInit test_PRT_SplLockInit.c notifier_test_stubs.c
 ln -sf test_PRT_SplLockInit test
+Pass-Rate: 100.00%
 
 --- stderr ---
 In file included from test_PRT_SplLockInit.c:29:
@@ -85,7 +89,6 @@ auto_stub.h:1502:12: warning: 'g_tskMaxNum' defined but not used [-Wunused-varia
 auto_stub.h:1501:12: warning: 'g_tskBaseId' defined but not used [-Wunused-variable]
  1501 | static U32 g_tskBaseId = 0;
       |            ^~~~~~~~~~~
-bash: line 1:    26 Segmentation fault      (core dumped) ./test
 
 
 

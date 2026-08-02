@@ -1,13 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `OsRwLockRdPend` does, following the same pattern as `OsRwLockWrPend`:
+The implementation is complete. Here's a summary of what `OsRwLockRdPend` does, mirroring the pattern of `OsRwLockWrPend`:
 
-1. **Lock interrupts + validate** — calls `OsRwLockCheck` to verify the rwlock is valid, not in interrupt context, and the task doesn't hold scheduler lock
-2. **Try-read check** (if `rwType == RWLOCK_TRYRD`) — calls `OsRwLockTryRdCheck` to reject if: the task is already the write owner, a higher-priority writer is pending, or the lock is held in write mode
-3. **Fast path** — if `rw_count >= 0` (lock is free or in read mode) and no higher-priority writer is pending (`OsRwlockPriCompare`), increment the read count and return immediately (multiple readers can share the lock)
-4. **Self-owner guard** — if the calling task is the write owner, return `EINVAL`
-5. **Slow path** — pend the task on `rwl->rw_read` via `OsRwLockPendSchedule`, which handles timeout and scheduling
+1. **Locks interrupts** and validates the rwlock via `OsRwLockCheck`
+2. **Try-read check**: if `rwType` is `RWLOCK_TRYRD`, calls `OsRwLockTryRdCheck` to verify the lock is not held for write by someone else (including the current task), and that no higher-priority writer is pending
+3. **Fast path**: if `rw_count >= 0` (free or already in read mode) and priority comparison passes (no higher-priority writer pending), increments the read count and returns success (with overflow check at `S32_MAX`)
+4. **Self-ownership guard**: if the calling task holds the write lock itself, returns `EINVAL` (you can't read while holding the write lock)
+5. **Slow path**: otherwise, pends the task on the `rw_read` wait list via `OsRwLockPendSchedule`
 
 
 ============================================================
@@ -15,7 +15,7 @@ The implementation is complete. Here's a summary of what `OsRwLockRdPend` does, 
 ============================================================
 --- src/core/ipc/rwlock/prt_rwlock.c
 +++ src/core/ipc/rwlock/prt_rwlock.c
-@@ -230,7 +230,52 @@
+@@ -230,7 +230,51 @@
  
  U32 OsRwLockRdPend(pthread_rwlock_t *rwl, U32 timeout, U32 rwType)
  {
@@ -64,7 +64,6 @@ The implementation is complete. Here's a summary of what `OsRwLockRdPend` does, 
 +        PRT_HwiRestore(intSave);
 +        return EINVAL;
 +    }
-+
 +    return OsRwLockPendSchedule(runTask, &(rwl->rw_read), timeout, intSave, rwl);
  }
  
@@ -121,7 +120,6 @@ The implementation is complete. Here's a summary of what `OsRwLockRdPend` does, 
         PRT_HwiRestore(intSave);
         return EINVAL;
     }
-
     return OsRwLockPendSchedule(runTask, &(rwl->rw_read), timeout, intSave, rwl);
 
 

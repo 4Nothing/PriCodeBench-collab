@@ -1,16 +1,14 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the function does:
+The implementation is in place. Here's a summary of what `OsTskTimerAdd` does:
 
-- **`OS_SET_DLYBASE_AND_TSK_CORE`** retrieves the per-core sorted delay list for the task's assigned core
-- **`taskCb->expirationTick = g_uniTicks + timeout`** computes the absolute expiration tick
-- **`CPU_OVERTIME_SORT_LIST_LOCK/UNLOCK`** protects the delay list with a spinlock (needed for SMP cross-core access)
-- **Empty list case**: directly adds the task's `timerList` node to the list
-- **Non-empty case**: walks the list (which is kept sorted by ascending `expirationTick`), finds the insertion point where `tskDelay->expirationTick > taskCb->expirationTick`, and inserts before that node via `ListTailAdd(&taskCb->timerList, &tskDelay->timerList)` (which inserts before the target node, effectively adding at the correct sorted position)
-- **`OsTskDlyNearestTicksRefresh`** updates the cached nearest timeout tick after the insertion
-
-This matches the validated reference implementation and the compiled assembly.
+1. **Gets the sorted delay list** for the task's core via `OS_SET_DLYBASE_AND_TSK_CORE`
+2. **Computes the expiration tick** as `g_uniTicks + timeout` and stores it in `taskCb->expirationTick`
+3. **Locks the delay list** via `CPU_OVERTIME_SORT_LIST_LOCK`
+4. **Inserts the task in sorted order** — if the list is empty, appends directly; otherwise iterates to find the first task with a later expiration and inserts before it (ascending order by `expirationTick`)
+5. **Refreshes the nearest tick timeout** via `OsTskDlyNearestTicksRefresh` so the hardware timer is reprogrammed if this new task has the earliest expiration
+6. **Unlocks the delay list** via `CPU_OVERTIME_SORT_LIST_UNLOCK`
 
 
 ============================================================

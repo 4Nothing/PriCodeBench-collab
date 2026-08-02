@@ -1,19 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of the logic:
+The function is implemented. Here's the reasoning:
 
-**`OsRingbufWriteLinear`** is called when `startIdx > endIdx`, meaning the free space in the ring buffer is a single contiguous segment from `endIdx` to `startIdx` — no wrapping around the buffer end is needed.
+**`OsRingbufWriteLinear`** writes into a contiguous free region from `endIdx` to `startIdx` (available when `startIdx > endIdx`). The available linear space is `startIdx - endIdx`. The write is capped to `min(available_free_space, requested_size)`, and both `remain` and `endIdx` are updated after the copy.
 
-It mirrors `OsRingbufReadLinear` (lines 97-120):
-
-1. Computes available free space as `startIdx - endIdx`
-2. Copies at most `min(freeSpace, size)` bytes from `buf` into the ring buffer at position `endIdx`
-3. Decrements `remain` (consuming free space) and advances `endIdx`
-
-This function is called from two places:
-- **`PRT_RingbufWrite`** (line 90): when the free space is already contiguous
-- **`OsRingbufWriteLoop`** (line 70): after the loop portion (endIdx to buffer end) was written and endIdx wrapped to 0, the remainder is written linearly from position 0 to startIdx
+This mirrors the existing `OsRingbufReadLinear` (lines 97–120) which reads from a contiguous used region — same pattern, opposite direction. It also complements `OsRingbufWriteLoop` (lines 47–74), which handles the case where free space wraps and delegates the linear prefix to this function after wrapping `endIdx` to 0.
 
 
 ============================================================
@@ -21,22 +13,25 @@ This function is called from two places:
 ============================================================
 --- src/extended/perf/prt_perf_ringbuf.c
 +++ src/extended/perf/prt_perf_ringbuf.c
-@@ -41,7 +41,24 @@
+@@ -41,7 +41,27 @@
   */
  static U32 OsRingbufWriteLinear(Ringbuf *ringbuf, const char *buf, U32 size)
  {
 -    /* MASKED - implement this function */
 +    U32 ret;
++    U32 freeSize;
 +    U32 cpSize;
-+    U32 freeSpace;
 +
-+    freeSpace = ringbuf->startIdx - ringbuf->endIdx;
-+    cpSize = (freeSpace < size) ? freeSpace : size;
++    freeSize = ringbuf->startIdx - ringbuf->endIdx;
++    cpSize = (freeSize < size) ? freeSize : size;
 +
-+    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSpace, buf, cpSize);
++    if (cpSize == 0) {
++        return 0;
++    }
++
++    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSize, buf, cpSize);
 +    if (ret != OS_OK) {
-+        printf("write linear ring buffer failed, endIdx: %u, freeSpace:%u, cpSize=%u\n", ringbuf->endIdx, freeSpace,
-+               cpSize);
++        printf("write linear ring buffer failed, endIdx: %u, freeSize: %u, cpSize=%u\n", ringbuf->endIdx, freeSize, cpSize);
 +        return 0;
 +    }
 +
@@ -56,16 +51,19 @@ This function is called from two places:
 ============================================================
 
     U32 ret;
+    U32 freeSize;
     U32 cpSize;
-    U32 freeSpace;
 
-    freeSpace = ringbuf->startIdx - ringbuf->endIdx;
-    cpSize = (freeSpace < size) ? freeSpace : size;
+    freeSize = ringbuf->startIdx - ringbuf->endIdx;
+    cpSize = (freeSize < size) ? freeSize : size;
 
-    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSpace, buf, cpSize);
+    if (cpSize == 0) {
+        return 0;
+    }
+
+    ret = memcpy_s(ringbuf->fifo + ringbuf->endIdx, freeSize, buf, cpSize);
     if (ret != OS_OK) {
-        printf("write linear ring buffer failed, endIdx: %u, freeSpace:%u, cpSize=%u\n", ringbuf->endIdx, freeSpace,
-               cpSize);
+        printf("write linear ring buffer failed, endIdx: %u, freeSize: %u, cpSize=%u\n", ringbuf->endIdx, freeSize, cpSize);
         return 0;
     }
 

@@ -1,7 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-Done. On a single-core system, spinlocks don't actually need to acquire or release anything — there's no other core to contend with. The `PRT_SplUnlock` now matches its counterpart `PRT_SplLock` (both are `(void)spinLock;` no-ops), symmetric with how the SMP versions are symmetric pairs.
+The implementation is complete. The `PRT_SplUnlock` function in the single-core path (`#else` block, line 143) now contains `(void)spinLock;` — a no-op that suppresses the unused parameter warning. This matches the pattern of `PRT_SplLock` at line 137-139, which does the same thing. On a single-core system, there's no contention, so no actual lock/unlock is needed.
 
 
 ============================================================

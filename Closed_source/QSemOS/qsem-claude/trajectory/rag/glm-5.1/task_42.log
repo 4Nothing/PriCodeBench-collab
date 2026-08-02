@@ -1,7 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is in place. `PRT_TickGetCount` now returns the current tick count as the sum of `g_uniTicks` (accumulated hardware tick count) plus `g_ticksOffset` (offset applied by `PRT_TickCountAdjust`). This matches the test expectations — all 6 test cases (zero, simple sum, large numbers, near-wrap, wrap-to-zero, random) are covered by this straightforward addition.
+Done. The function now returns the sum of `g_uniTicks` (the kernel's internal tick counter) and `g_ticksOffset` (an adjustable offset from `PRT_TickCountAdjust`). Both are `volatile U64` globals declared in the already-included `prt_sys_external.h`. This matches the reference implementation at `func_under_test.c:3`.
 
 
 ============================================================

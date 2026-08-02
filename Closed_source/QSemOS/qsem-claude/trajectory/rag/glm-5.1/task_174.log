@@ -1,14 +1,14 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is implemented. It performs four parameter validation checks matching the test expectations:
+The function is implemented. Here's what I added — four parameter validations before the `PRT_QueueWrite` proceeds with the actual write:
 
-1. **`innerId >= g_maxQueue`** → returns `OS_ERRNO_QUEUE_INVALID` (queue ID out of range)
-2. **`bufferAddr == 0`** → returns `OS_ERRNO_QUEUE_PTR_NULL` (null pointer)
-3. **`bufferSize == 0`** → returns `OS_ERRNO_QUEUE_SIZE_ZERO` (zero buffer size)
-4. **`prio > (U32)OS_QUEUE_URGENT`** → returns `OS_ERRNO_QUEUE_PRIO_INVALID` (priority must be `OS_QUEUE_NORMAL`=0 or `OS_QUEUE_URGENT`=1)
+1. **Queue ID bounds check** — `innerId >= g_maxQueue` returns `OS_ERRNO_QUEUE_INVALID`, matching the same check in `PRT_QueueRead` (line 172).
+2. **Null buffer check** — `bufferAddr == 0` returns `OS_ERRNO_QUEUE_PTR_NULL`, parallel to the `bufferAddr == NULL` check in `PRT_QueueRead` (line 177). The parameter is `uintptr_t` because the caller casts `void *` to `uintptr_t`.
+3. **Zero size check** — `bufferSize == 0` returns `OS_ERRNO_QUEUE_SIZE_ZERO`, matching the `*len == 0` check in `PRT_QueueRead` (line 182).
+4. **Priority validation** — rejects values other than `OS_QUEUE_NORMAL` (0) or `OS_QUEUE_URGENT` (1) with `OS_ERRNO_QUEUE_PRIO_INVALID`. This error code exists in `prt_queue.h` specifically for this purpose ("参数只能是0或1").
 
-If all checks pass, it returns `OS_OK`. This mirrors the same validation pattern used by `PRT_QueueRead` (which does the same checks inline) and is called by `PRT_QueueWrite` at line 304 before the actual queue write logic.
+On success it returns `OS_OK`. The caller at line 304 then proceeds to acquire the queue control block and perform the write.
 
 
 ============================================================
@@ -36,7 +36,7 @@ If all checks pass, it returns `OS_OK`. This mirrors the same validation pattern
 +        return OS_ERRNO_QUEUE_SIZE_ZERO;
 +    }
 +
-+    if (prio > (U32)OS_QUEUE_URGENT)
++    if (prio != (U32)OS_QUEUE_NORMAL && prio != (U32)OS_QUEUE_URGENT)
 +    {
 +        return OS_ERRNO_QUEUE_PRIO_INVALID;
 +    }
@@ -68,7 +68,7 @@ If all checks pass, it returns `OS_OK`. This mirrors the same validation pattern
         return OS_ERRNO_QUEUE_SIZE_ZERO;
     }
 
-    if (prio > (U32)OS_QUEUE_URGENT)
+    if (prio != (U32)OS_QUEUE_NORMAL && prio != (U32)OS_QUEUE_URGENT)
     {
         return OS_ERRNO_QUEUE_PRIO_INVALID;
     }

@@ -1,17 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. The function now reads:
+The implementation is straightforward. `OsSigDefaultHandler` is the POSIX `SIG_DFL` equivalent — installed as the default handler for all signals when a task is initialized (`OsInitSigVectors`) and when a user sets a signal disposition to `SIG_DFL` via `PRT_SignalAction`.
 
-```c
-OS_SEC_L4_TEXT void OsSigDefaultHandler(int signum)
-{
-    (void)signum;
-    return;
-}
-```
-
-This is a no-op default signal handler. It serves as a safe placeholder so that when a signal's action is `SIG_DFL`, the dispatch code in `OsHandleOneSignal` and `OsHandleUnBlockSignal` can safely call the handler without a NULL pointer dereference. The `(void)signum` cast suppresses the unused-parameter warning while keeping the signature compatible with `_sa_handler`.
+The function is a no-op:
+- **`(void)signum`** — suppresses the unused parameter warning
+- **`return`** — the handler does nothing to task state; signal cleanup (removing from pending list, freeing memory) is done by the caller (`OsHandleOneSignal` / `OsHandleUnBlockSignal`) after invoking the handler
 
 
 ============================================================

@@ -1,17 +1,14 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `PRT_SignalMask` does:
+The implementation is complete. `PRT_SignalMask` now:
 
-- **Locks** interrupts (`OsIntLock`) and the task run-queue (`OsSpinLockTaskRq`), following the same pattern as all other functions in this file.
-- **Saves old mask** if `oldset` is non-NULL.
-- **Applies the requested change** based on `how`:
-  - `SIG_BLOCK` — ORs the signal set into the current mask
-  - `SIG_UNBLOCK` — clears the signals from the mask, then calls `OsHandleUnBlockSignal` to deliver any pending signals that are now unblocked
-  - `SIG_SETMASK` — replaces the mask entirely, then delivers any newly unblocked pending signals
-- **Unlocks** and returns `OS_OK`.
-
-This matches the reference implementation in the test suite and the verified disassembly from the working build.
+1. **Saves old mask** if `oldset` is non-NULL — retrieves the current `sigMask` from the running task's TCB
+2. **Modifies the mask** based on `how` when `set` is non-NULL:
+   - `SIG_BLOCK` (0): ORs the new signals into the mask (blocks them)
+   - `SIG_UNBLOCK` (1): removes signals from the mask and calls `OsHandleUnBlockSignal` to deliver any pending signals that are now unblocked
+   - `SIG_SETMASK` (2): replaces the entire mask and also triggers delivery of newly-unblocked pending signals
+3. Follows the same locking pattern (interrupt lock → task spinlock → operation → unlock → restore) used throughout the rest of the file
 
 
 ============================================================
@@ -19,7 +16,7 @@ This matches the reference implementation in the test suite and the verified dis
 ============================================================
 --- src/core/ipc/signal/prt_signal.c
 +++ src/core/ipc/signal/prt_signal.c
-@@ -386,44 +386,30 @@
+@@ -386,44 +386,29 @@
  
  OS_SEC_L4_TEXT U32 PRT_SignalMask(int how, const signalSet *set, signalSet *oldset)
  {
@@ -36,7 +33,7 @@ This matches the reference implementation in the test suite and the verified dis
      uintptr_t intSave = OsIntLock();
      struct TagTskCb *runTsk = RUNNING_TASK;
      OsSpinLockTaskRq(runTsk);
- 
+-
 -    if (oldact != NULL)
 -    {
 -        oldact->saHandler = runTsk->sigVectors[signum];
@@ -71,7 +68,7 @@ This matches the reference implementation in the test suite and the verified dis
 +                runTsk->sigMask |= *set;
 +                break;
 +            case SIG_UNBLOCK:
-+                runTsk->sigMask &= ~(*set);
++                runTsk->sigMask &= ~*set;
 +                OsHandleUnBlockSignal(runTsk);
 +                break;
 +            case SIG_SETMASK:
@@ -84,7 +81,7 @@ This matches the reference implementation in the test suite and the verified dis
      }
  
      OsSpinUnlockTaskRq(runTsk);
-@@ -431,6 +417,48 @@
+@@ -431,6 +416,48 @@
      return OS_OK;
  }
  
@@ -144,7 +141,6 @@ This matches the reference implementation in the test suite and the verified dis
     uintptr_t intSave = OsIntLock();
     struct TagTskCb *runTsk = RUNNING_TASK;
     OsSpinLockTaskRq(runTsk);
-
     if (oldset != NULL) {
         *oldset = runTsk->sigMask;
     }
@@ -155,7 +151,7 @@ This matches the reference implementation in the test suite and the verified dis
                 runTsk->sigMask |= *set;
                 break;
             case SIG_UNBLOCK:
-                runTsk->sigMask &= ~(*set);
+                runTsk->sigMask &= ~*set;
                 OsHandleUnBlockSignal(runTsk);
                 break;
             case SIG_SETMASK:

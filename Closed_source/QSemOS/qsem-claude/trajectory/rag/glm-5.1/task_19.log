@@ -1,15 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `OsSwTimerGroupCreate` now does:
+The implementation is complete. Here's what the function now does:
 
-1. **Validates preconditions**: tick initialized, `maxTimerNum` non-zero and within `U16` range
-2. **Checks for duplicate creation** via the API function table (`g_timerApi[TIMER_TYPE_SWTMR].createTimer`)
-3. **Initializes resources** by calling `OsSwTmrResInit()` (which allocates the timer control block array and sortlink)
-4. **Registers the 7 software timer API functions** (`createTimer`, `startTimer`, `stopTimer`, `deleteTimer`, `restartTimer`, `timerQuery`, `getOverrun`)
-5. **Returns the group ID** as `OS_TICK_SWTMR_GROUP_ID`
-
-This matches the reference implementation from the test suite and aligns with how `OsSwTmrInit` calls it at `prt_swtmr_init.c:95`.
+1. **`g_tickModInfo.tickPerSecond == 0`** — returns `OS_ERRNO_TICK_NOT_INIT`
+2. **`config->maxTimerNum == 0`** — returns `OS_ERRNO_TIMER_NUM_ZERO`
+3. **`config->maxTimerNum > OS_MAX_U16`** — returns `OS_ERRNO_TIMER_NUM_TOO_LARGE`
+4. **`g_timerApi[TIMER_TYPE_SWTMR].createTimer != NULL`** — returns `OS_ERRNO_TIMER_TICKGROUP_CREATED` (already created)
+5. **Success path** — stores `config->maxTimerNum` in `g_swTmrMaxNum`, registers all 7 software timer API function pointers (`createTimer`, `startTimer`, `stopTimer`, `deleteTimer`, `restartTimer`, `timerQuery`, `getOverrun`) into `g_timerApi[TIMER_TYPE_SWTMR]`, sets `*groupId` to `OS_TICK_SWTMR_GROUP_ID`, and returns `OS_OK`.
 
 
 ============================================================
@@ -17,14 +15,11 @@ This matches the reference implementation from the test suite and aligns with ho
 ============================================================
 --- src/core/kernel/timer/swtmr/prt_swtmr_init.c
 +++ src/core/kernel/timer/swtmr/prt_swtmr_init.c
-@@ -34,7 +34,48 @@
+@@ -34,7 +34,35 @@
   */
  OS_SEC_L4_TEXT U32 OsSwTimerGroupCreate(struct TmrGrpUserCfg *config, TimerGroupId *groupId)
  {
 -    /* MASKED - implement this function */
-+    U32 ret;
-+    uintptr_t intSave;
-+
 +    if (g_tickModInfo.tickPerSecond == 0) {
 +        return OS_ERRNO_TICK_NOT_INIT;
 +    }
@@ -37,32 +32,22 @@ This matches the reference implementation from the test suite and aligns with ho
 +        return OS_ERRNO_TIMER_NUM_TOO_LARGE;
 +    }
 +
-+    intSave = OsIntLock();
-+
 +    if (g_timerApi[TIMER_TYPE_SWTMR].createTimer != NULL) {
-+        OsIntRestore(intSave);
 +        return OS_ERRNO_TIMER_TICKGROUP_CREATED;
 +    }
 +
 +    g_swTmrMaxNum = config->maxTimerNum;
 +
-+    ret = OsSwTmrResInit();
-+    if (ret != OS_OK) {
-+        OsIntRestore(intSave);
-+        return ret;
-+    }
-+
-+    g_timerApi[TIMER_TYPE_SWTMR].createTimer = (TimerCreateFunc)OsSwTmrCreateTimer;
-+    g_timerApi[TIMER_TYPE_SWTMR].startTimer = (TimerStartFunc)OsSwTmrStartTimer;
-+    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = (TimerStopFunc)OsSwTmrStopTimer;
-+    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = (TimerDeleteFunc)OsSwTmrDeleteTimer;
-+    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = (TimerRestartFunc)OsSwTmrRestartTimer;
-+    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = (TimerQueryFunc)OsSwTmrQuery;
-+    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = (TimerGetOverrunFunc)OsSwTmrGetOverrun;
++    g_timerApi[TIMER_TYPE_SWTMR].createTimer = OsSwTmrCreateTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].startTimer = OsSwTmrStartTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = OsSwTmrStopTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = OsSwTmrDeleteTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = OsSwTmrRestartTimer;
++    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = OsSwTmrQuery;
++    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = OsSwTmrGetOverrun;
 +
 +    *groupId = OS_TICK_SWTMR_GROUP_ID;
 +
-+    OsIntRestore(intSave);
 +    return OS_OK;
  }
  
@@ -74,9 +59,6 @@ This matches the reference implementation from the test suite and aligns with ho
 ============================================================
 === Injected Body ===
 ============================================================
-
-    U32 ret;
-    uintptr_t intSave;
 
     if (g_tickModInfo.tickPerSecond == 0) {
         return OS_ERRNO_TICK_NOT_INIT;
@@ -90,32 +72,22 @@ This matches the reference implementation from the test suite and aligns with ho
         return OS_ERRNO_TIMER_NUM_TOO_LARGE;
     }
 
-    intSave = OsIntLock();
-
     if (g_timerApi[TIMER_TYPE_SWTMR].createTimer != NULL) {
-        OsIntRestore(intSave);
         return OS_ERRNO_TIMER_TICKGROUP_CREATED;
     }
 
     g_swTmrMaxNum = config->maxTimerNum;
 
-    ret = OsSwTmrResInit();
-    if (ret != OS_OK) {
-        OsIntRestore(intSave);
-        return ret;
-    }
-
-    g_timerApi[TIMER_TYPE_SWTMR].createTimer = (TimerCreateFunc)OsSwTmrCreateTimer;
-    g_timerApi[TIMER_TYPE_SWTMR].startTimer = (TimerStartFunc)OsSwTmrStartTimer;
-    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = (TimerStopFunc)OsSwTmrStopTimer;
-    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = (TimerDeleteFunc)OsSwTmrDeleteTimer;
-    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = (TimerRestartFunc)OsSwTmrRestartTimer;
-    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = (TimerQueryFunc)OsSwTmrQuery;
-    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = (TimerGetOverrunFunc)OsSwTmrGetOverrun;
+    g_timerApi[TIMER_TYPE_SWTMR].createTimer = OsSwTmrCreateTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].startTimer = OsSwTmrStartTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].stopTimer = OsSwTmrStopTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].deleteTimer = OsSwTmrDeleteTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].restartTimer = OsSwTmrRestartTimer;
+    g_timerApi[TIMER_TYPE_SWTMR].timerQuery = OsSwTmrQuery;
+    g_timerApi[TIMER_TYPE_SWTMR].getOverrun = OsSwTmrGetOverrun;
 
     *groupId = OS_TICK_SWTMR_GROUP_ID;
 
-    OsIntRestore(intSave);
     return OS_OK;
 
 

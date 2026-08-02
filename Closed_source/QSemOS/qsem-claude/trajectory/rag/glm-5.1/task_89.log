@@ -1,17 +1,14 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `PRT_SignalWait` does:
+The implementation is complete. Here's a summary of the logic:
 
-**Parameter validation** (line 343): Rejects NULL set, empty set (0), NULL info, or zero timeout — all return `OS_ERRNO_SIGNAL_PARA_INVALID`.
-
-**Output buffer init** (line 347): Zeroes `info` via `memset_s`, triggering a fatal system error path on failure.
-
-**Interrupt context guard** (line 352): If called from an ISR, returns `OS_ERRNO_SIGNAL_WAIT_NOT_IN_TASK` — blocking operations aren't allowed in interrupt context.
-
-**Fast path** (line 361): Checks if any pending signal already matches the requested set. If so, `OsSigWaitProcPendingSignal` de-queues one matching signal from the pending list, copies it into `info`, clears the pending bit, and returns immediately.
-
-**Sleep path** (line 369): If no matching signal is pending, `OsSignalWaitSche` removes the task from the ready queue, sets `OS_TSK_WAIT_SIGNAL` status, configures the timeout timer, and triggers a schedule. When the task wakes (either by `PRT_SignalDeliver` delivering a matching signal, or by timeout), it re-acquires the lock and the signal is consumed from the pending list.
+- **Lines 341-344**: Validate that neither `set` nor `info` is NULL, returning `OS_ERRNO_SIGNAL_PARA_INVALID` — consistent with `PRT_SignalDeliver`'s parameter validation pattern.
+- **Lines 346-348**: Lock interrupts and the task run queue before accessing shared task state.
+- **Lines 350-355**: Reject callers running in the idle task (can't block the idle task), matching the guard in `PRT_SigSuspend`.
+- **Lines 357-363**: Fast path — if a signal matching the wait set is already pending, retrieve it immediately via `OsSigWaitProcPendingSignal` and return. This also handles the non-blocking poll case (timeout=0 with a pending signal already available).
+- **Lines 365-371**: No pending signal; suspend the current task via `OsSignalWaitSche` (which handles signal mask setup, ready-queue removal, timeout configuration, and context switch). If it returns an error (timeout, lock-held, or invalid parameter), propagate it.
+- **Lines 373-376**: Task was woken by a matching signal — extract the signal info from the pending list and return success.
 
 
 ============================================================
@@ -19,50 +16,47 @@ The implementation is complete. Here's a summary of what `PRT_SignalWait` does:
 ============================================================
 --- src/core/ipc/signal/prt_signal.c
 +++ src/core/ipc/signal/prt_signal.c
-@@ -338,7 +338,45 @@
+@@ -338,7 +338,42 @@
  
  OS_SEC_L4_TEXT U32 PRT_SignalWait(const signalSet *set, signalInfo *info, U32 timeOutTick)
  {
 -    /* MASKED - implement this function */
-+    U32 ret = OS_OK;
-+
-+    if (set == NULL || *set == 0 || info == NULL || timeOutTick == 0) {
++    if (set == NULL || info == NULL)
++    {
 +        return OS_ERRNO_SIGNAL_PARA_INVALID;
 +    }
 +
-+    if (memset_s(info, sizeof(signalInfo), 0, sizeof(signalInfo)) != EOK) {
-+        OS_GOTO_SYS_ERROR1();
-+    }
-+
 +    uintptr_t intSave = OsIntLock();
-+    if (OS_INT_ACTIVE) {
-+        OsIntRestore(intSave);
-+        return OS_ERRNO_SIGNAL_WAIT_NOT_IN_TASK;
-+    }
-+
 +    struct TagTskCb *runTsk = RUNNING_TASK;
 +    OsSpinLockTaskRq(runTsk);
 +
-+    /* 等待信号集中已有未决信号 */
-+    if ((runTsk->sigPending & *set) != 0) {
-+        ret = OsSigWaitProcPendingSignal(runTsk, set, info);
++    if (runTsk->taskPid == IDLE_TASK_ID)
++    {
++        OsSpinUnlockTaskRq(runTsk);
++        OsIntRestore(intSave);
++        return OS_ERRNO_SIGNAL_TASKID_INVALID;
++    }
++
++    if ((runTsk->sigPending & *set) != 0)
++    {
++        (void)OsSigWaitProcPendingSignal(runTsk, set, info);
++        OsSpinUnlockTaskRq(runTsk);
++        OsIntRestore(intSave);
++        return OS_OK;
++    }
++
++    U32 ret = OsSignalWaitSche(runTsk, set, timeOutTick);
++    if (ret != OS_OK)
++    {
 +        OsSpinUnlockTaskRq(runTsk);
 +        OsIntRestore(intSave);
 +        return ret;
 +    }
 +
-+    /* 等待信号集中没有未决信号则需要将当前任务挂起等待 */
-+    ret = OsSignalWaitSche(runTsk, set, timeOutTick);
-+    if (ret != OS_OK) {
-+        OsSpinUnlockTaskRq(runTsk);
-+        OsIntRestore(intSave);
-+        return ret;
-+    }
-+
-+    ret = OsSigWaitProcPendingSignal(runTsk, set, info);
++    (void)OsSigWaitProcPendingSignal(runTsk, set, info);
 +    OsSpinUnlockTaskRq(runTsk);
 +    OsIntRestore(intSave);
-+    return ret;
++    return OS_OK;
  }
  
  OS_SEC_L4_TEXT U32 PRT_SignalMask(int how, const signalSet *set, signalSet *oldset)
@@ -74,45 +68,42 @@ The implementation is complete. Here's a summary of what `PRT_SignalWait` does:
 === Injected Body ===
 ============================================================
 
-    U32 ret = OS_OK;
-
-    if (set == NULL || *set == 0 || info == NULL || timeOutTick == 0) {
+    if (set == NULL || info == NULL)
+    {
         return OS_ERRNO_SIGNAL_PARA_INVALID;
     }
 
-    if (memset_s(info, sizeof(signalInfo), 0, sizeof(signalInfo)) != EOK) {
-        OS_GOTO_SYS_ERROR1();
-    }
-
     uintptr_t intSave = OsIntLock();
-    if (OS_INT_ACTIVE) {
-        OsIntRestore(intSave);
-        return OS_ERRNO_SIGNAL_WAIT_NOT_IN_TASK;
-    }
-
     struct TagTskCb *runTsk = RUNNING_TASK;
     OsSpinLockTaskRq(runTsk);
 
-    /* 等待信号集中已有未决信号 */
-    if ((runTsk->sigPending & *set) != 0) {
-        ret = OsSigWaitProcPendingSignal(runTsk, set, info);
+    if (runTsk->taskPid == IDLE_TASK_ID)
+    {
+        OsSpinUnlockTaskRq(runTsk);
+        OsIntRestore(intSave);
+        return OS_ERRNO_SIGNAL_TASKID_INVALID;
+    }
+
+    if ((runTsk->sigPending & *set) != 0)
+    {
+        (void)OsSigWaitProcPendingSignal(runTsk, set, info);
+        OsSpinUnlockTaskRq(runTsk);
+        OsIntRestore(intSave);
+        return OS_OK;
+    }
+
+    U32 ret = OsSignalWaitSche(runTsk, set, timeOutTick);
+    if (ret != OS_OK)
+    {
         OsSpinUnlockTaskRq(runTsk);
         OsIntRestore(intSave);
         return ret;
     }
 
-    /* 等待信号集中没有未决信号则需要将当前任务挂起等待 */
-    ret = OsSignalWaitSche(runTsk, set, timeOutTick);
-    if (ret != OS_OK) {
-        OsSpinUnlockTaskRq(runTsk);
-        OsIntRestore(intSave);
-        return ret;
-    }
-
-    ret = OsSigWaitProcPendingSignal(runTsk, set, info);
+    (void)OsSigWaitProcPendingSignal(runTsk, set, info);
     OsSpinUnlockTaskRq(runTsk);
     OsIntRestore(intSave);
-    return ret;
+    return OS_OK;
 
 
 ============================================================
@@ -127,8 +118,8 @@ ln -sf test_PRT_SignalWait test
 
 [CASE] empty set invalid
   Expected: 33558529
-  Actual  : 33558529
-  Result  : PASS
+  Actual  : 0
+  Result  : FAIL
 
 [CASE] null info invalid
   Expected: 33558529
@@ -147,20 +138,20 @@ ln -sf test_PRT_SignalWait test
 
 [CASE] timeout=0 invalid
   Expected: 33558529
-  Actual  : 33558529
-  Result  : PASS
+  Actual  : 0
+  Result  : FAIL
 
-Pass-Rate: 100.00% (6/6)
+Pass-Rate: 66.67% (4/6)
 
 --- stderr ---
 In file included from test_PRT_SignalWait.c:3:
 func_under_test.c: In function 'PRT_SignalWait':
-func_under_test.c:25:15: warning: implicit declaration of function 'OsSigWaitProcPendingSignal' [-Wimplicit-function-declaration]
-   25 |         ret = OsSigWaitProcPendingSignal(runTsk, set, info);
+func_under_test.c:22:15: warning: implicit declaration of function 'OsSigWaitProcPendingSignal' [-Wimplicit-function-declaration]
+   22 |         (void)OsSigWaitProcPendingSignal(runTsk, set, info);
       |               ^~~~~~~~~~~~~~~~~~~~~~~~~~
-func_under_test.c:32:11: warning: implicit declaration of function 'OsSignalWaitSche' [-Wimplicit-function-declaration]
-   32 |     ret = OsSignalWaitSche(runTsk, set, timeOutTick);
-      |           ^~~~~~~~~~~~~~~~
+func_under_test.c:28:15: warning: implicit declaration of function 'OsSignalWaitSche' [-Wimplicit-function-declaration]
+   28 |     U32 ret = OsSignalWaitSche(runTsk, set, timeOutTick);
+      |               ^~~~~~~~~~~~~~~~
 test_PRT_SignalWait.c: In function 'add_pending_signal':
 test_PRT_SignalWait.c:10:11: warning: implicit declaration of function 'OsAddSignalPendingFlag' [-Wimplicit-function-declaration]
    10 |     (void)OsAddSignalPendingFlag(taskCb, &info);
@@ -204,9 +195,6 @@ auto_stub.h:1271:12: warning: 'g_uniTaskLock' defined but not used [-Wunused-var
 auto_stub.h:1270:12: warning: 'g_maxNumOfCores' defined but not used [-Wunused-variable]
  1270 | static U32 g_maxNumOfCores = 1;
       |            ^~~~~~~~~~~~~~~
-auto_stub.h:1269:12: warning: 'g_idleTaskId' defined but not used [-Wunused-variable]
- 1269 | static U32 g_idleTaskId = 0;
-      |            ^~~~~~~~~~~~
 auto_stub.h:1268:12: warning: 'g_tskMaxNum' defined but not used [-Wunused-variable]
  1268 | static U32 g_tskMaxNum = 0;
       |            ^~~~~~~~~~~

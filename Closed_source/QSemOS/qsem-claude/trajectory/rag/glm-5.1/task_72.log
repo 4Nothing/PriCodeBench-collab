@@ -1,16 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the `OsSwTmrStopTimer` function does:
+The implementation is complete. Here's a summary of what `OsSwTmrStopTimer` does, matching all 5 test cases:
 
-- **Invalid handle** → returns `OS_ERRNO_TIMER_HANDLE_INVALID`
-- **FREE state** → returns `OS_ERRNO_SWTMR_NOT_CREATED` (timer was never created)
-- **CREATED state** → returns `OS_ERRNO_SWTMR_UNSTART` (timer is already stopped)
-- **EXPIRED state** → sets `OS_SWTMR_PRE_CREATED | OS_TIMER_EXPIRED` for deferred stop processing, returns `OS_OK`
-- **RUNNING state** (default) → calls `OsSwTmrStop(swtmr, FALSE)` to remove the timer from the sort link and calculate remaining ticks, then unlocks and returns `OS_OK`
-- Optionally refreshes the tickless nearest-ticks value if `OS_OPTION_TICKLESS` is enabled
+| State | Action |
+|---|---|
+| Invalid handle | Returns `OS_ERRNO_TIMER_HANDLE_INVALID` |
+| `OS_TIMER_FREE` | Returns `OS_ERRNO_SWTMR_NOT_CREATED` |
+| `OS_TIMER_EXPIRED` | Sets `OS_SWTMR_PRE_CREATED \| OS_TIMER_EXPIRED` (delayed stop), returns `OS_OK` |
+| `OS_TIMER_CREATED` | Returns `OS_ERRNO_SWTMR_UNSTART` (can't stop an unstarted timer) |
+| `OS_TIMER_RUNNING` | Calls `OsSwTmrStop(swtmr, FALSE)` to remove from the sort link with remaining tick calculation, refreshes nearest ticks under `OS_OPTION_TICKLESS`, returns `OS_OK` |
 
-The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer` and `OsSwTmrRestartTimer` functions, and matches the test expectations in `task_072`.
+The function follows the same locking, validation, and state-machine patterns as the sibling functions `OsSwTmrStartTimer`, `OsSwTmrRestartTimer`, and `OsSwTmrDeleteTimer`.
 
 
 ============================================================
@@ -18,7 +19,7 @@ The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer`
 ============================================================
 --- src/core/kernel/timer/swtmr/prt_swtmr_minor.c
 +++ src/core/kernel/timer/swtmr/prt_swtmr_minor.c
-@@ -236,7 +236,45 @@
+@@ -236,7 +236,41 @@
   */
  OS_SEC_L2_TEXT U32 OsSwTmrStopTimer(TimerHandle tmrHandle)
  {
@@ -31,7 +32,6 @@ The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer`
 +        return OS_ERRNO_TIMER_HANDLE_INVALID;
 +    }
 +
-+    // 转化为软件定时器内部ID号
 +    swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
 +    intSave = OsSwtmrIqrSplLock(swtmr);
 +
@@ -44,23 +44,20 @@ The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer`
 +        swtmr->state = OS_SWTMR_PRE_CREATED | (U8)OS_TIMER_EXPIRED;
 +        OsSwtmrIqrSplUnlock(swtmr, intSave);
 +        return OS_OK;
-+    case OS_TIMER_CREATED:
++    case OS_TIMER_RUNNING:
++        OsSwTmrStop(swtmr, FALSE);
++        break;
++    default:
 +        OsSwtmrIqrSplUnlock(swtmr, intSave);
 +        return OS_ERRNO_SWTMR_UNSTART;
-+    default:
-+        break;
 +    }
-+
-+    /*
-+     * 调用暂停定时器内部接口，在暂停时计算剩余时间
-+     */
-+    OsSwTmrStop(swtmr, FALSE);
 +
 +#if defined(OS_OPTION_TICKLESS)
 +    OsSwtmrNearestTicksRefresh(CPU_SWTMR_SORT_LINK(swtmr->coreID));
 +#endif
 +
 +    OsSwtmrIqrSplUnlock(swtmr, intSave);
++
 +    return OS_OK;
  }
  
@@ -81,7 +78,6 @@ The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer`
         return OS_ERRNO_TIMER_HANDLE_INVALID;
     }
 
-    // 转化为软件定时器内部ID号
     swtmr = g_swtmrCbArray + OS_SWTMR_ID_2_INDEX(tmrHandle);
     intSave = OsSwtmrIqrSplLock(swtmr);
 
@@ -94,23 +90,20 @@ The implementation follows the same patterns as the adjacent `OsSwTmrStartTimer`
         swtmr->state = OS_SWTMR_PRE_CREATED | (U8)OS_TIMER_EXPIRED;
         OsSwtmrIqrSplUnlock(swtmr, intSave);
         return OS_OK;
-    case OS_TIMER_CREATED:
+    case OS_TIMER_RUNNING:
+        OsSwTmrStop(swtmr, FALSE);
+        break;
+    default:
         OsSwtmrIqrSplUnlock(swtmr, intSave);
         return OS_ERRNO_SWTMR_UNSTART;
-    default:
-        break;
     }
-
-    /*
-     * 调用暂停定时器内部接口，在暂停时计算剩余时间
-     */
-    OsSwTmrStop(swtmr, FALSE);
 
 #if defined(OS_OPTION_TICKLESS)
     OsSwtmrNearestTicksRefresh(CPU_SWTMR_SORT_LINK(swtmr->coreID));
 #endif
 
     OsSwtmrIqrSplUnlock(swtmr, intSave);
+
     return OS_OK;
 
 

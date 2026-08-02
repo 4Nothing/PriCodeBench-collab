@@ -1,17 +1,15 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `PRT_LogFormat` does:
+The implementation mirrors the validation and flow of `PRT_Log` exactly:
 
-1. **Guards** — `LOAD_FENCE()` then checks `g_logMemBase` is initialized (same as `PRT_Log`)
-2. **Validation** — rejects invalid level/facility via `OsCheckLog`, and `NULL` format string
-3. **Filter check** — silently returns 0 if logging is off (`g_logOn == 0`) or the level is filtered out
-4. **Formatting** — uses `vsnprintf_s` (secure variadic printf) to format the log message into a 1KB stack buffer
-5. **Error handling** — returns the negative error code if `vsnprintf_s` fails
-6. **Length cap** — truncates to `LOG_MAX_SIZE - 1` (same limit as `PRT_Log`)
-7. **Delegation** — calls `OsLog(level, facility, buff, len)` to write to the shared memory ring buffer
-
-The pattern mirrors `PRT_Log` exactly, with the only difference being the `vsnprintf_s` formatting step instead of receiving a pre-formatted string.
+1. **Memory fence and init check** — `LOAD_FENCE()` + verify `g_logMemBase` is initialized
+2. **Parameter validation** — `OsCheckLog()` for level/facility ranges, and `fmt == NULL` check
+3. **Filter check** — skip logging if `g_logOn` is off or the level is filtered for this facility
+4. **Format** — `va_start` / `vsnprintf` into a stack buffer of `LOG_MAX_SIZE` bytes, then `va_end`
+5. **Error handling** — `vsnprintf` returning <= 0 (encoding error or empty output) returns -1
+6. **Truncation** — if the formatted output exceeds `LOG_MAX_SIZE - 1`, clamp it (same as `PRT_Log` does for `strLen`)
+7. **Write** — delegates to the internal `OsLog()` which handles the ring buffer write, timestamps, task PID, and valid flag
 
 
 ============================================================
@@ -25,9 +23,9 @@ The pattern mirrors `PRT_Log` exactly, with the only difference being the `vsnpr
  {
 -    /* MASKED - implement this function */
 -}
++    va_list ap;
++    char buf[LOG_MAX_SIZE];
 +    int len;
-+    va_list vaList;
-+    char buff[BUFFER_BLOCK_SIZE];
 +
 +    LOAD_FENCE();
 +    if (g_logMemBase == 0) {
@@ -36,23 +34,23 @@ The pattern mirrors `PRT_Log` exactly, with the only difference being the `vsnpr
 +    if (OsCheckLog(level, facility) || fmt == NULL) {
 +        return -1;
 +    }
-+
-+    /* 检查是否被过滤 */
 +    if ((!g_logOn) || (level >= g_logFilter[facility - OS_LOG_F0])) {
 +        return 0;
 +    }
 +
-+    va_start(vaList, fmt);
-+    len = vsnprintf_s(buff, BUFFER_BLOCK_SIZE, BUFFER_BLOCK_SIZE, fmt, vaList);
-+    va_end(vaList);
-+    if (len < 0) {
-+        return len;
++    va_start(ap, fmt);
++    len = vsnprintf(buf, LOG_MAX_SIZE, fmt, ap);
++    va_end(ap);
++
++    if (len <= 0) {
++        return -1;
 +    }
 +
-+    if (len > (LOG_MAX_SIZE - 1)) {
++    if ((size_t)len > (LOG_MAX_SIZE - 1)) {
 +        len = LOG_MAX_SIZE - 1;
 +    }
-+    return OsLog(level, facility, buff, len);
++
++    return OsLog(level, facility, buf, (size_t)len);
 +}
 
 
@@ -62,9 +60,9 @@ The pattern mirrors `PRT_Log` exactly, with the only difference being the `vsnpr
 === Injected Body ===
 ============================================================
 
+    va_list ap;
+    char buf[LOG_MAX_SIZE];
     int len;
-    va_list vaList;
-    char buff[BUFFER_BLOCK_SIZE];
 
     LOAD_FENCE();
     if (g_logMemBase == 0) {
@@ -73,23 +71,23 @@ The pattern mirrors `PRT_Log` exactly, with the only difference being the `vsnpr
     if (OsCheckLog(level, facility) || fmt == NULL) {
         return -1;
     }
-
-    /* 检查是否被过滤 */
     if ((!g_logOn) || (level >= g_logFilter[facility - OS_LOG_F0])) {
         return 0;
     }
 
-    va_start(vaList, fmt);
-    len = vsnprintf_s(buff, BUFFER_BLOCK_SIZE, BUFFER_BLOCK_SIZE, fmt, vaList);
-    va_end(vaList);
-    if (len < 0) {
-        return len;
+    va_start(ap, fmt);
+    len = vsnprintf(buf, LOG_MAX_SIZE, fmt, ap);
+    va_end(ap);
+
+    if (len <= 0) {
+        return -1;
     }
 
-    if (len > (LOG_MAX_SIZE - 1)) {
+    if ((size_t)len > (LOG_MAX_SIZE - 1)) {
         len = LOG_MAX_SIZE - 1;
     }
-    return OsLog(level, facility, buff, len);
+
+    return OsLog(level, facility, buf, (size_t)len);
 
 
 ============================================================

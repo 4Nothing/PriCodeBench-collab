@@ -3,14 +3,15 @@
 ============================================================
 The implementation is complete. Here's a summary of what `PRT_SemPend` does:
 
-1. **Validates the handle** — returns `OS_ERRNO_SEM_INVALID` if out of range or the semaphore is unused
-2. **Rejects interrupt context** — returns `OS_ERRNO_SEM_PEND_INTERR` if called from an ISR
-3. **Fast path** — if the semaphore has available count (or is a recursive mutex already held), acquires it immediately via `OsSemPendNotNeedSche` and returns `OS_OK`
-4. **Validates waitability** — returns `OS_ERRNO_SEM_UNAVAILABLE` for zero-timeout, or `OS_ERRNO_SEM_PEND_IN_LOCK` if task scheduling is locked
-5. **Blocks the task** — calls `OsSemPendListPut` to remove from the ready queue, add to the semaphore's wait list, and set up a timeout timer if finite
-6. **Handles scheduling** — triggers a context switch; for finite timeouts, checks the TIMEOUT flag after waking to determine if it was a timeout (`OS_ERRNO_SEM_TIMEOUT`) or a successful acquisition (`OS_OK`)
+1. **Handle validation** — returns `OS_ERRNO_SEM_INVALID` if `semHandle >= g_maxSem`
+2. **Interrupt check** — returns `OS_ERRNO_SEM_PEND_INTERR` if called from interrupt context (sempahores can only be pended by tasks)
+3. **Lock and validate** — acquires the semaphore CB lock, checks for `OS_SEM_UNUSED`
+4. **Parameter check** — `OsSemPendParaCheck` rejects `timeout == 0` (no-wait) and pends while holding task lock
+5. **Fast path** — `OsSemPendNotNeedSche` handles the case where the semaphore is immediately available (count > 0, or recursive mutex already owned by caller)
+6. **Block** — `OsSemPendListPut` removes the task from the ready queue, adds it to the semaphore's pend list (FIFO or priority order), and arms a timer if `timeout != OS_WAIT_FOREVER`
+7. **Schedule and check** — after `OsTskSchedule()`, checks `OS_TSK_TIMEOUT` to distinguish timeout wakeup from post wakeup
 
-The implementation uses only helper functions and macros already defined in `prt_sem.c` and its included headers.
+The implementation follows the exact same locking/unlocking and error-handling patterns as `PRT_SemPost` in the same file.
 
 
 ============================================================
@@ -18,26 +19,24 @@ The implementation uses only helper functions and macros already defined in `prt
 ============================================================
 --- src/core/ipc/sem/prt_sem.c
 +++ src/core/ipc/sem/prt_sem.c
-@@ -406,7 +406,70 @@
+@@ -406,7 +406,53 @@
   */
  OS_SEC_L0_TEXT U32 PRT_SemPend(SemHandle semHandle, U32 timeout)
  {
 -    /* MASKED - implement this function */
-+#if defined(OS_OPTION_PERF) && defined(OS_OPTION_PERF_SW_PMU)
-+    PRT_PERF(SEM_PEND);
-+#endif
 +    uintptr_t intSave;
 +    U32 ret;
-+    struct TagTskCb *runTsk = NULL;
 +    struct TagSemCb *semPended = NULL;
-+    struct TagOsRunQue *runQue = NULL;
 +
 +    if (semHandle >= (SemHandle)g_maxSem) {
 +        return OS_ERRNO_SEM_INVALID;
 +    }
 +
-+    semPended = GET_SEM(semHandle);
++    if (OS_INT_ACTIVE) {
++        return OS_ERRNO_SEM_PEND_INTERR;
++    }
 +
++    semPended = GET_SEM(semHandle);
 +    SEM_CB_IRQ_LOCK(semPended, intSave);
 +
 +    if (semPended->semStat == OS_SEM_UNUSED) {
@@ -45,47 +44,32 @@ The implementation uses only helper functions and macros already defined in `prt
 +        return OS_ERRNO_SEM_INVALID;
 +    }
 +
-+    if (OS_INT_ACTIVE) {
++    ret = OsSemPendParaCheck(timeout);
++    if (ret != OS_OK) {
 +        SEM_CB_IRQ_UNLOCK(semPended, intSave);
-+        return OS_ERRNO_SEM_PEND_INTERR;
++        return ret;
 +    }
 +
-+    runTsk = (struct TagTskCb *)RUNNING_TASK;
 +    OsSemIfPrioLock(semPended);
-+    if (OsSemPendNotNeedSche(semPended, runTsk) == TRUE) {
++
++    if (OsSemPendNotNeedSche(semPended, RUNNING_TASK) == TRUE) {
 +        OsSemIfPrioUnLock(semPended);
 +        SEM_CB_IRQ_UNLOCK(semPended, intSave);
 +        return OS_OK;
 +    }
 +
-+    ret = OsSemPendParaCheck(timeout);
-+    if (ret != OS_OK) {
-+        OsSemIfPrioUnLock(semPended);
-+        SEM_CB_IRQ_UNLOCK(semPended, intSave);
-+        return ret;
-+    }
-+    /* 把当前任务挂接在信号量链表上 */
 +    OsSemPendListPut(semPended, timeout);
 +
 +    OsSemIfPrioUnLock(semPended);
 +    SEM_CB_UNLOCK(semPended);
-+    if (timeout != OS_WAIT_FOREVER) {
-+        /* 触发任务调度 */
-+        OsTskSchedule();
-+
-+        runQue = OsSpinLockRunTaskRq();
-+        /* 判断是否是等待信号量超时 */
-+        if (TSK_STATUS_TST(runTsk, OS_TSK_TIMEOUT)) {
-+            TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
-+            OsSpinUnLockRunTaskRq(runQue);
-+            OsIntRestore(intSave);
-+            return OS_ERRNO_SEM_TIMEOUT;
-+        }
-+        OsSpinUnLockRunTaskRq(runQue);
-+    }
-+    /* 恢复ps的快速切换 */
-+    OsTskScheduleFastPs(intSave);
++    OsTskSchedule();
 +    OsIntRestore(intSave);
++
++    if (TSK_STATUS_TST(RUNNING_TASK, OS_TSK_TIMEOUT)) {
++        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_TIMEOUT);
++        return OS_ERRNO_SEM_TIMEOUT;
++    }
++
 +    return OS_OK;
  }
  
@@ -98,21 +82,19 @@ The implementation uses only helper functions and macros already defined in `prt
 === Injected Body ===
 ============================================================
 
-#if defined(OS_OPTION_PERF) && defined(OS_OPTION_PERF_SW_PMU)
-    PRT_PERF(SEM_PEND);
-#endif
     uintptr_t intSave;
     U32 ret;
-    struct TagTskCb *runTsk = NULL;
     struct TagSemCb *semPended = NULL;
-    struct TagOsRunQue *runQue = NULL;
 
     if (semHandle >= (SemHandle)g_maxSem) {
         return OS_ERRNO_SEM_INVALID;
     }
 
-    semPended = GET_SEM(semHandle);
+    if (OS_INT_ACTIVE) {
+        return OS_ERRNO_SEM_PEND_INTERR;
+    }
 
+    semPended = GET_SEM(semHandle);
     SEM_CB_IRQ_LOCK(semPended, intSave);
 
     if (semPended->semStat == OS_SEM_UNUSED) {
@@ -120,47 +102,32 @@ The implementation uses only helper functions and macros already defined in `prt
         return OS_ERRNO_SEM_INVALID;
     }
 
-    if (OS_INT_ACTIVE) {
+    ret = OsSemPendParaCheck(timeout);
+    if (ret != OS_OK) {
         SEM_CB_IRQ_UNLOCK(semPended, intSave);
-        return OS_ERRNO_SEM_PEND_INTERR;
+        return ret;
     }
 
-    runTsk = (struct TagTskCb *)RUNNING_TASK;
     OsSemIfPrioLock(semPended);
-    if (OsSemPendNotNeedSche(semPended, runTsk) == TRUE) {
+
+    if (OsSemPendNotNeedSche(semPended, RUNNING_TASK) == TRUE) {
         OsSemIfPrioUnLock(semPended);
         SEM_CB_IRQ_UNLOCK(semPended, intSave);
         return OS_OK;
     }
 
-    ret = OsSemPendParaCheck(timeout);
-    if (ret != OS_OK) {
-        OsSemIfPrioUnLock(semPended);
-        SEM_CB_IRQ_UNLOCK(semPended, intSave);
-        return ret;
-    }
-    /* 把当前任务挂接在信号量链表上 */
     OsSemPendListPut(semPended, timeout);
 
     OsSemIfPrioUnLock(semPended);
     SEM_CB_UNLOCK(semPended);
-    if (timeout != OS_WAIT_FOREVER) {
-        /* 触发任务调度 */
-        OsTskSchedule();
-
-        runQue = OsSpinLockRunTaskRq();
-        /* 判断是否是等待信号量超时 */
-        if (TSK_STATUS_TST(runTsk, OS_TSK_TIMEOUT)) {
-            TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
-            OsSpinUnLockRunTaskRq(runQue);
-            OsIntRestore(intSave);
-            return OS_ERRNO_SEM_TIMEOUT;
-        }
-        OsSpinUnLockRunTaskRq(runQue);
-    }
-    /* 恢复ps的快速切换 */
-    OsTskScheduleFastPs(intSave);
+    OsTskSchedule();
     OsIntRestore(intSave);
+
+    if (TSK_STATUS_TST(RUNNING_TASK, OS_TSK_TIMEOUT)) {
+        TSK_STATUS_CLEAR(RUNNING_TASK, OS_TSK_TIMEOUT);
+        return OS_ERRNO_SEM_TIMEOUT;
+    }
+
     return OS_OK;
 
 
@@ -185,14 +152,14 @@ test_helpers.h:15:27: warning: 'struct TagSemCb' declared inside parameter list 
       |                           ^~~~~~~~
 In file included from test_PRT_SemPend.c:4:
 func_under_test.c: In function 'PRT_SemPend':
-func_under_test.c:32:9: warning: implicit declaration of function 'OsSemPendNotNeedSche' [-Wimplicit-function-declaration]
-   32 |     if (OsSemPendNotNeedSche(semPended, runTsk) == TRUE) {
-      |         ^~~~~~~~~~~~~~~~~~~~
-func_under_test.c:38:11: warning: implicit declaration of function 'OsSemPendParaCheck' [-Wimplicit-function-declaration]
-   38 |     ret = OsSemPendParaCheck(timeout);
+func_under_test.c:23:11: warning: implicit declaration of function 'OsSemPendParaCheck' [-Wimplicit-function-declaration]
+   23 |     ret = OsSemPendParaCheck(timeout);
       |           ^~~~~~~~~~~~~~~~~~
-func_under_test.c:45:5: warning: implicit declaration of function 'OsSemPendListPut' [-Wimplicit-function-declaration]
-   45 |     OsSemPendListPut(semPended, timeout);
+func_under_test.c:31:9: warning: implicit declaration of function 'OsSemPendNotNeedSche' [-Wimplicit-function-declaration]
+   31 |     if (OsSemPendNotNeedSche(semPended, RUNNING_TASK) == TRUE) {
+      |         ^~~~~~~~~~~~~~~~~~~~
+func_under_test.c:37:5: warning: implicit declaration of function 'OsSemPendListPut' [-Wimplicit-function-declaration]
+   37 |     OsSemPendListPut(semPended, timeout);
       |     ^~~~~~~~~~~~~~~~
 In file included from test_PRT_SemPend.c:3:
 test_PRT_SemPend.c: In function 'main':

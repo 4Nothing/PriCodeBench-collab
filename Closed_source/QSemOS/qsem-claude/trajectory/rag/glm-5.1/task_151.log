@@ -1,7 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is now `(void)spinLock;` — a no-op that suppresses the unused-parameter warning, matching the pattern of the adjacent `PRT_SplUnlock` stub in the same `#else` block. In the single-core case (`OS_MAX_CORE_NUM <= 1`), there is no other core to contend with, so acquiring a spinlock requires no actual hardware locking.
+The single-core `PRT_SplLock` now matches its counterpart `PRT_SplUnlock` — both are no-ops that cast `spinLock` to void. This is correct because on a single-core system (`OS_MAX_CORE_NUM <= 1`), there are no other cores to contend with, and `PRT_SplLock`/`PRT_SplUnlock` are used when interrupts are already disabled, so no interrupt-related work is needed either.
 
 
 ============================================================

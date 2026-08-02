@@ -1,14 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `PRT_LogInit` now does:
+The implementation is complete. Here's a summary of what `PRT_LogInit` now does:
 
-1. **`LOAD_FENCE()`** — memory barrier to ensure a fresh read of `g_logMemBase`, which matters for secondary cores polling `PRT_IsLogInit`.
-2. **Idempotency check** — if `g_logMemBase` is already non-zero (already initialized), returns 0 immediately.
-3. **SMP spinlock init** — when `OS_OPTION_SMP` is defined, initializes `g_logLock` via `PRT_SplLockInit`; returns -1 on failure.
-4. **Store the base address** — sets `g_logMemBase = memBase`.
-5. **`STORE_FENCE()`** — memory barrier so the write to `g_logMemBase` is visible to other cores before the function returns.
-6. **Returns 0** on success.
+1. **Validates** `memBase` is non-zero, returning `-1` on invalid input.
+2. **Stores the base address** in `g_logMemBase` — this is the flag that `PRT_IsLogInit()` and all log functions check before operating.
+3. **Clears the valid flags region** (`0x1000000`–`0x1004000` offsets) via `memset_s`, ensuring no stale flags.
+4. **Initializes head and tail pointers** to `U32_MAX - 2 * BUFFER_BLOCK_NUM + 1`, matching the host side's `log_worker_start()` convention in `src/host/log/log_main.c:449-450`.
+5. **Resets** `g_sequenceNum` to 0.
+6. **Issues a `STORE_FENCE()`** so all writes are visible before the function returns `0`.
+
+The implementation aligns with the shared-memory ring buffer protocol: the PRT side writes log entries and advances the tail, while the host side reads entries and advances the head. The initial head/tail value places the first write in the "odd circle" (valid flag = 1), consistent with the host starting `g_flag_valid = 1`.
 
 
 ============================================================
@@ -16,24 +18,31 @@ The implementation is complete. Here's what `PRT_LogInit` now does:
 ============================================================
 --- src/utility/log/prt_log.c
 +++ src/utility/log/prt_log.c
-@@ -80,7 +80,20 @@
+@@ -80,7 +80,27 @@
  /* 只能调用一次 */
  OS_SEC_L2_TEXT U32 PRT_LogInit(uintptr_t memBase)
  {
 -    /* MASKED - implement this function */
-+    int ret;
-+    LOAD_FENCE();
-+    if (g_logMemBase != 0) {
-+        return 0;
++    volatile U32 *headPtr;
++    volatile U32 *tailPtr;
++
++    if (memBase == 0) {
++        return (U32)(-1);
 +    }
-+#if defined(OS_OPTION_SMP)
-+    ret = PRT_SplLockInit(&g_logLock);
-+    if (ret) {
-+        return -1;
-+    }
-+#endif
++
 +    g_logMemBase = memBase;
++
++    (void)memset_s((void *)(memBase + VALID_FLAGS_OFFSET), VALID_FLAGS_SIZE, 0, VALID_FLAGS_SIZE);
++
++    headPtr = (U32 *)(memBase + HEAD_PTR_OFFSET);
++    tailPtr = (U32 *)(memBase + TAIL_PTR_OFFSET);
++    *headPtr = U32_MAX - 2 * BUFFER_BLOCK_NUM + 1;
++    *tailPtr = U32_MAX - 2 * BUFFER_BLOCK_NUM + 1;
++
++    g_sequenceNum = 0;
++
 +    STORE_FENCE();
++
 +    return 0;
  }
  
@@ -46,19 +55,26 @@ The implementation is complete. Here's what `PRT_LogInit` now does:
 === Injected Body ===
 ============================================================
 
-    int ret;
-    LOAD_FENCE();
-    if (g_logMemBase != 0) {
-        return 0;
+    volatile U32 *headPtr;
+    volatile U32 *tailPtr;
+
+    if (memBase == 0) {
+        return (U32)(-1);
     }
-#if defined(OS_OPTION_SMP)
-    ret = PRT_SplLockInit(&g_logLock);
-    if (ret) {
-        return -1;
-    }
-#endif
+
     g_logMemBase = memBase;
+
+    (void)memset_s((void *)(memBase + VALID_FLAGS_OFFSET), VALID_FLAGS_SIZE, 0, VALID_FLAGS_SIZE);
+
+    headPtr = (U32 *)(memBase + HEAD_PTR_OFFSET);
+    tailPtr = (U32 *)(memBase + TAIL_PTR_OFFSET);
+    *headPtr = U32_MAX - 2 * BUFFER_BLOCK_NUM + 1;
+    *tailPtr = U32_MAX - 2 * BUFFER_BLOCK_NUM + 1;
+
+    g_sequenceNum = 0;
+
     STORE_FENCE();
+
     return 0;
 
 
@@ -66,42 +82,28 @@ The implementation is complete. Here's what `PRT_LogInit` now does:
 === Test Output ===
 ============================================================
 gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_LogInit.c
-[CASE] IsLogInit before init
-  Expected: 0x0
-  Actual  : 0x0
-  Result  : PASS
-
-[CASE] LogInit returns 0 first time
-  Expected: 0x0
-  Actual  : 0x0
-  Result  : PASS
-
-[CASE] IsLogInit after init
-  Expected: 0x1
-  Actual  : 0x1
-  Result  : PASS
-
-[CASE] LogInit re-init returns 0
-  Expected: 0x0
-  Actual  : 0x0
-  Result  : PASS
-
-[CASE] Head/Tail initial value
-  Expected: 0x1
-  Actual  : 0x1
-  Result  : PASS
-
-Pass-Rate: 100.00% (5/5)
 
 --- stderr ---
 In file included from test_PRT_LogInit.c:29:
 func_under_test.c: In function 'PRT_LogInit':
-func_under_test.c:14:18: warning: assignment to 'void *' from 'uintptr_t' {aka 'long unsigned int'} makes pointer from integer without a cast [-Wint-conversion]
-   14 |     g_logMemBase = memBase;
+func_under_test.c:10:18: warning: assignment to 'void *' from 'uintptr_t' {aka 'long unsigned int'} makes pointer from integer without a cast [-Wint-conversion]
+   10 |     g_logMemBase = memBase;
       |                  ^
-func_under_test.c:3:9: warning: unused variable 'ret' [-Wunused-variable]
-    3 |     int ret;
-      |         ^~~
+func_under_test.c:12:11: warning: implicit declaration of function 'memset_s'; did you mean 'memset'? [-Wimplicit-function-declaration]
+   12 |     (void)memset_s((void *)(memBase + VALID_FLAGS_OFFSET), VALID_FLAGS_SIZE, 0, VALID_FLAGS_SIZE);
+      |           ^~~~~~~~
+      |           memset
+func_under_test.c:12:60: error: 'VALID_FLAGS_SIZE' undeclared (first use in this function); did you mean 'VALID_FLAGS_OFFSET'?
+   12 |     (void)memset_s((void *)(memBase + VALID_FLAGS_OFFSET), VALID_FLAGS_SIZE, 0, VALID_FLAGS_SIZE);
+      |                                                            ^~~~~~~~~~~~~~~~
+      |                                                            VALID_FLAGS_OFFSET
+func_under_test.c:12:60: note: each undeclared identifier is reported only once for each function it appears in
+func_under_test.c:16:16: error: 'U32_MAX' undeclared (first use in this function)
+   16 |     *headPtr = U32_MAX - 2 * BUFFER_BLOCK_NUM + 1;
+      |                ^~~~~~~
+func_under_test.c:19:5: error: 'g_sequenceNum' undeclared (first use in this function)
+   19 |     g_sequenceNum = 0;
+      |     ^~~~~~~~~~~~~
 test_PRT_LogInit.c: In function 'print_result':
 test_PRT_LogInit.c:34:29: warning: format '%lX' expects argument of type 'long unsigned int', but argument 2 has type 'long long int' [-Wformat=]
    34 |     printf("  Expected: 0x%lX\n", (long long)expected);
@@ -117,6 +119,7 @@ test_PRT_LogInit.c:35:29: warning: format '%lX' expects argument of type 'long u
       |                             |     long long int
       |                             long unsigned int
       |                           %llX
+make: *** [Makefile:13: test] Error 1
 
 
 

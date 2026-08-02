@@ -1,16 +1,14 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the `PRT_TaskDelay` function does:
+The implementation is complete. Here's a summary of what `PRT_TaskDelay` does:
 
-1. **Disables interrupts** via `OsIntLock()`
-2. **Guards against invalid contexts:**
-   - Returns `OS_ERRNO_TSK_DELAY_IN_INT` if called from hard interrupt context (`OS_INT_ACTIVE`)
-   - Returns `OS_ERRNO_TSK_DELAY_IN_LOCK` if task scheduling is locked (`OS_TASK_LOCK_DATA != 0`)
-3. **When `tick > 0`** (under `OS_OPTION_TICK`): removes the current task from the ready queue, sets the `OS_TSK_DELAY` status flag, adds it to the timer/delay list with the specified tick count, then triggers a fast reschedule via `OsTskScheduleFastPs()`. Returns `OS_OK`.
-4. **When `tick == 0`** (or ticks disabled): delegates to the existing `OsTaskYield()` function (under `OS_OPTION_TASK_YIELD`) to yield to the next ready task at the same priority, or falls back to `OS_OK` if yield is not compiled in.
+- **Interrupt context check**: Returns `OS_ERRNO_TSK_DELAY_IN_INT` if called from interrupt context
+- **Task lock check**: Returns `OS_ERRNO_TSK_DELAY_IN_LOCK` if task scheduling is locked
+- **tick > 0** (with `OS_OPTION_TICK`): Removes the current task from the ready queue, sets the `OS_TSK_DELAY` status, adds it to the timer queue for `tick` ticks, and triggers a fast schedule
+- **tick == 0**: Falls through to yield behavior — if `OS_OPTION_TASK_YIELD` is enabled, calls `OsTaskYield` to rotate the current task to the end of its priority queue; otherwise just returns `OS_OK`
 
-The implementation follows the established patterns in the same file — `OsTaskYield` for the yield path, `OsSpinLockTaskRq`/`OsSpinUnlockTaskRq` for runqueue synchronization, and `OsTskScheduleFastPs` for the post-delay reschedule with pre-saved interrupt state.
+The implementation follows the patterns already established in the file (`OsIntLock`/`OsIntRestore`, `OsSpinLockTaskRq`/`OsSpinUnlockTaskRq`, `OsTskScheduleFastPs`), uses the existing `OsTaskYield` static helper, and is consistent with the OS-level `schedule_timeout` implementation in `src/osal/linux/src/sched/schedule_timeout.c`.
 
 
 ============================================================

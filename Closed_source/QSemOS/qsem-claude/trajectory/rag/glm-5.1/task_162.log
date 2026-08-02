@@ -1,11 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the function does:
+The implementation is complete. Here's a summary of what `OsSemPendParaCheck` does:
 
-- **`timeout == OS_NO_WAIT` check**: When the caller passes 0 ("don't wait") but the semaphore count is already 0 (we know this because `OsSemPendNotNeedSche` returned FALSE before calling this function), return `OS_ERRNO_SEM_UNAVAILABLE` immediately instead of going through an unnecessary block/schedule/timeout cycle.
+1. **`timeout == 0`** — returns `OS_ERRNO_SEM_UNAVAILABLE`. The caller requested a no-wait P operation, but the semaphore is not available (count is 0). This is analogous to `sem_trywait` failing when the resource is taken.
 
-- **`OS_TASK_LOCK_DATA != 0` check**: When task scheduling is locked, the task cannot block. Return `OS_ERRNO_SEM_PEND_IN_LOCK` to prevent trying to suspend the current task. This is the same pattern used by the queue (`prt_queue.c:71`), signal (`prt_signal.c:57`), and rwlock (`prt_rwlock.c:187`) modules.
+2. **`OS_TASK_LOCK_DATA != 0`** — returns `OS_ERRNO_SEM_PEND_IN_LOCK`. Task scheduling is locked, so the current task cannot safely block (the scheduler can't switch away). The pend must be rejected.
+
+3. **Otherwise** — returns `OS_OK`. The caller proceeds to enqueue the task on the semaphore's wait list via `OsSemPendListPut` and potentially blocks until the semaphore is posted or the timeout expires.
 
 
 ============================================================
@@ -13,18 +15,16 @@ The implementation is complete. Here's what the function does:
 ============================================================
 --- src/core/ipc/sem/prt_sem.c
 +++ src/core/ipc/sem/prt_sem.c
-@@ -362,7 +362,17 @@
+@@ -362,7 +362,15 @@
  
  OS_SEC_L0_TEXT U32 OsSemPendParaCheck(U32 timeout)
  {
 -    /* MASKED - implement this function */
-+    if (timeout == OS_NO_WAIT)
-+    {
++    if (timeout == 0) {
 +        return OS_ERRNO_SEM_UNAVAILABLE;
 +    }
 +
-+    if (OS_TASK_LOCK_DATA != 0)
-+    {
++    if (OS_TASK_LOCK_DATA != 0) {
 +        return OS_ERRNO_SEM_PEND_IN_LOCK;
 +    }
 +
@@ -40,13 +40,11 @@ The implementation is complete. Here's what the function does:
 === Injected Body ===
 ============================================================
 
-    if (timeout == OS_NO_WAIT)
-    {
+    if (timeout == 0) {
         return OS_ERRNO_SEM_UNAVAILABLE;
     }
 
-    if (OS_TASK_LOCK_DATA != 0)
-    {
+    if (OS_TASK_LOCK_DATA != 0) {
         return OS_ERRNO_SEM_PEND_IN_LOCK;
     }
 
@@ -57,6 +55,12 @@ The implementation is complete. Here's what the function does:
 === Test Output ===
 ============================================================
 gcc -std=c99 -Wall -Wextra -I. -I../../include  -o test test_OsSemPendParaCheck.c test_stubs.c notifier_test_stubs.c
+timeout zero => expected=9, actual=9
+task lock => expected=10, actual=10
+normal non-zero => expected=0, actual=0
+forever => expected=0, actual=0
+large timeout => expected=0, actual=0
+Pass-Rate: 100.00%
 
 --- stderr ---
 In file included from test_OsSemPendParaCheck.c:2:
@@ -66,13 +70,6 @@ test_helpers.h:14:28: warning: 'struct TagTskCb' declared inside parameter list 
 test_helpers.h:15:27: warning: 'struct TagSemCb' declared inside parameter list will not be visible outside of this definition or declaration
    15 | void test_init_sem(struct TagSemCb *sem, U32 stat, U32 type, U32 count, U32 mode);
       |                           ^~~~~~~~
-In file included from test_OsSemPendParaCheck.c:4:
-func_under_test.c: In function 'OsSemPendParaCheck':
-func_under_test.c:3:20: error: 'OS_NO_WAIT' undeclared (first use in this function)
-    3 |     if (timeout == OS_NO_WAIT)
-      |                    ^~~~~~~~~~
-func_under_test.c:3:20: note: each undeclared identifier is reported only once for each function it appears in
-make: *** [Makefile:13: test] Error 1
 
 
 

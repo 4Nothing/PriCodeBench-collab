@@ -3,11 +3,11 @@
 ============================================================
 The implementation is complete. Here's what the function does:
 
-1. **`OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD)`** — Iterates over all registered multi-hook callbacks for the `OS_HOOK_IDLE_PERIOD` type, executing each one. This is the per-iteration idle hook (called every loop), as opposed to `OS_SHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PREFIX)` in `OsTskIdleBgd` which is the single-shot prefix hook called once before entering the idle loop.
+1. **`OS_MHOOK_ACTIVATE_PARA0(OS_HOOK_IDLE_PERIOD)`** — Fires all registered multi-hooks for the idle period (e.g., power management callbacks registered via `OsHookAdd`).
+2. **`coreSleep = g_taskCoreSleep`** — Reads the global core sleep function pointer into a local variable (safe against concurrent modification).
+3. **`if (coreSleep != NULL) coreSleep()`** — If a core sleep function is configured, calls it to put the CPU into a low-power state.
 
-2. **`g_taskCoreSleep`** — Reads the global core sleep function pointer. If a platform-specific sleep function has been registered (non-NULL), it invokes it to put the CPU into a low-power state during idle.
-
-The pattern follows the existing conventions in the codebase: `OsTskIdleBgd` (the idle background task) calls `OS_SHOOK_ACTIVATE_PARA0` for the prefix hook once, then enters an infinite loop calling `OsIdleTaskExe()` each iteration, which fires the period hook and optionally invokes the core sleep function.
+This is called in a tight `while (1)` loop by `OsTskIdleBgd`, so on each idle iteration the hooks fire and the core optionally enters sleep.
 
 
 ============================================================

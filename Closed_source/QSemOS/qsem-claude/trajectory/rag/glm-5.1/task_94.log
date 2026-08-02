@@ -1,13 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation follows the patterns established by the existing code:
+The implementation:
 
-1. **Parameter validation** — returns `OS_ERROR` if `ringbuf`, `fifo`, or `size` are invalid (matching the guard checks in `PRT_RingbufWrite`, `PRT_RingbufRead`, and `PRT_RingbufReset`).
-2. **Lock initialization** — `PRT_SplLockInit(&ringbuf->lock)`, the same call used elsewhere in the codebase (e.g., `prt_perf.c:351`).
-3. **Field assignment** — sets `fifo`, `size`, `remain` (set to `size` = all free), `startIdx`, `endIdx`, and `status = RBUF_INITED`.
-4. **Zero-initializes the buffer** — `memset_s` call matching the pattern in `PRT_RingbufReset` (line 206).
-5. **Returns `OS_OK`** on success, matching the API contract in the header.
+1. **Validates parameters** — returns `OS_ERROR` if ringbuf, fifo are NULL or size is 0
+2. **Initializes the spinlock** via `PRT_SplLockInit` so the lock is ready before any concurrent access
+3. **Stores the caller-provided buffer and size** (`fifo`, `size`)
+4. **Sets read/write indices to 0** (`startIdx`, `endIdx`)
+5. **Sets free space to total size** (`remain = size`) — buffer is empty at init
+6. **Marks the ringbuf as initialized** (`status = RBUF_INITED`) *last*, so other functions that check `status != RBUF_INITED` won't see a partially-initialized ringbuf
+7. **Returns `OS_OK`** on success
+
+This follows the same field layout used by `PRT_RingbufReset` (which resets indices and remain to the same defaults) and the validation/naming conventions used throughout the file.
 
 
 ============================================================
@@ -15,30 +19,22 @@ The implementation follows the patterns established by the existing code:
 ============================================================
 --- src/extended/perf/prt_perf_ringbuf.c
 +++ src/extended/perf/prt_perf_ringbuf.c
-@@ -188,7 +188,27 @@
+@@ -188,7 +188,19 @@
  
  U32 PRT_RingbufInit(Ringbuf *ringbuf, char *fifo, U32 size)
  {
 -    /* MASKED - implement this function */
-+    U32 ret;
-+
 +    if ((ringbuf == NULL) || (fifo == NULL) || (size == 0)) {
 +        return OS_ERROR;
 +    }
 +
-+    ret = PRT_SplLockInit(&ringbuf->lock);
-+    if (ret != OS_OK) {
-+        return OS_ERROR;
-+    }
-+
++    PRT_SplLockInit(&ringbuf->lock);
 +    ringbuf->fifo = fifo;
 +    ringbuf->size = size;
-+    ringbuf->remain = size;
 +    ringbuf->startIdx = 0;
 +    ringbuf->endIdx = 0;
++    ringbuf->remain = size;
 +    ringbuf->status = RBUF_INITED;
-+
-+    (void)memset_s(ringbuf->fifo, ringbuf->size, 0, ringbuf->size);
 +
 +    return OS_OK;
  }
@@ -52,25 +48,17 @@ The implementation follows the patterns established by the existing code:
 === Injected Body ===
 ============================================================
 
-    U32 ret;
-
     if ((ringbuf == NULL) || (fifo == NULL) || (size == 0)) {
         return OS_ERROR;
     }
 
-    ret = PRT_SplLockInit(&ringbuf->lock);
-    if (ret != OS_OK) {
-        return OS_ERROR;
-    }
-
+    PRT_SplLockInit(&ringbuf->lock);
     ringbuf->fifo = fifo;
     ringbuf->size = size;
-    ringbuf->remain = size;
     ringbuf->startIdx = 0;
     ringbuf->endIdx = 0;
+    ringbuf->remain = size;
     ringbuf->status = RBUF_INITED;
-
-    (void)memset_s(ringbuf->fifo, ringbuf->size, 0, ringbuf->size);
 
     return OS_OK;
 
@@ -83,9 +71,9 @@ gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_RingbufInit.c n
 --- stderr ---
 In file included from test_PRT_RingbufInit.c:7:
 func_under_test.c: In function 'PRT_RingbufInit':
-func_under_test.c:9:11: warning: implicit declaration of function 'PRT_SplLockInit' [-Wimplicit-function-declaration]
-    9 |     ret = PRT_SplLockInit(&ringbuf->lock);
-      |           ^~~~~~~~~~~~~~~
+func_under_test.c:7:5: warning: implicit declaration of function 'PRT_SplLockInit' [-Wimplicit-function-declaration]
+    7 |     PRT_SplLockInit(&ringbuf->lock);
+      |     ^~~~~~~~~~~~~~~
 In file included from test_PRT_RingbufInit.c:4:
 auto_stub.h: At top level:
 auto_stub.h:595:13: warning: 'g_osRtSingleSchedClass' defined but not used [-Wunused-variable]
@@ -130,8 +118,8 @@ auto_stub.h:583:12: warning: 'g_tskMaxNum' defined but not used [-Wunused-variab
 auto_stub.h:582:12: warning: 'g_tskBaseId' defined but not used [-Wunused-variable]
   582 | static U32 g_tskBaseId = 0;
       |            ^~~~~~~~~~~
-/usr/bin/ld: /tmp/ccAlBE6k.o: in function `PRT_RingbufInit':
-test_PRT_RingbufInit.c:(.text+0x98): undefined reference to `PRT_SplLockInit'
+/usr/bin/ld: /tmp/ccqBWe14.o: in function `PRT_RingbufInit':
+test_PRT_RingbufInit.c:(.text+0x43): undefined reference to `PRT_SplLockInit'
 collect2: error: ld returned 1 exit status
 make: *** [Makefile:13: test] Error 1
 

@@ -1,18 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the function does:
+The implementation is complete. Here's a summary of what the function does:
 
-**`OsDynModuleProcessRelocationSection`** (`prt_dynmodule.c:329-354`):
+1. Gets the ELF header and section headers from the module's loaded string buffer
+2. Iterates through all section headers looking for relocation sections (`SHT_RELA` or `SHT_REL`)
+3. For each relocation section found:
+   - Resolves the associated symbol table (via `sh_link`) and string table (via the symbol table's `sh_link`)
+   - Iterates through every relocation entry in the section
+   - Calls `OsDynModuleRelocatePrepare` to process each entry, which handles both `SHT_RELA` (with explicit addends) and `SHT_REL` (implicit addends) entry formats
+4. Returns `OS_MODULE_OK` on success, or the first error code from any relocation failure
 
-1. Parses the ELF section headers from the module's raw data
-2. Iterates through all sections looking for relocation sections (`SHT_RELA` / `SHT_REL` — i.e. `.rela.dyn`, `.rela.plt`, `.rel.dyn`, `.rel.plt`)
-3. For each relocation section, follows the `sh_link` chain to locate the symbol table (`.dynsym`) and string table (`.dynstr`)
-4. Iterates through each relocation entry and delegates to the existing helper `OsDynModuleRelocatePrepare` to resolve symbols and apply the relocation
-5. On non-x86_64 architectures, invalidates data and instruction caches after all relocations are applied
-6. Returns `OS_MODULE_OK` on success, or propagates the error code from a failed relocation
-
-The pattern follows the same ELF parsing conventions used by `OsDynModuleSaveSymTab` (lines 343-426) and `OsDynModuleRelocatePrepare` (lines 283-327) in the same file.
+This follows the same pattern as `OsDynModuleSaveSymTab` — both walk the section header table to find relevant sections and process their entries.
 
 
 ============================================================
@@ -20,33 +19,32 @@ The pattern follows the same ELF parsing conventions used by `OsDynModuleSaveSym
 ============================================================
 --- src/core/extend/dlmodule/prt_dynmodule.c
 +++ src/core/extend/dlmodule/prt_dynmodule.c
-@@ -328,7 +328,29 @@
+@@ -328,7 +328,28 @@
  
  static U32 OsDynModuleProcessRelocationSection(struct DynModuleUnitInfo *unitInfo)
  {
 -    /* MASKED - implement this function */
-+    U32 i, j, ret;
++    U32 i, j;
++    U32 ret;
 +    Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
 +    Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
-+    uintptr_t reloc;
++
 +    for (i = 0; i < elfInfo->e_shnum; i++) {
-+        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
++        if (shdr[i].sh_type != SHT_RELA && shdr[i].sh_type != SHT_REL) {
 +            continue;
 +        }
-+        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
 +        Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
 +        uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
-+        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
++        U32 entrySize = shdr[i].sh_entsize;
++        U32 entryNum = shdr[i].sh_size / entrySize;
++        for (j = 0; j < entryNum; j++) {
++            uintptr_t reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset + j * entrySize);
 +            ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
 +            if (ret != OS_MODULE_OK) {
 +                return ret;
 +            }
 +        }
 +    }
-+#ifndef OS_ARCH_X86_64
-+    os_asm_invalidate_dcache_all();
-+    os_asm_invalidate_icache_all();
-+#endif
 +    return OS_MODULE_OK;
  }
  
@@ -59,28 +57,27 @@ The pattern follows the same ELF parsing conventions used by `OsDynModuleSaveSym
 === Injected Body ===
 ============================================================
 
-    U32 i, j, ret;
+    U32 i, j;
+    U32 ret;
     Elf_Ehdr *elfInfo = (Elf_Ehdr *)(unitInfo->moduleStr);
     Elf_Shdr *shdr = (Elf_Shdr *)(unitInfo->moduleStr + elfInfo->e_shoff);
-    uintptr_t reloc;
+
     for (i = 0; i < elfInfo->e_shnum; i++) {
-        if ((shdr[i].sh_type != SHT_RELA) && (shdr[i].sh_type != SHT_REL)) {
+        if (shdr[i].sh_type != SHT_RELA && shdr[i].sh_type != SHT_REL) {
             continue;
         }
-        reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset);
         Elf_Sym *symTab = (Elf_Sym *)(unitInfo->moduleStr + shdr[shdr[i].sh_link].sh_offset);
         uint8_t *strTab = (uint8_t *)(unitInfo->moduleStr + shdr[shdr[shdr[i].sh_link].sh_link].sh_offset);
-        for (j = 0; j < shdr[i].sh_size / shdr[i].sh_entsize; j++, reloc += shdr[i].sh_entsize) {
+        U32 entrySize = shdr[i].sh_entsize;
+        U32 entryNum = shdr[i].sh_size / entrySize;
+        for (j = 0; j < entryNum; j++) {
+            uintptr_t reloc = (uintptr_t)(unitInfo->moduleStr + shdr[i].sh_offset + j * entrySize);
             ret = OsDynModuleRelocatePrepare(unitInfo, reloc, symTab, strTab, &shdr[i]);
             if (ret != OS_MODULE_OK) {
                 return ret;
             }
         }
     }
-#ifndef OS_ARCH_X86_64
-    os_asm_invalidate_dcache_all();
-    os_asm_invalidate_icache_all();
-#endif
     return OS_MODULE_OK;
 
 

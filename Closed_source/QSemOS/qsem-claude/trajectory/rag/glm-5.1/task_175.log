@@ -1,14 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `PRT_QueueRead` does, mirroring the existing `PRT_QueueWrite`:
+The implementation is in place. Here's a summary of what `PRT_QueueRead` does, mirroring the symmetric `PRT_QueueWrite` path:
 
-1. **Parameter validation** — checks `innerId` bounds, null `bufferAddr`/`len` pointers, and zero `*len`, returning appropriate error codes before locking
-2. **Queue state check** — verifies the queue was created (not `OS_QUEUE_UNUSED`)
-3. **Pend for data** — calls `OsInnerPend` on `readableCnt`/`readList` (vs `writableCnt`/`writeList` in Write), handling no-wait, timeout, and blocking
-4. **FIFO read from head** — retrieves the node at `queueHead`, copies data to the user buffer with truncation (`*len = min(*len, nodeSize)`), advances `queueHead` with wrap
-5. **Writer wakeup** — calls `OsQueuePendNeedProc` on the `writeList` to wake any blocked writers; if none, increments `writableCnt`
-6. **Cleanup** — marks the node's `srcPid` as `OS_QUEUE_PID_INVALID` after consumption
+1. **Parameter validation** — validates `queueId` range, non-null `bufferAddr`/`len`, and non-zero `*len`
+2. **IRQ-locked critical section** — acquires lock, checks queue is created, then pends on `readableCnt` (via `OsInnerPend` with `readList`)
+3. **FIFO dequeue from `queueHead`** — reads the `QueNode` at the head position, copies data to the caller's buffer (truncating to actual message size if the buffer is smaller), and advances `queueHead` with wrap-around
+4. **Wake blocked writers** — if any tasks are waiting on `writeList`, wakes one via `OsQueuePendNeedProc` and triggers a reschedule; otherwise increments `writableCnt`
+5. **Cleanup** — unlocks IRQs and returns the result
 
 
 ============================================================
@@ -41,9 +40,9 @@ The implementation is complete. Here's a summary of what `PRT_QueueRead` does, m
 +    }
 +
 +    bufLen = *len;
-+
 +    /* 获取指定队列控制块 */
 +    queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
++
 +    QUEUE_CB_IRQ_LOCK(queueCb, intSave);
 +    if (queueCb->queueState == OS_QUEUE_UNUSED) {
 +        ret = OS_ERRNO_QUEUE_NOT_CREATE;
@@ -120,9 +119,9 @@ The implementation is complete. Here's a summary of what `PRT_QueueRead` does, m
     }
 
     bufLen = *len;
-
     /* 获取指定队列控制块 */
     queueCb = (struct TagQueCb *)GET_QUEUE_HANDLE(innerId);
+
     QUEUE_CB_IRQ_LOCK(queueCb, intSave);
     if (queueCb->queueState == OS_QUEUE_UNUSED) {
         ret = OS_ERRNO_QUEUE_NOT_CREATE;
@@ -174,7 +173,7 @@ QUEUE_END:
 === Test Output ===
 ============================================================
 gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_PRT_QueueRead.c notifier_test_stubs.c
-DEBUG: g_maxQueue address = 0x5aaec5e3f040, value = 4
+DEBUG: g_maxQueue address = 0x556a733b4040, value = 4
 [CASE] QueueRead invalid id
   Expect: 8193
   Actual: 8193

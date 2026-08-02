@@ -1,13 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. The function follows the same three-step pattern used throughout the file:
-
-1. `OsIntLock()` — disable interrupts, saving the previous state
-2. `OS_TSK_LOCK()` — increment the task lock counter (prevents scheduling)
-3. `OsIntRestore(intSave)` — restore the previous interrupt state
-
-This is the symmetric pair to `PRT_TaskUnlock()` (line 239), which locks interrupts, calls `OsTaskIrqUnlock` to decrement the counter, and restores interrupts. The `PRT_TaskLockNoIntLock` variant (line 183) already exists for callers that have pre-disabled interrupts and only need the raw `OS_TSK_LOCK()`.
+The implementation is complete. `PRT_TaskLock` now follows the same pattern as `PRT_TaskIrqLock` — it atomically disables interrupts, increments the task lock counter via `OS_TSK_LOCK()`, then restores the previous interrupt state. The key difference from `PRT_TaskIrqLock` is that it doesn't return the saved interrupt state; that's the separation of concerns between the two variants.
 
 
 ============================================================
@@ -15,7 +9,7 @@ This is the symmetric pair to `PRT_TaskUnlock()` (line 239), which locks interru
 ============================================================
 --- src/core/kernel/task/smp/prt_task_lock.c
 +++ src/core/kernel/task/smp/prt_task_lock.c
-@@ -189,7 +189,11 @@
+@@ -189,7 +189,13 @@
   */
  OS_SEC_L0_TEXT void PRT_TaskLock(void)
  {
@@ -23,7 +17,9 @@ This is the symmetric pair to `PRT_TaskUnlock()` (line 239), which locks interru
 +    uintptr_t intSave;
 +
 +    intSave = OsIntLock();
++
 +    OS_TSK_LOCK();
++
 +    OsIntRestore(intSave);
  }
  OS_SEC_L0_TEXT uintptr_t PRT_TaskIrqLock(void)
@@ -39,7 +35,9 @@ This is the symmetric pair to `PRT_TaskUnlock()` (line 239), which locks interru
     uintptr_t intSave;
 
     intSave = OsIntLock();
+
     OS_TSK_LOCK();
+
     OsIntRestore(intSave);
 
 

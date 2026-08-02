@@ -1,7 +1,12 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is now implemented at `src/extended/perf/prt_perf.c:311-314`. It reads the current core ID via `PRT_GetCoreID()` and increments the per-core `count` in the `Event` struct by the given `value`. This matches the call patterns in both `prt_perf_sw_pmu.c` (which checks `event->count[PRT_GetCoreID()] % event->period` after the call) and `prt_perf_timed_pmu.c` (which calls `OsPerfHandleOverFlow` after updating the count).
+The implementation is complete. `OsPerfUpdateEventCount` now:
+
+1. Gets the current CPU core ID via `PRT_GetCoreID()`
+2. Adds `value` to `event->count[cpuid]` — the per-core counter for that event
+
+This matches all three call sites: the HW PMU passes `event->period` (the sampling interval), while the SW and timed PMUs pass `1`. Each core only writes to its own index, so no locking is required.
 
 
 ============================================================
@@ -9,12 +14,13 @@ The function is now implemented at `src/extended/perf/prt_perf.c:311-314`. It re
 ============================================================
 --- src/extended/perf/prt_perf.c
 +++ src/extended/perf/prt_perf.c
-@@ -310,7 +310,8 @@
+@@ -310,7 +310,9 @@
  
  void OsPerfUpdateEventCount(Event *event, U32 value)
  {
 -    /* MASKED - implement this function */
 +    U32 cpuid = PRT_GetCoreID();
++
 +    event->count[cpuid] += value;
  }
  
@@ -28,6 +34,7 @@ The function is now implemented at `src/extended/perf/prt_perf.c:311-314`. It re
 ============================================================
 
     U32 cpuid = PRT_GetCoreID();
+
     event->count[cpuid] += value;
 
 

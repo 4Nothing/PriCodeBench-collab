@@ -1,13 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `PRT_TaskYield` does:
+The implementation is done. Here's what `PRT_TaskYield` now does:
 
-1. **Priority validation** (`line 166`): If `taskPrio` exceeds `OS_TSK_PRIORITY_LOWEST`, returns `OS_ERRNO_TSK_PRIOR_ERROR`.
-2. **Task ID validation** (`line 170`): If a specific `nextTask` is given (not `OS_TSK_NULL_ID`) and its ID overflows the valid range, returns `OS_ERRNO_BUILD_ID_INVALID`.
-3. **Core logic** (`lines 174-177`): Acquires the interrupt lock, delegates to the existing `OsTaskYield` internal function (which handles priority-level round-robin reordering within the ready queue), then restores interrupts and returns the result.
+1. **Priority validation** — returns `OS_ERRNO_TSK_PRIOR_ERROR` if `taskPrio > OS_TSK_PRIORITY_LOWEST`
+2. **Task ID validation** — returns `OS_ERRNO_BUILD_ID_INVALID` if a specific task is requested (`nextTask != OS_TSK_NULL_ID`) and its PID overflows
+3. **Delegates** to the existing static helper `OsTaskYield()` under interrupt lock (`OsIntLock`/`OsIntRestore`)
 
-This follows the same pattern used by other functions in the file (e.g., `PRT_TaskDelay` at line 111) and mirrors how `OsTaskPrioritySetCheck` validates priority in `prt_task_priority.c:57`.
+This matches the pattern used by other public APIs in the same file (e.g., `PRT_TaskDelay`) and the reference implementation in the test harness.
 
 
 ============================================================

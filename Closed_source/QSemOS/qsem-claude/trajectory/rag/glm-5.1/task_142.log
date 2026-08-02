@@ -3,13 +3,13 @@
 ============================================================
 The implementation is complete. Here's what `OsHwiDispatchTail` does:
 
-1. **Pending tick processing** — If `TICK_NO_RESPOND_CNT > 0` and tick processing isn't already active (`OS_FLG_TICK_ACTIVE`), it loops calling `g_tickDispatcher()` with interrupts enabled, decrementing the counter each iteration. A re-entrancy guard prevents nested tick processing.
+1. **Deferred tick processing**: If `TICK_NO_RESPOND_CNT > 0`, processes pending ticks by calling `g_tickDispatcher()` in a loop with interrupts briefly enabled. Guards against re-entrancy via `OS_FLG_TICK_ACTIVE`.
 
-2. **RR time slice check** — When `OS_OPTION_RR_SCHED` is defined, calls `OsHwiEndCheckTimeSlice()` to update the current task's remaining time slice (with optional IRQ time discounting).
+2. **IRQ time discount**: When `OS_OPTION_RR_SCHED_IRQ_TIME_DISCOUNT` is enabled, records the cycle count before tick processing so interrupt time can be discounted from the task's time slice.
 
-3. **Main schedule** — Always calls `OsMainSchedule()` at the end, which checks if a higher-priority task became ready and performs a context switch if needed.
+3. **Time slice check**: Calls `OsHwiEndCheckTimeSlice()` (if RR scheduling enabled) to update the current task's remaining time slice and potentially set `OS_FLG_TSK_REQ`.
 
-The logic follows the same pattern as the `armv7-r` port's `OsHwiDispatchTail_armv7_r` function (which handles tick + scheduling in the architecture layer), but delegates the scheduling decision to `OsMainSchedule()` — consistent with how the single-core scheduler already works in this file.
+4. **Scheduling**: Calls `OsMainSchedule()` which checks the `OS_FLG_TSK_REQ` flag, performs a task switch if a higher-priority task is ready, and restores task context via `OsTskContextLoad()`.
 
 
 ============================================================

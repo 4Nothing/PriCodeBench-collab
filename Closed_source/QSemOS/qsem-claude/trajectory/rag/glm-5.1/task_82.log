@@ -1,12 +1,12 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is implemented. Here's what the logic does:
+The implementation is complete. Here's what `OsSignalTimeOutSet` now does:
 
-- **`OS_SIGNAL_WAIT_FOREVER` (0xFFFFFFFF)**: Clears `OS_TSK_TIMEOUT` from the task status — the task will wait indefinitely for a signal without timing out.
-- **Any other value (including 0)**: Sets the `OS_TSK_TIMEOUT` flag — the task's wait is bounded by a timer. When the task wakes and the flag is still set, `OsSignalWaitSche` (which calls this function) returns `OS_ERRNO_SIGNAL_TIMEOUT`.
+- **If `timeOutTick == OS_SIGNAL_WAIT_FOREVER`** (`0xFFFFFFFF`): does nothing — the task will wait indefinitely for a signal.
+- **If `timeOutTick` is finite**: sets `OS_TSK_TIMEOUT` on the task status and adds the task to the kernel's sorted timer list via `OsTskTimerAdd`. When the timeout expires, the task will wake up and `OsSignalWaitSche` (line 67) will detect `OS_TSK_TIMEOUT` and return `OS_ERRNO_SIGNAL_TIMEOUT`.
 
-This matches the expected behavior from all 5 test cases in the test suite.
+This follows the same pattern used by the semaphore module (`prt_sem.c:301-306`) and queue module (`prt_queue.c:87-92`) in this codebase. The corresponding detach on early wakeup is already handled by `OsSignalWaitReSche` at line 135-139.
 
 
 ============================================================
@@ -14,15 +14,14 @@ This matches the expected behavior from all 5 test cases in the test suite.
 ============================================================
 --- src/core/ipc/signal/prt_signal.c
 +++ src/core/ipc/signal/prt_signal.c
-@@ -36,7 +36,11 @@
+@@ -36,7 +36,10 @@
  
  OS_SEC_ALW_INLINE INLINE void OsSignalTimeOutSet(struct TagTskCb *runTsk, U32 timeOutTick)
  {
 -    /* MASKED - implement this function */
-+    if (timeOutTick == OS_SIGNAL_WAIT_FOREVER) {
-+        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
-+    } else {
++    if (timeOutTick != OS_SIGNAL_WAIT_FOREVER) {
 +        TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
++        OsTskTimerAdd(runTsk, timeOutTick);
 +    }
  }
  
@@ -35,10 +34,9 @@ This matches the expected behavior from all 5 test cases in the test suite.
 === Injected Body ===
 ============================================================
 
-    if (timeOutTick == OS_SIGNAL_WAIT_FOREVER) {
-        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
-    } else {
+    if (timeOutTick != OS_SIGNAL_WAIT_FOREVER) {
         TSK_STATUS_SET(runTsk, OS_TSK_TIMEOUT);
+        OsTskTimerAdd(runTsk, timeOutTick);
     }
 
 
@@ -49,8 +47,8 @@ gcc -std=c99 -Wall -Wextra -I../../include -I../../include/perf -I.  -o test_OsS
 ln -sf test_OsSignalTimeOutSet test
 [CASE] forever clears timeout
   Expected: 0
-  Actual  : 0
-  Result  : PASS
+  Actual  : 1
+  Result  : FAIL
 
 [CASE] nonzero sets timeout
   Expected: 1
@@ -64,15 +62,15 @@ ln -sf test_OsSignalTimeOutSet test
 
 [CASE] forever clears after set
   Expected: 0
-  Actual  : 0
-  Result  : PASS
+  Actual  : 1
+  Result  : FAIL
 
 [CASE] zero sets timeout
   Expected: 1
   Actual  : 1
   Result  : PASS
 
-Pass-Rate: 100.00% (5/5)
+Pass-Rate: 60.00% (3/5)
 
 --- stderr ---
 In file included from test_common.h:7,

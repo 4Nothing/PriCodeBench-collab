@@ -1,13 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function walks the rwlock's pended-task list (sorted by priority, highest first) and finds where `runTask` should be inserted:
+The implementation is complete. Here's a summary of the logic:
 
-- **Higher-priority tasks** (`priority < runTask->priority`): skipped
-- **Lower-priority task found** (`priority > runTask->priority`): return that task's `pendList` node — `ListTailAdd` will insert before it
-- **Equal priority**: return `pendedTask->pendList.next` — `ListTailAdd` will insert after it, maintaining FIFO within the same priority level
+`OsRwLockPendFindPosSub` finds the correct insertion position for `runTask` in the priority-sorted pend list when `runTask`'s priority falls somewhere in the middle (i.e., between the first and last task's priorities). It iterates through the list using `LIST_FOR_EACH` and returns the `pendList` node of the first task whose priority is strictly worse (greater value) than `runTask`'s. The caller then uses this as the `list` argument to `ListTailAdd` (`OsRwLockPendPre`, line 85), which inserts before that node — maintaining the priority-sorted order.
 
-The caller `OsRwLockPendFindPos` already handled the edge cases (empty list, all tasks having lower priority, all tasks having higher/equal priority), so the sub-function only fires when the priority falls strictly in the middle of the sorted list.
+This follows the same pattern as the semaphore pend list insertion in `OsSemPendListPut` (prt_sem.c:287–294) and `OsResortSemList` (prt_sem.c:155–164).
 
 
 ============================================================
@@ -15,27 +13,22 @@ The caller `OsRwLockPendFindPos` already handled the edge cases (empty list, all
 ============================================================
 --- src/core/ipc/rwlock/prt_rwlock.c
 +++ src/core/ipc/rwlock/prt_rwlock.c
-@@ -33,7 +33,22 @@
+@@ -33,7 +33,17 @@
  
  struct TagListObject *OsRwLockPendFindPosSub(const struct TagTskCb *runTask, const struct TagListObject *lockList)
  {
 -    /* MASKED - implement this function */
-+    struct TagTskCb *pendedTask;
-+    struct TagListObject *node = NULL;
++    struct TagTskCb *curTask;
 +
-+    LIST_FOR_EACH_SAFE(pendedTask, lockList, struct TagTskCb, pendList) {
-+        if (pendedTask->priority < runTask->priority) {
-+            continue;
-+        } else if (pendedTask->priority > runTask->priority) {
-+            node = &pendedTask->pendList;
-+            break;
-+        } else {
-+            node = pendedTask->pendList.next;
-+            break;
++    LIST_FOR_EACH(curTask, lockList, struct TagTskCb, pendList)
++    {
++        if (curTask->priority > runTask->priority)
++        {
++            return &curTask->pendList;
 +        }
 +    }
 +
-+    return node;
++    return (struct TagListObject *)lockList;
  }
  
  struct TagListObject *OsRwLockPendFindPos(struct TagTskCb *runTask, struct TagListObject *lockList)
@@ -47,22 +40,17 @@ The caller `OsRwLockPendFindPos` already handled the edge cases (empty list, all
 === Injected Body ===
 ============================================================
 
-    struct TagTskCb *pendedTask;
-    struct TagListObject *node = NULL;
+    struct TagTskCb *curTask;
 
-    LIST_FOR_EACH_SAFE(pendedTask, lockList, struct TagTskCb, pendList) {
-        if (pendedTask->priority < runTask->priority) {
-            continue;
-        } else if (pendedTask->priority > runTask->priority) {
-            node = &pendedTask->pendList;
-            break;
-        } else {
-            node = pendedTask->pendList.next;
-            break;
+    LIST_FOR_EACH(curTask, lockList, struct TagTskCb, pendList)
+    {
+        if (curTask->priority > runTask->priority)
+        {
+            return &curTask->pendList;
         }
     }
 
-    return node;
+    return (struct TagListObject *)lockList;
 
 
 ============================================================
@@ -71,10 +59,10 @@ The caller `OsRwLockPendFindPos` already handled the edge cases (empty list, all
 gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsRwLockPendFindPosSub.c
 Case 1: expect=1, actual=1
 Case 2: expect=1, actual=1
-Case 3: expect=1, actual=1
+Case 3: expect=1, actual=0
 Case 4: expect=1, actual=1
 Case 5: expect=1, actual=1
-Pass-Rate: 100.00% (5/5)
+Pass-Rate: 80.00% (4/5)
 
 --- stderr ---
 In file included from test_OsRwLockPendFindPosSub.c:1:

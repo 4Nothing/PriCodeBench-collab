@@ -1,15 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `OsSignalWaitSche` does:
+The implementation is in place. Here's what `OsSignalWaitSche` does:
 
-1. **Validates `timeOutTick`**: returns `OS_ERRNO_SIGNAL_PARA_INVALID` if zero
-2. **Checks lock state**: returns `OS_ERRNO_SIGNAL_WAIT_IN_LOCK` if `OS_TASK_LOCK_DATA` is non-zero (can't block while holding the task lock)
-3. **Sets up the wait**: stores the signal set in `sigWaitMask`, removes the task from the ready queue via `OsTskReadyDel`, sets the `OS_TSK_WAIT_SIGNAL` status flag, and configures the timeout via `OsSignalTimeOutSet`
-4. **Yields the CPU**: unlocks the task run queue, calls `OsTskSchedule()` to switch to another task, then re-acquires the lock when the task is woken up again
-5. **Checks result**: if the task was woken by timeout (`OS_TSK_TIMEOUT` still set), clears the flag and returns `OS_ERRNO_SIGNAL_TIMEOUT`; otherwise the task was woken by a delivered signal and returns `OS_OK`
+1. **Rejects `timeOutTick == 0`** — returns `OS_ERRNO_SIGNAL_PARA_INVALID` (zero is not a valid blocking wait)
+2. **Rejects when task lock is active** — returns `OS_ERRNO_SIGNAL_WAIT_IN_LOCK` if task scheduling is locked (`OS_TASK_LOCK_DATA != 0`)
+3. **Records the wait set** — stores `*set` in `runTsk->sigWaitMask` so `PRT_SignalDeliver` can match incoming signals
+4. **Suspends the task** — removes it from the ready queue via `OsTskReadyDel`, sets `OS_TSK_WAIT_SIGNAL` status, and arms the timeout via the existing `OsSignalTimeOutSet` helper (which skips the timer for `OS_SIGNAL_WAIT_FOREVER`)
+5. **Yields the CPU** — releases the task spinlock, calls `OsTskSchedule()` to context-switch away, then re-acquires the lock upon wakeup
+6. **Checks wakeup reason** — if `OS_TSK_TIMEOUT` is still set (timeout fired), clears it and returns `OS_ERRNO_SIGNAL_TIMEOUT`; otherwise the task was woken by a signal delivery, so returns `OS_OK`
 
-The callers (`PRT_SignalWait` and `PRT_SigSuspend`) already hold `OsSpinLockTaskRq` before calling this function and handle unlocking on both success and error paths.
+The callers (`PRT_SignalWait` and `PRT_SigSuspend`) then process the result — on OK they continue with `OsSigWaitProcPendingSignal` / `OsHandleUnBlockSignal`; on error they unlock and return.
 
 
 ============================================================
@@ -17,18 +18,16 @@ The callers (`PRT_SignalWait` and `PRT_SigSuspend`) already hold `OsSpinLockTask
 ============================================================
 --- src/core/ipc/signal/prt_signal.c
 +++ src/core/ipc/signal/prt_signal.c
-@@ -49,7 +49,35 @@
+@@ -49,7 +49,32 @@
  
  OS_SEC_ALW_INLINE INLINE U32 OsSignalWaitSche(struct TagTskCb *runTsk, const signalSet *set, U32 timeOutTick)
  {
 -    /* MASKED - implement this function */
-+    if (timeOutTick == 0)
-+    {
++    if (timeOutTick == 0) {
 +        return OS_ERRNO_SIGNAL_PARA_INVALID;
 +    }
 +
-+    if (OS_TASK_LOCK_DATA != 0)
-+    {
++    if (OS_TASK_LOCK_DATA != 0) {
 +        return OS_ERRNO_SIGNAL_WAIT_IN_LOCK;
 +    }
 +
@@ -44,8 +43,7 @@ The callers (`PRT_SignalWait` and `PRT_SigSuspend`) already hold `OsSpinLockTask
 +    OsTskSchedule();
 +    OsSpinLockTaskRq(runTsk);
 +
-+    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0)
-+    {
++    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
 +        TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
 +        return OS_ERRNO_SIGNAL_TIMEOUT;
 +    }
@@ -62,13 +60,11 @@ The callers (`PRT_SignalWait` and `PRT_SigSuspend`) already hold `OsSpinLockTask
 === Injected Body ===
 ============================================================
 
-    if (timeOutTick == 0)
-    {
+    if (timeOutTick == 0) {
         return OS_ERRNO_SIGNAL_PARA_INVALID;
     }
 
-    if (OS_TASK_LOCK_DATA != 0)
-    {
+    if (OS_TASK_LOCK_DATA != 0) {
         return OS_ERRNO_SIGNAL_WAIT_IN_LOCK;
     }
 
@@ -84,8 +80,7 @@ The callers (`PRT_SignalWait` and `PRT_SigSuspend`) already hold `OsSpinLockTask
     OsTskSchedule();
     OsSpinLockTaskRq(runTsk);
 
-    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0)
-    {
+    if ((runTsk->taskStatus & OS_TSK_TIMEOUT) != 0) {
         TSK_STATUS_CLEAR(runTsk, OS_TSK_TIMEOUT);
         return OS_ERRNO_SIGNAL_TIMEOUT;
     }

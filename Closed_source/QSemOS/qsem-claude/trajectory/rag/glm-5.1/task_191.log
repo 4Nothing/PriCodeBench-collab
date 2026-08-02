@@ -1,13 +1,12 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `OsTskEntry` does as the entry point for every newly created task in the UniProton RTOS:
+The implementation is complete. The function now:
 
-1. **Gets the current TCB** via `OsGetCurrentTcb()` (the `taskId` parameter is unused since the TCB is obtained directly)
-2. **Calls the user's task function** — `taskCb->taskEntry()` with the four arguments stored in the TCB's `args` array
-3. **Clears the task lock counter** — sets `OS_TASK_LOCK_DATA = 0` to prevent a stale lock count from preventing rescheduling during task exit
-4. **Restores interrupts** — re-enables interrupts that were temporarily disabled; this is required because `PRT_TaskDelete` (called internally by `OsTaskExit`) uses IPIs which need interrupts enabled to avoid deadlock
-5. **Terminates the task** via `OsTaskExit(taskCb)`, which cleans up resources and removes the task from scheduling
+1. **Gets the current TCB** via `OsGetCurrentTcb()` — the auto-generated accessor for the running task
+2. **Invokes the user's task entry** with all four stored arguments (`args[0]` through `args[3]`)
+3. **Locks interrupts** and **clears the task lock** (`OS_TASK_LOCK_DATA = 0`) so that `OsTaskExit` (which calls `PRT_TaskDelete`) doesn't deadlock — the comment explains that `PRT_TaskDelete` must not run with interrupts off since it may send SGIs to other cores
+4. **Restores interrupts** and calls `OsTaskExit(taskCb)` to clean up the task's resources
 
 
 ============================================================
@@ -104,8 +103,8 @@ gcc -std=c99 -Wall -Wextra -I../../include -I.  -o test test_OsTskEntry.c
   Result  : PASS
 
 [CASE] task exit got same tcb
-  Expected: 101919898733728
-  Actual  : 101919898733728
+  Expected: 106867483679904
+  Actual  : 106867483679904
   Result  : PASS
 
 [CASE] entry called twice

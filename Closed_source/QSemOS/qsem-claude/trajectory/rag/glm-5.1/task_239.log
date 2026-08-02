@@ -1,13 +1,10 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `OsTaskSpPcGet` does:
+The implementation is complete. The function `OsTaskSpPcGet` now:
 
-1. **Checks readiness** via `OsTaskSpPcInfoReady(taskCb)` — which returns `true` when the task's stack pointer is valid for reading SP/PC, namely when: the task is not running, OR we're in an interrupt, OR the task is on a different core — and the stack has been saved.
-
-2. **If ready**: sets `taskInfo->sp` from `taskCb->stackPointer` and `taskInfo->pc` by calling `OsTskGetInstrAddr()`, which reads the PC from the saved hardware context on the task's stack.
-
-3. **If not ready**: leaves `taskInfo->sp` and `taskInfo->pc` unchanged. This handles the case where the task is currently running on this core outside of an interrupt — the `stackPointer` field in the TCB is stale at that point.
+- **When `OsTaskSpPcInfoReady` returns true** (task is not the current running task on this core, OR we're in an interrupt, AND the stack is saved): fills `taskInfo->sp` from `taskCb->stackPointer` and `taskInfo->pc` via `OsTskGetInstrAddr()`, which reads the saved PC (e.g., `mepc` on riscv64, `pc` from the `TskContext` on armv7-m) from the hardware context frame on the task's stack.
+- **When not ready** (task is actively running on this core outside interrupt): leaves SP/PC unpopulated, since the TCB's `stackPointer` is stale in that case.
 
 
 ============================================================
@@ -15,7 +12,7 @@ The implementation is complete. Here's what `OsTaskSpPcGet` does:
 ============================================================
 --- src/core/kernel/task/smp/prt_task_info.c
 +++ src/core/kernel/task/smp/prt_task_info.c
-@@ -40,7 +40,10 @@
+@@ -40,7 +40,11 @@
  
  OS_SEC_L2_TEXT void OsTaskSpPcGet(struct TagTskCb *taskCb, struct TskInfo *taskInfo)
  {
@@ -24,6 +21,7 @@ The implementation is complete. Here's what `OsTaskSpPcGet` does:
 +        taskInfo->sp = (uintptr_t)taskCb->stackPointer;
 +        taskInfo->pc = OsTskGetInstrAddr((uintptr_t)taskCb->stackPointer);
 +    }
++    return;
  }
  
  OS_SEC_ALW_INLINE INLINE U32 OsTaskInfoGetChk(TskHandle taskPid, struct TskInfo *taskInfo)
@@ -39,6 +37,7 @@ The implementation is complete. Here's what `OsTaskSpPcGet` does:
         taskInfo->sp = (uintptr_t)taskCb->stackPointer;
         taskInfo->pc = OsTskGetInstrAddr((uintptr_t)taskCb->stackPointer);
     }
+    return;
 
 
 ============================================================

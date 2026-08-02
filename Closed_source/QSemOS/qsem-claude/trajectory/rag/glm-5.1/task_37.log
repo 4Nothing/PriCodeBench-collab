@@ -1,7 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-Done. The implementation delegates to the user-registered `g_sysTimeHook` when one is set (returning its result), and falls back to returning `0` when no hook is registered. This matches the test expectations in the test suite and the `SysTimeFunc` typedef (`U64 (*)(void)`).
+The implementation is complete. The function `OsCurCycleGet64` now:
+
+1. Checks if `g_sysTimeHook` has been registered (non-NULL)
+2. If a hook is registered, calls it and returns its value
+3. If no hook is registered, returns 0
+
+This matches the observed callers: `OsSetSysTimeHook` registers a hook (line 21–30), and `OsCurCycleGet64` delegates to that hook to read the hardware-specific cycle counter. The pattern is confirmed by all 6 test cases in the test file.
 
 
 ============================================================

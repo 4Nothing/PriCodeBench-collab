@@ -1,17 +1,17 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. The function `OsDynModuleCheckElf` now performs 7 sequential ELF header validations:
+The implementation validates the ELF header in 7 checks matching the error codes defined in the `OS_MODULE_ERRNO_E` enum, in order:
 
-1. **Magic number** — verifies `0x7F 'E' 'L' 'F'` bytes in `e_ident`
-2. **ELF class** — accepts `ELFCLASS32` or `ELFCLASS64`
-3. **Header size** — `e_ehsize` must equal `sizeof(Elf_Ehdr)`
-4. **Section header entry size** — `e_shentsize` must equal `sizeof(Elf_Shdr)`
-5. **Section count** — `e_shnum` must be non-zero
-6. **Machine architecture** — only `EM_X86_64` and `EM_AARCH64` are supported
-7. **ELF type** — only `ET_DYN` (shared object) is supported
+1. **Magic number** (`EI_MAG0..3` vs `ELFMAG0..3`) — verifies the file is ELF
+2. **Class** (`EI_CLASS` vs `ELFCLASS64`) — verifies it's a 64-bit ELF (matches the `Elf64_*` typedefs used throughout)
+3. **Header size** (`e_ehsize` vs `sizeof(Elf_Ehdr)`) — verifies the ELF header structure size
+4. **Section header entry size** (`e_shentsize` vs `sizeof(Elf_Shdr)`) — verifies section header table format
+5. **Section header count** (`e_shnum != 0`) — verifies sections exist (needed for relocation/symbol processing later)
+6. **Machine type** (`e_machine` vs `EM_X86_64`) — verifies the binary targets the correct architecture
+7. **ELF type** (`e_type` vs `ET_DYN`) — verifies it's a shared object (dynamically loadable module)
 
-Each check returns a specific `OS_MODULE_ERRNO_ELF_HEAD_*` error code on failure, or `OS_MODULE_OK` (0) if all pass. The function is called from `OsDynModuleLoad` at line 547 of `prt_dynmodule.c` before the module is loaded into memory.
+Returns `OS_MODULE_OK` (0) on success, or the appropriate error code on failure.
 
 
 ============================================================
@@ -19,40 +19,42 @@ Each check returns a specific `OS_MODULE_ERRNO_ELF_HEAD_*` error code on failure
 ============================================================
 --- src/core/extend/dlmodule/prt_dynmodule.c
 +++ src/core/extend/dlmodule/prt_dynmodule.c
-@@ -115,7 +115,36 @@
+@@ -115,7 +115,38 @@
   */
  static U32 OsDynModuleCheckElf(Elf_Ehdr *elfInfo)
  {
 -    /* MASKED - implement this function */
-+    /* 魔术字校验 */
-+    if ((elfInfo->e_ident[EI_MAG0] != ELFMAG0) || (elfInfo->e_ident[EI_MAG1] != ELFMAG1) ||
-+        (elfInfo->e_ident[EI_MAG2] != ELFMAG2) || (elfInfo->e_ident[EI_MAG3] != ELFMAG3)) {
++    if (elfInfo->e_ident[EI_MAG0] != ELFMAG0 ||
++        elfInfo->e_ident[EI_MAG1] != ELFMAG1 ||
++        elfInfo->e_ident[EI_MAG2] != ELFMAG2 ||
++        elfInfo->e_ident[EI_MAG3] != ELFMAG3) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_MAGIC;
 +    }
-+    /* ELF文件类型校验 */
-+    if ((elfInfo->e_ident[EI_CLASS] != ELFCLASS32) && (elfInfo->e_ident[EI_CLASS] != ELFCLASS64)) {
++
++    if (elfInfo->e_ident[EI_CLASS] != ELFCLASS64) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_CLASS;
 +    }
-+    /* ELF头文件大小校验 */
++
 +    if (elfInfo->e_ehsize != sizeof(Elf_Ehdr)) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_LEN;
 +    }
-+    /* 判断节区表大小 */
++
 +    if (elfInfo->e_shentsize != sizeof(Elf_Shdr)) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_SHENT_SIZE;
 +    }
-+    /* 检查节区个数 */
++
 +    if (elfInfo->e_shnum == 0) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_SHNUM;
 +    }
-+    /* 当前仅支持x86和ARM64架构 */
-+    if ((elfInfo->e_machine != EM_X86_64) && (elfInfo->e_machine != EM_AARCH64)) {
++
++    if (elfInfo->e_machine != EM_X86_64) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_MACHINE;
 +    }
-+    /* 当前仅支持DYN类型 */
++
 +    if (elfInfo->e_type != ET_DYN) {
 +        return OS_MODULE_ERRNO_ELF_HEAD_TYPE;
 +    }
++
 +    return OS_MODULE_OK;
  }
  
@@ -65,35 +67,37 @@ Each check returns a specific `OS_MODULE_ERRNO_ELF_HEAD_*` error code on failure
 === Injected Body ===
 ============================================================
 
-    /* 魔术字校验 */
-    if ((elfInfo->e_ident[EI_MAG0] != ELFMAG0) || (elfInfo->e_ident[EI_MAG1] != ELFMAG1) ||
-        (elfInfo->e_ident[EI_MAG2] != ELFMAG2) || (elfInfo->e_ident[EI_MAG3] != ELFMAG3)) {
+    if (elfInfo->e_ident[EI_MAG0] != ELFMAG0 ||
+        elfInfo->e_ident[EI_MAG1] != ELFMAG1 ||
+        elfInfo->e_ident[EI_MAG2] != ELFMAG2 ||
+        elfInfo->e_ident[EI_MAG3] != ELFMAG3) {
         return OS_MODULE_ERRNO_ELF_HEAD_MAGIC;
     }
-    /* ELF文件类型校验 */
-    if ((elfInfo->e_ident[EI_CLASS] != ELFCLASS32) && (elfInfo->e_ident[EI_CLASS] != ELFCLASS64)) {
+
+    if (elfInfo->e_ident[EI_CLASS] != ELFCLASS64) {
         return OS_MODULE_ERRNO_ELF_HEAD_CLASS;
     }
-    /* ELF头文件大小校验 */
+
     if (elfInfo->e_ehsize != sizeof(Elf_Ehdr)) {
         return OS_MODULE_ERRNO_ELF_HEAD_LEN;
     }
-    /* 判断节区表大小 */
+
     if (elfInfo->e_shentsize != sizeof(Elf_Shdr)) {
         return OS_MODULE_ERRNO_ELF_HEAD_SHENT_SIZE;
     }
-    /* 检查节区个数 */
+
     if (elfInfo->e_shnum == 0) {
         return OS_MODULE_ERRNO_ELF_HEAD_SHNUM;
     }
-    /* 当前仅支持x86和ARM64架构 */
-    if ((elfInfo->e_machine != EM_X86_64) && (elfInfo->e_machine != EM_AARCH64)) {
+
+    if (elfInfo->e_machine != EM_X86_64) {
         return OS_MODULE_ERRNO_ELF_HEAD_MACHINE;
     }
-    /* 当前仅支持DYN类型 */
+
     if (elfInfo->e_type != ET_DYN) {
         return OS_MODULE_ERRNO_ELF_HEAD_TYPE;
     }
+
     return OS_MODULE_OK;
 
 
