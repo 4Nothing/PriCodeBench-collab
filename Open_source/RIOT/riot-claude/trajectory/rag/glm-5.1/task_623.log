@@ -1,7 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-Done. The implementation delegates to `unicoap_options_get_next_by_number` with `UNICOAP_OPTION_URI_PATH`, following the identical pattern as the sibling functions `unicoap_options_get_next_location_path_component`, `unicoap_options_get_next_uri_query`, `unicoap_options_get_next_if_match`, etc.
+Done. The function now delegates to `unicoap_options_get_next_by_number` with `UNICOAP_OPTION_URI_PATH`, matching the pattern used by every other `_get_next_` convenience wrapper in the file (e.g., `unicoap_options_get_next_location_path_component` at line 1638, `unicoap_options_get_next_uri_query` at line 1985, etc.).
 
 
 ============================================================
@@ -38,14 +38,14 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-unicoap
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/sys/embunit
-"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/periph
-"make" -C /workspace/sys/iolist
+"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/sys/iolist
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/application_layer/unicoap
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
@@ -63,7 +63,7 @@ OK (16 tests)
 native: exiting
 
 --- stderr ---
-==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff321aa000; bottom 0x00000043c000; size: 0x7fff31d6e000 (140734029553664)
+==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc83da7000; bottom 0x00000043c000; size: 0x7ffc8396b000 (140722516176896)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

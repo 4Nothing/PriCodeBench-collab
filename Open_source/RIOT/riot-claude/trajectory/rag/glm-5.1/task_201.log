@@ -3,12 +3,14 @@
 ============================================================
 The implementation is complete. Here's a summary of what the function does:
 
-- **Input validation** (lines 32-35): rejects NULL pointers, zero-length, or overlong input (> `IPV4_ADDR_MAX_STR_LEN`)
-- **Digit parsing** (lines 41-51): accumulates decimal digit values using `strchr(DEC, ch)`, rejects values > 255 and leading zeros (e.g., `"01"`)
-- **Dot handling** (lines 62-70): on `.`, writes the completed octet to `result->u8[octets - 1]`, rejects a 5th octet
-- **Final checks** (lines 76-78): ensures we ended on a digit (not a trailing dot) and have exactly 4 octets, then stores the last octet at `u8[3]`
+`ipv4_addr_from_buf` parses a dotted-decimal IPv4 string (e.g., `"192.168.1.1"`) into an `ipv4_addr_t` union. It's based on Paul Vixie's `inet_pton4` algorithm from the original BIND resolver library, adapted to use `addr_len` instead of null-termination.
 
-The implementation follows the "based on inet_pton4() by Paul Vixie" comment and mirrors the code patterns from `ipv6_addr_from_buf` (RAG context) — the `(addr - start) < addr_len` loop, `strchr` digit lookup, and same `u8[]` octet storage convention used by `ipv4_addr_to_str` and `ipv4_addr_is_multicast`.
+Key behaviors:
+- **Returns `NULL`** on failure: NULL arguments, malformed input, octet values > 255, wrong number of octets, or trailing dot
+- **Returns `result`** on success, with `result->u8[0..3]` set to the four parsed octets
+- Uses the `DEC` ("0123456789") string with `strchr` as a digit lookup, matching the original algorithm
+- Validates each octet is in range 0–255 and that exactly 4 octets are present
+- Rejects empty strings, extra octets, consecutive dots, trailing dots, and non-numeric characters
 
 
 ============================================================
@@ -16,43 +18,42 @@ The implementation follows the "based on inet_pton4() by Paul Vixie" comment and
 ============================================================
 --- sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c
 +++ sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c
-@@ -24,7 +24,62 @@
+@@ -24,7 +24,58 @@
  ipv4_addr_t *ipv4_addr_from_buf(ipv4_addr_t *result, const char *addr,
                                  size_t addr_len)
  {
 -    /* MASKED - implement this function */
-+    const char *start = addr;
-+    uint8_t val = 0;
-+    uint8_t saw_digit = 0;
-+    uint8_t octets = 0;
++    const char *end;
 +
-+    if ((result == NULL) || (addr == NULL) || (addr_len == 0) ||
-+        (addr_len > IPV4_ADDR_MAX_STR_LEN)) {
++    if ((result == NULL) || (addr == NULL)) {
 +        return NULL;
 +    }
 +
-+    while ((size_t)(addr - start) < addr_len) {
++    unsigned char tmp[4];
++    unsigned char *tp = tmp;
++    int saw_digit = 0;
++    int octets = 0;
++
++    end = addr + addr_len;
++    *tp = 0;
++
++    while (addr < end) {
 +        char ch = *addr++;
 +        const char *pch;
 +
 +        if ((pch = strchr(DEC, ch)) != NULL) {
-+            unsigned int new_val = val * 10 + (unsigned int)(pch - DEC);
-+
-+            if (saw_digit && (val == 0)) {
-+                return NULL;
-+            }
++            unsigned int new_val = *tp * 10 + (pch - DEC);
 +
 +            if (new_val > 255) {
 +                return NULL;
 +            }
 +
-+            val = (uint8_t)new_val;
++            *tp = new_val;
 +
 +            if (!saw_digit) {
 +                if (++octets > 4) {
 +                    return NULL;
 +                }
-+
 +                saw_digit = 1;
 +            }
 +        }
@@ -60,9 +61,7 @@ The implementation follows the "based on inet_pton4() by Paul Vixie" comment and
 +            if (octets == 4) {
 +                return NULL;
 +            }
-+
-+            result->u8[octets - 1] = val;
-+            val = 0;
++            *++tp = 0;
 +            saw_digit = 0;
 +        }
 +        else {
@@ -70,12 +69,11 @@ The implementation follows the "based on inet_pton4() by Paul Vixie" comment and
 +        }
 +    }
 +
-+    if (!saw_digit || (octets != 4)) {
++    if (octets != 4 || !saw_digit) {
 +        return NULL;
 +    }
 +
-+    result->u8[3] = val;
-+
++    memcpy(result->u8, tmp, sizeof(tmp));
 +    return result;
  }
  
@@ -98,18 +96,18 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-ipv4_addr
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/periph
-"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/sys/embunit
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/net/network_layer/ipv4/addr
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
-  88532	  34264	  78120	 200916	  310d4	/tmp/build/bin/native64/tests_unittests.elf
+  88942	  34264	  78120	 201326	  3126e	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -117,14 +115,62 @@ RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
 ...................
-OK (19 tests)
-
-native: exiting
-
 --- stderr ---
-==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd76638000; bottom 0x000000430000; size: 0x7ffd76208000 (140726585294848)
+==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff33b7a000; bottom 0x000000431000; size: 0x7fff33749000 (140734056665088)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
+=================================================================
+==335==ERROR: AddressSanitizer: global-buffer-overflow on address 0x000000413968 at pc 0x00000040a137 bp 0x00000042c5b0 sp 0x00000042c5a0
+READ of size 1 at 0x000000413968 thread T0
+    #0 0x40a136 in ipv4_addr_from_buf /workspace/sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c:42
+    #1 0x40b3d6 in test_ipv4_addr_from_buf__too_long_len /workspace/tests/unittests/tests-ipv4_addr/tests-ipv4_addr.c:157
+    #2 0x408984 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x4087de in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x408f38 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x40d095 in tests_ipv4_addr /workspace/tests/unittests/tests-ipv4_addr/tests-ipv4_addr.c:191
+    #6 0x402977 in main /workspace/tests/unittests/main.c:47
+    #7 0x40379d in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x7330be539f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+0x000000413968 is located 0 bytes after global variable '*.LC1' defined in '/workspace/tests/unittests/tests-ipv4_addr/tests-ipv4_addr.c' (0x413960) of size 8
+  '*.LC1' is ascii string '1.1.1.1'
+0x000000413968 is located 56 bytes before global variable '*.LC2' defined in '/workspace/tests/unittests/tests-ipv4_addr/tests-ipv4_addr.c' (0x4139a0) of size 50
+  '*.LC2' is ascii string 'tests/unittests/tests-ipv4_addr/tests-ipv4_addr.c'
+SUMMARY: AddressSanitizer: global-buffer-overflow /workspace/sys/net/network_layer/ipv4/addr/ipv4_addr_from_str.c:42 in ipv4_addr_from_buf
+Shadow bytes around the buggy address:
+  0x000000413680: 00 04 f9 f9 f9 f9 f9 f9 00 03 f9 f9 f9 f9 f9 f9
+  0x000000413700: 00 07 f9 f9 f9 f9 f9 f9 00 00 06 f9 f9 f9 f9 f9
+  0x000000413780: 00 00 00 f9 f9 f9 f9 f9 00 00 00 00 f9 f9 f9 f9
+  0x000000413800: 00 00 05 f9 f9 f9 f9 f9 00 00 01 f9 f9 f9 f9 f9
+  0x000000413880: 00 00 02 f9 f9 f9 f9 f9 00 07 f9 f9 f9 f9 f9 f9
+=>0x000000413900: 00 00 00 00 00 02 f9 f9 f9 f9 f9 f9 00[f9]f9 f9
+  0x000000413980: f9 f9 f9 f9 00 00 00 00 00 00 02 f9 f9 f9 f9 f9
+  0x000000413a00: 00 00 00 00 00 00 00 00 00 00 f9 f9 f9 f9 f9 f9
+  0x000000413a80: 00 05 f9 f9 f9 f9 f9 f9 00 00 00 00 00 00 00 06
+  0x000000413b00: f9 f9 f9 f9 03 f9 f9 f9 f9 f9 f9 f9 00 00 00 00
+  0x000000413b80: 00 00 f9 f9 f9 f9 f9 f9 00 00 00 00 00 00 00 01
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==335==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
 
 
 

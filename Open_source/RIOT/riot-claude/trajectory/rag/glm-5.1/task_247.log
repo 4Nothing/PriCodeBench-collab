@@ -1,14 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what `rtc_localtime` does, as the inverse of `rtc_mktime`:
+The implementation is in place at `sys/rtc_utils/rtc_utils.c:196-228`. Here's how it works, mirroring the inverse of `rtc_mktime`:
 
-1. **Extracts time-of-day**: Divides the timestamp by `DAY` to get total days and remaining seconds, then computes hour, minute, second from the remainder.
-2. **Finds the year**: Starting from `RIOT_EPOCH` (2020), subtracts 365 or 366 days (leap year check) per year until the remaining days fit within one year.
-3. **Finds month and day**: Iterates through months, subtracting each month's length until the remaining days fit within the current month. The day is 1-indexed (`day + 1`).
-4. **Fills computed fields**: Sets `tm_yday` (always) and `tm_wday` (only under `RTC_NORMALIZE_COMPAT`), matching the pattern used by `rtc_tm_normalize`.
+1. **Extract time-of-day** — `tm_sec`, `tm_min`, `tm_hour` via successive division by 60, 60, 24.
+2. **Find the year** — starting from `RIOT_EPOCH` (2020), subtract 365 or 366 days per year (using the existing `_is_leap_year` helper) until the remaining days fit within a single year.
+3. **Find month and day** — subtract days per month (using the existing `_month_length` helper) until the remaining days fit within a single month, then set `tm_mday` (1-indexed).
 
-The algorithm uses the same static helpers (`_is_leap_year`, `_month_length`, `_yday`, `_wday`) as the existing code, ensuring roundtrip consistency with `rtc_mktime`.
+It reuses the file's existing static helpers (`_is_leap_year`, `_month_length`) and constants (`MINUTE`, `HOUR`, `DAY`, `RIOT_EPOCH`), keeping the code self-consistent with the rest of the module.
 
 
 ============================================================
@@ -16,51 +15,41 @@ The algorithm uses the same static helpers (`_is_leap_year`, `_month_length`, `_
 ============================================================
 --- sys/rtc_utils/rtc_utils.c
 +++ sys/rtc_utils/rtc_utils.c
-@@ -195,7 +195,46 @@
+@@ -195,7 +195,36 @@
  
  void rtc_localtime(uint32_t time, struct tm *t)
  {
 -    /* MASKED - implement this function */
-+    memset(t, 0, sizeof(*t));
-+
-+    unsigned day = time / DAY;
-+    time = time % DAY;
-+
-+    t->tm_hour = time / HOUR;
-+    time = time % HOUR;
-+
-+    t->tm_min = time / MINUTE;
-+    t->tm_sec = time % MINUTE;
++    t->tm_sec  = time % 60;
++    time /= 60;
++    t->tm_min  = time % 60;
++    time /= 60;
++    t->tm_hour = time % 24;
++    time /= 24;
 +
 +    unsigned year = RIOT_EPOCH;
 +    while (1) {
 +        unsigned days_in_year = 365 + _is_leap_year(year);
-+        if (day < days_in_year) {
++        if (time < days_in_year) {
 +            break;
 +        }
-+        day -= days_in_year;
++        time -= days_in_year;
 +        year++;
 +    }
 +
 +    t->tm_year = year - 1900;
 +
-+    int month;
-+    for (month = 0; month < 12; month++) {
-+        unsigned month_len = _month_length(month, year);
-+        if (day < month_len) {
++    t->tm_mon = 0;
++    while (1) {
++        unsigned days_in_month = _month_length(t->tm_mon, year);
++        if (time < days_in_month) {
 +            break;
 +        }
-+        day -= month_len;
++        time -= days_in_month;
++        t->tm_mon++;
 +    }
 +
-+    t->tm_mon = month;
-+    t->tm_mday = day + 1;
-+
-+    t->tm_yday = _yday(t->tm_mday, t->tm_mon, year);
-+
-+#if RTC_NORMALIZE_COMPAT
-+    t->tm_wday = _wday(t->tm_mday, t->tm_mon, year);
-+#endif
++    t->tm_mday = time + 1;
  }
  
  #define RETURN_IF_DIFFERENT(a, b, member)   \
@@ -81,19 +70,19 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-rtc
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/cpu/native/periph
-"make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/libc
-"make" -C /workspace/sys/rtc_utils
-"make" -C /workspace/sys/stdio
 "make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/rtc_utils
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
-  91639	  32088	  78120	 201847	  31477	/tmp/build/bin/native64/tests_unittests.elf
+  91517	  32088	  78120	 201725	  313fd	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -101,12 +90,18 @@ RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
 ..........
-OK (10 tests)
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 3 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 1 was 0
+
+rtc_tests.test_rtc_localtime (tests/unittests/tests-rtc/tests-rtc.c 26) exp 5 was 0
+
+run 10 failures 3
 
 native: exiting
 
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc7615a000; bottom 0x000000430000; size: 0x7ffc75d2a000 (140722285223936)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff86f3c000; bottom 0x000000430000; size: 0x7fff86b0c000 (140735453118464)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

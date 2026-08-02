@@ -1,13 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation prepends the device to the front of the SAUL registry linked list:
+Done. The implementation:
 
-1. Returns `-ENODEV` if `dev` is NULL (matching the documented contract in the header)
-2. Links the new entry's `next` to the current head, then updates the head to point to the new entry
-3. Returns 0 on success
+- Validates that `dev` is not NULL, returning `-ENODEV` if it is
+- Inserts `dev` at the head of the global `saul_reg` linked list
+- Returns 0 on success
 
-This is consistent with how the rest of the file operates — `saul_reg_find_nth`, `saul_reg_find_type`, etc. all start traversing from the `saul_reg` global head pointer through `next` links.
+This follows the same pattern as the other functions in the file — the registry is a singly-linked list anchored at the global `saul_reg` pointer, and a new entry is prepended rather than appended (which is O(1) and the standard pattern for this codebase).
 
 
 ============================================================
@@ -15,7 +15,7 @@ This is consistent with how the rest of the file operates — `saul_reg_find_nth
 ============================================================
 --- sys/saul_reg/saul_reg.c
 +++ sys/saul_reg/saul_reg.c
-@@ -32,7 +32,14 @@
+@@ -32,7 +32,12 @@
  
  int saul_reg_add(saul_reg_t *dev)
  {
@@ -23,10 +23,8 @@ This is consistent with how the rest of the file operates — `saul_reg_find_nth
 +    if (dev == NULL) {
 +        return -ENODEV;
 +    }
-+
 +    dev->next = saul_reg;
 +    saul_reg = dev;
-+
 +    return 0;
  }
  
@@ -50,15 +48,15 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-saul_reg
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
-"make" -C /workspace/drivers/saul
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/drivers/saul
 "make" -C /workspace/sys/fmt
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/phydat
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/saul_reg
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
@@ -84,7 +82,7 @@ run 6 failures 4
 native: exiting
 
 --- stderr ---
-==362==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc88a0c000; bottom 0x000000432000; size: 0x7ffc885da000 (140722596323328)
+==362==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffca1b27000; bottom 0x000000432000; size: 0x7ffca16f5000 (140723016912896)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

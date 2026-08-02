@@ -1,11 +1,15 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what was done:
+The implementation is in place. Here's what it does:
 
-**`sys/include/net/unicoap/options.h:552-555`** — Implemented `unicoap_options_remove` by delegating to `unicoap_options_remove_all`.
+- **Searches** the entries array for the first option matching the given `number`
+- **Removes** the encoded bytes from the storage buffer via `memmove`, shifting all subsequent option data backward
+- **Shifts** the entries array down and adjusts each shifted entry's `data` pointer by the removed size
+- **Updates** `option_count` and `storage_size`
+- **Returns 0** on both success and "not found" (per the documented contract: "If no option with the specified number exists, this function will return zero")
 
-Since `unicoap_options_remove` is documented for non-repeatable options (at most one occurrence), and `unicoap_options_remove_all` removes all consecutive entries with the given option number, the two are functionally equivalent for this use case. Both return 0 if the option doesn't exist, 0 on success, or a negative errno on error (e.g., `-ENOBUFS` if the delta adjustment for the successor option overflows the storage buffer).
+The implementation follows the same data layout conventions as the rest of the codebase: `entries[0].data` is the base of the storage buffer, each entry's `data` points into it, and `entries[i].size` is the encoded length of that option (header + value).
 
 
 ============================================================
@@ -13,12 +17,33 @@ Since `unicoap_options_remove` is documented for non-repeatable options (at most
 ============================================================
 --- sys/include/net/unicoap/options.h
 +++ sys/include/net/unicoap/options.h
-@@ -551,7 +551,7 @@
+@@ -551,7 +551,28 @@
   */
  static inline int unicoap_options_remove(unicoap_options_t* options, unicoap_option_number_t number)
  {
 -    /* MASKED - implement this function */
-+    return unicoap_options_remove_all(options, number);
++    for (size_t i = 0; i < options->option_count; i++) {
++        if (options->entries[i].number == number) {
++            uint8_t* storage = options->entries->data;
++            size_t removed_size = options->entries[i].size;
++            size_t offset = options->entries[i].data - storage;
++
++            memmove(options->entries[i].data,
++                    options->entries[i].data + removed_size,
++                    options->storage_size - offset - removed_size);
++
++            for (size_t j = i; j < options->option_count - 1; j++) {
++                options->entries[j] = options->entries[j + 1];
++                options->entries[j].data -= removed_size;
++            }
++
++            options->option_count--;
++            options->storage_size -= removed_size;
++            return 0;
++        }
++    }
++
++    return 0;
  }
  /** @} */
  
@@ -38,35 +63,39 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/cpu/native
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
-"make" -C /workspace/tests/unittests/tests-unicoap
 "make" -C /workspace/boards/common/native
+"make" -C /workspace/tests/unittests/tests-unicoap
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/iolist
 "make" -C /workspace/sys/libc
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/net/application_layer/unicoap
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
    text	   data	    bss	    dec	    hex	filename
- 125161	  43144	  82464	 250769	  3d391	/tmp/build/bin/native64/tests_unittests.elf
+ 124212	  43152	  82464	 249828	  3cfe4	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
 RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
-................
-OK (16 tests)
+........
+test_unicoap.test_remove_leading (tests/unittests/tests-unicoap/tests-unicoap-options.c 245) exp 16 was 0
+..
+test_unicoap.test_remove_multiple (tests/unittests/tests-unicoap/tests-unicoap-options.c 382) exp 793 was 808
+......
+run 16 failures 2
 
 native: exiting
 
 --- stderr ---
-==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcfe97e000; bottom 0x00000043c000; size: 0x7ffcfe542000 (140724575412224)
+==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff93d0b000; bottom 0x00000043b000; size: 0x7fff938d0000 (140735668879360)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

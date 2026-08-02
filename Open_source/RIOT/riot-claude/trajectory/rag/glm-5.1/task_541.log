@@ -1,13 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is implemented at line 64:
+Done. The implementation at `sys/include/net/ipv6/ext/frag.h:64`:
 
 ```c
 return (byteorder_ntohs(frag->offset_flags) & IPV6_EXT_FRAG_OFFSET_MASK);
 ```
 
-This is the inverse of `ipv6_ext_frag_set_offset` — it reads the `offset_flags` field from network byte order and masks out the Res/M bits with `IPV6_EXT_FRAG_OFFSET_MASK` (`0xFFF8`). The result is the fragment offset in bytes, matching the existing comment in the setter that notes no shifting is needed since the offset is stored in the upper bits already left-shifted by 3 (equivalent to ×8).
+It's the inverse of `ipv6_ext_frag_set_offset()` — converts from network byte order and masks with `IPV6_EXT_FRAG_OFFSET_MASK` (0xFFF8) to extract the 13-bit fragment offset in bytes. This mirrors the pattern already used by `ipv6_ext_frag_more()` on the same field.
 
 
 ============================================================
@@ -40,17 +40,17 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/cpu/native
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
-"make" -C /workspace/tests/unittests/tests-ipv6_hdr
+"make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
+"make" -C /workspace/tests/unittests/tests-ipv6_hdr
+"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
-"make" -C /workspace/boards/common/native
 "make" -C /workspace/sys/embunit
-"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/crosslayer/inet_csum
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
@@ -68,7 +68,7 @@ OK (16 tests)
 native: exiting
 
 --- stderr ---
-==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe50204000; bottom 0x000000430000; size: 0x7ffe4fdd4000 (140730238320640)
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe4e66a000; bottom 0x000000430000; size: 0x7ffe4e23a000 (140730209378304)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

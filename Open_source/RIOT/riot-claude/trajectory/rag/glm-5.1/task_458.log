@@ -1,14 +1,15 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is now implemented. It follows the same logic as `coap_build_udp_hdr` (the non-deprecated replacement), adapted for the legacy API:
+The function is now implemented. It follows the same pattern as `coap_build_udp_hdr` in `nanocoap.c:782`:
 
-- **TKL encoding**: Handles three cases — inline (0-12 bytes), 1-byte extended (13-268 bytes), and 2-byte extended (>268 bytes), all gated on `MODULE_NANOCOAP_TOKEN_EXT`
-- **Header fields**: Sets version (`COAP_V1`), type, token length nybble, code, and message ID (in network byte order)
-- **Token placement**: Copies the token after the header and optional extended TKL field, using `coap_hdr_data_ptr()` for correct positioning, with the same overlapping-buffer guard as `coap_build_udp_hdr`
-- **Return**: Total header length (`sizeof(coap_udp_hdr_t) + token_len + tkl_ext_len`)
-
-Key difference from `coap_build_udp_hdr`: no buffer size validation — the caller is responsible for ensuring the buffer is large enough (as documented in the function comment).
+1. Validates the type with `assert`
+2. Computes the extended token length fields (tkl, tkl_ext, tkl_ext_len) based on RFC 8974
+3. Calculates total header length: 4-byte header + token length + extended TKL field
+4. Zeroes the header struct, then sets version (COAP_V1), type, token length in `ver_t_tkl`; sets `code`; sets `id` in network byte order
+5. Writes the extended token length field (if needed) immediately after the 4-byte base header
+6. Copies the token to the correct offset (after extended TKL field), guarding against self-copy when the token is already at the right position (the response-in-same-buffer case)
+7. Returns the total header length
 
 
 ============================================================
@@ -16,7 +17,7 @@ Key difference from `coap_build_udp_hdr`: no buffer size validation — the call
 ============================================================
 --- sys/include/net/nanocoap.h
 +++ sys/include/net/nanocoap.h
-@@ -2223,7 +2223,40 @@
+@@ -2223,7 +2223,43 @@
  static inline ssize_t coap_build_hdr(coap_udp_hdr_t *hdr, unsigned type, const void *token,
                                       size_t token_len, unsigned code, uint16_t id)
  {
@@ -41,12 +42,15 @@ Key difference from `coap_build_udp_hdr`: no buffer size validation — the call
 +        tkl_ext_len = 0;
 +    }
 +
++    size_t hdr_len = sizeof(coap_udp_hdr_t) + token_len + tkl_ext_len;
++
++    memset(hdr, 0, sizeof(coap_udp_hdr_t));
 +    hdr->ver_t_tkl = (COAP_V1 << 6) | (type << 4) | tkl;
 +    hdr->code = code;
 +    hdr->id = htons(id);
 +
 +    if (tkl_ext_len) {
-+        memcpy((uint8_t *)(hdr + 1), &tkl_ext, tkl_ext_len);
++        memcpy(((uint8_t *)hdr) + sizeof(coap_udp_hdr_t), &tkl_ext, tkl_ext_len);
 +    }
 +
 +    void *token_dest = coap_hdr_data_ptr(hdr);
@@ -54,7 +58,7 @@ Key difference from `coap_build_udp_hdr`: no buffer size validation — the call
 +        memcpy(token_dest, token, token_len);
 +    }
 +
-+    return sizeof(coap_udp_hdr_t) + token_len + tkl_ext_len;
++    return hdr_len;
  }
  
  /**
@@ -78,16 +82,16 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/cpu/native/periph
-"make" -C /workspace/cpu/native/stdio_native
-"make" -C /workspace/sys/embunit
-"make" -C /workspace/sys/libc
-"make" -C /workspace/sys/net/application_layer/nanocoap
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/application_layer/nanocoap
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
-"make" -C /workspace/boards/common/native/drivers
    text	   data	    bss	    dec	    hex	filename
- 148566	  36040	  78120	 262726	  40246	/tmp/build/bin/native64/tests_unittests.elf
+ 148649	  36040	  78120	 262809	  40299	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -100,7 +104,7 @@ OK (37 tests)
 native: exiting
 
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdae53f000; bottom 0x00000043f000; size: 0x7ffdae100000 (140727523737600)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdf656a000; bottom 0x00000043f000; size: 0x7ffdf612b000 (140728731873280)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

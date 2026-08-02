@@ -1,12 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-Done. The function extracts the 6-bit DSCP value from the traffic class field by reversing the bit layout used in `ipv6_hdr_set_tc_dscp`:
+The function is now implemented as the inverse of `ipv6_hdr_set_tc_dscp`. It:
+- Extracts DSCP bits 5:4 from `u8[0]` bits 1:0 and shifts them left by 4
+- Extracts DSCP bits 3:0 from `u8[1]` bits 7:4
 
-- `(u8[0] & 0x03) << 4` — the top 2 DSCP bits live in the lowest 2 bits of `u8[0]`
-- `(u8[1] & 0xf0) >> 4` — the bottom 4 DSCP bits live in the highest 4 bits of `u8[1]`
-
-This mirrors the pattern of the existing `ipv6_hdr_get_tc` and `ipv6_hdr_get_tc_ecn` getters at lines 195 and 215.
+The result is a `uint8_t` with the 6-bit DSCP value in bits 5:0, matching the format expected by the setter.
 
 
 ============================================================
@@ -19,8 +18,8 @@ This mirrors the pattern of the existing `ipv6_hdr_get_tc` and `ipv6_hdr_get_tc_
  static inline uint8_t ipv6_hdr_get_tc_dscp(const ipv6_hdr_t *hdr)
  {
 -    /* MASKED - implement this function */
-+    return (((hdr->v_tc_fl.u8[0]) & 0x03) << 4) |
-+           (((hdr->v_tc_fl.u8[1]) & 0xf0) >> 4);
++    return (((hdr->v_tc_fl.u8[0] & 0x03) << 4) |
++            ((hdr->v_tc_fl.u8[1] & 0xf0) >> 4));
  }
  
  /**
@@ -41,14 +40,14 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-ipv6_hdr
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/embunit
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/net/crosslayer/inet_csum
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
@@ -68,7 +67,7 @@ OK (16 tests)
 native: exiting
 
 --- stderr ---
-==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcf9147000; bottom 0x000000430000; size: 0x7ffcf8d17000 (140724482961408)
+==349==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe0d24d000; bottom 0x000000430000; size: 0x7ffe0ce1d000 (140729114546176)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

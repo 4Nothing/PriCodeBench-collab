@@ -1,19 +1,15 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `gnrc_ipv6_nib_nc_set` does:
+The implementation is complete. Here's a summary of what the function does:
 
-1. **Validates preconditions**: Asserts that `ipv6` is non-NULL and `l2addr_len` is within bounds. When `CONFIG_GNRC_IPV6_NIB_ARSM` is disabled, validates that `ipv6` is link-local (returning `-EINVAL` if not).
+1. **When ARSM is disabled** (`!IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)`): validates that `ipv6` is a link-local address, returning `-EINVAL` if not. The `l2addr` parameters are unused in this case (cast to void).
 
-2. **Acquires the NIB lock** via `_nib_acquire()`.
+2. **Acquires the NIB lock** and calls `_nib_nc_add()` with `GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED` to create or get an existing neighbor cache entry. Returns `-ENOMEM` if the NIB is full.
 
-3. **Creates or retrieves a neighbor cache entry** using `_nib_nc_add()` with `GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED` — this makes the entry "persistent" (not subject to NUD state machine or GC removal). Returns `-ENOMEM` if no space is available.
+3. **When ARSM is enabled**: copies the l2addr and l2addr_len into the on-link entry's fields so the link-layer address mapping is persisted.
 
-4. **Stores the L2 address** (when `CONFIG_GNRC_IPV6_NIB_ARSM` is enabled) by copying `l2addr` and `l2addr_len` into the on-link entry.
-
-5. **Releases the NIB lock** and returns 0 on success.
-
-The implementation follows the same pattern used by `gnrc_ipv6_nib_pl_set` and the internal `_nib_nc_add`/`_nib_nc_get` functions, respecting all documented preconditions and return values from the header at `sys/include/net/gnrc/ipv6/nib/nc.h:233`.
+4. **Releases the NIB lock** and returns 0 on success.
 
 
 ============================================================
@@ -28,9 +24,6 @@ The implementation follows the same pattern used by `gnrc_ipv6_nib_pl_set` and t
 -    /* MASKED - implement this function */
 +    _nib_onl_entry_t *node;
 +
-+    assert(ipv6 != NULL);
-+    assert(l2addr_len <= CONFIG_GNRC_IPV6_NIB_L2ADDR_MAX_LEN);
-+
 +#if !IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
 +    if (!ipv6_addr_is_link_local(ipv6)) {
 +        return -EINVAL;
@@ -40,15 +33,18 @@ The implementation follows the same pattern used by `gnrc_ipv6_nib_pl_set` and t
 +#endif
 +
 +    _nib_acquire();
-+    node = _nib_nc_add(ipv6, iface, GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED);
++    node = _nib_nc_add(ipv6, iface,
++                       GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED);
 +    if (node == NULL) {
 +        _nib_release();
 +        return -ENOMEM;
 +    }
++
 +#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
 +    memcpy(node->l2addr, l2addr, l2addr_len);
 +    node->l2addr_len = l2addr_len;
 +#endif
++
 +    _nib_release();
 +    return 0;
  }
@@ -74,13 +70,13 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/embunit
-"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/event
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/evtimer
 "make" -C /workspace/sys/fmt
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/frac
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/luid
@@ -89,18 +85,18 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys/net/link_layer/l2util
 "make" -C /workspace/sys/net/netif
 "make" -C /workspace/sys/net/network_layer/icmpv6
-"make" -C /workspace/sys/net/network_layer/ipv6/addr
 "make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/network_layer/ipv6/addr
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
-"make" -C /workspace/sys/random
 "make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/netreg
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
-"make" -C /workspace/sys/net/gnrc/netreg
-"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
 "make" -C /workspace/sys/ztimer
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
 "make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
 "make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
 "make" -C /workspace/sys/net/gnrc/network_layer/ndp
 "make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
@@ -129,7 +125,7 @@ run 152 failures 4
 native: exiting
 
 --- stderr ---
-==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff403d9000; bottom 0x000000470000; size: 0x7fff3ff69000 (140734266511360)
+==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff84524000; bottom 0x000000470000; size: 0x7fff840b4000 (140735408717824)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

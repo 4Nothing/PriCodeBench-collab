@@ -3,26 +3,15 @@
 ============================================================
 The implementation is complete. Here's a summary of what `coap_parse_udp` now does:
 
-**Validation:**
-- Checks minimum packet size (>= 4 bytes for the CoAP header)
-- Validates CoAP version is `COAP_V1` (1)
-- Validates that the full header (including extended TKL field and token) fits within the buffer
+1. **Validates the CoAP header** — checks minimum buffer length (4 bytes), verifies CoAP version is V1, and ensures the full header (including extended TKL field and token) fits in the buffer.
 
-**Option parsing:**
-- Walks options starting from after the header + token, building the `options[]` array in the `coap_pkt_t` struct
-- Tracks cumulative option numbers via delta encoding
-- Marks odd-numbered (critical) options in the `opt_crit` bitfield for later processing by `coap_has_unprocessed_critical_options()`
-- Detects the `0xFF` payload marker to separate options from payload
-- Enforces `CONFIG_NANOCOAP_NOPTS_MAX` limit on option count
+2. **Initializes the packet struct** — zeroes out `coap_pkt_t` and sets `buf`, with `payload` temporarily pointing to end-of-buffer (used by `_parse_option` as the options boundary).
 
-**Payload handling:**
-- If a payload marker (`0xFF`) is found: sets `pkt->payload` after the marker and `pkt->payload_len` to the remaining bytes
-- If no payload marker: sets `pkt->payload` to the end of options and `pkt->payload_len` to 0
+3. **Parses options** — iterates from the end of the header, decoding each option's delta and length via `_parse_option`. Records each option's number (cumulative delta) and buffer offset in `pkt->options[]`. Tracks unprocessed critical options (odd option numbers) in `pkt->opt_crit`.
 
-**Error detection:**
-- Returns `-EBADMSG` for malformed packets (wrong version, truncated header, option value extends past buffer)
-- Returns `-ENOBUFS` when option count exceeds the configured maximum
-- Propagates negative error codes from `_decode_value` (e.g., when a nibble value of 15 appears in an option header)
+4. **Detects the payload marker** — when `0xFF` is encountered, sets `pkt->payload` to point one byte past the marker and `pkt->payload_len` to the remaining data length. If no payload marker exists, `pkt->payload` stays at end-of-buffer with `pkt->payload_len = 0`.
+
+5. **Bounds-checks option values** — returns `-EBADMSG` if an option's value extends past the buffer end.
 
 
 ============================================================
@@ -30,7 +19,7 @@ The implementation is complete. Here's a summary of what `coap_parse_udp` now do
 ============================================================
 --- sys/net/application_layer/nanocoap/nanocoap.c
 +++ sys/net/application_layer/nanocoap/nanocoap.c
-@@ -79,7 +79,77 @@
+@@ -79,7 +79,64 @@
   */
  ssize_t coap_parse_udp(coap_pkt_t *pkt, uint8_t *buf, size_t len)
  {
@@ -39,52 +28,38 @@ The implementation is complete. Here's a summary of what `coap_parse_udp` now do
 +        return -EBADMSG;
 +    }
 +
-+    uint8_t ver = (buf[0] >> 6) & 0x3;
-+    if (ver != COAP_V1) {
++    coap_udp_hdr_t *hdr = (coap_udp_hdr_t *)buf;
++
++    if (((hdr->ver_t_tkl & 0xc0) >> 6) != COAP_V1) {
++        return -EBADMSG;
++    }
++
++    size_t hdr_len = coap_hdr_len(hdr);
++    if (len < hdr_len) {
 +        return -EBADMSG;
 +    }
 +
 +    memset(pkt, 0, sizeof(coap_pkt_t));
 +    pkt->buf = buf;
-+
-+    unsigned tkl_ext = coap_hdr_tkl_ext_len((const coap_udp_hdr_t *)buf);
-+    unsigned tkl = coap_hdr_get_token_len((const coap_udp_hdr_t *)buf);
-+    unsigned hdr_len = sizeof(coap_udp_hdr_t) + tkl_ext + tkl;
-+
-+    if (hdr_len > len) {
-+        return -EBADMSG;
-+    }
-+
++    /* set to end of buffer; _parse_option uses this as options boundary */
 +    pkt->payload = buf + len;
 +
-+    uint8_t *pos = buf + hdr_len;
 +    uint16_t opt_num = 0;
++    unsigned opt_count = 0;
++    uint8_t *opt_pos = buf + hdr_len;
 +
-+    while (pos < buf + len) {
-+        if (*pos == COAP_PAYLOAD_MARKER) {
-+            pkt->payload = pos + 1;
-+            pkt->payload_len = (buf + len) - (pos + 1);
-+            return len;
++    while (opt_pos < buf + len && opt_count < CONFIG_NANOCOAP_NOPTS_MAX) {
++        if (*opt_pos == COAP_PAYLOAD_MARKER) {
++            pkt->payload = opt_pos + 1;
++            pkt->payload_len = buf + len - opt_pos - 1;
++            break;
 +        }
-+
-+        if (pkt->options_len >= CONFIG_NANOCOAP_NOPTS_MAX) {
-+            return -ENOBUFS;
-+        }
-+
-+        pkt->options[pkt->options_len].offset = pos - buf;
 +
 +        uint16_t delta;
 +        int opt_len;
-+        uint8_t *value = _parse_option(pkt, pos, &delta, &opt_len);
-+
++        uint8_t *value = _parse_option(pkt, opt_pos, &delta, &opt_len);
 +        if (!value) {
-+            pkt->payload = pos;
-+            pkt->payload_len = 0;
-+            return pos - buf;
-+        }
-+
-+        if (opt_len < 0) {
-+            return opt_len;
++            break;
 +        }
 +
 +        if ((uintptr_t)(value + opt_len) > (uintptr_t)(buf + len)) {
@@ -92,20 +67,21 @@ The implementation is complete. Here's a summary of what `coap_parse_udp` now do
 +        }
 +
 +        opt_num += delta;
-+        pkt->options[pkt->options_len].opt_num = opt_num;
 +
-+        if (opt_num & 0x1) {
-+            bf_set(pkt->opt_crit, pkt->options_len);
++        pkt->options[opt_count].opt_num = opt_num;
++        pkt->options[opt_count].offset = opt_pos - buf;
++
++        if (opt_num & 1) {
++            bf_set(pkt->opt_crit, opt_count);
 +        }
 +
-+        pkt->options_len++;
-+        pos = value + opt_len;
++        opt_count++;
++        opt_pos = value + opt_len;
 +    }
 +
-+    pkt->payload = pos;
-+    pkt->payload_len = 0;
++    pkt->options_len = opt_count;
 +
-+    return pos - buf;
++    return 0;
  }
  
  int coap_match_path(const coap_resource_t *resource, const uint8_t *uri)
@@ -131,8 +107,8 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/event
 "make" -C /workspace/sys/evtimer
 "make" -C /workspace/sys/fmt
@@ -147,44 +123,44 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys/net/link_layer/l2util
 "make" -C /workspace/sys/net/netif
 "make" -C /workspace/sys/net/network_layer/icmpv6
-"make" -C /workspace/sys/net/gnrc/netapi
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
-"make" -C /workspace/sys/net/gnrc/netif
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
-"make" -C /workspace/sys/net/gnrc/netreg
+"make" -C /workspace/sys/net/gnrc/netapi
 "make" -C /workspace/sys/net/sock
+"make" -C /workspace/sys/net/gnrc/netif
 "make" -C /workspace/sys/net/sock/async/event
-"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
+"make" -C /workspace/sys/net/gnrc/netreg
 "make" -C /workspace/sys/net/transport_layer/udp
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
+"make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
 "make" -C /workspace/sys/posix/inet
-"make" -C /workspace/sys/random
-"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
 "make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/random
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
 "make" -C /workspace/sys/stdio
-"make" -C /workspace/sys/net/gnrc/pkt
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
 "make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/pkt
 "make" -C /workspace/sys/net/gnrc/pktbuf
 "make" -C /workspace/sys/net/gnrc/pktbuf_static
-"make" -C /workspace/sys/ztimer
 "make" -C /workspace/sys/net/gnrc/sock
 "make" -C /workspace/sys/net/gnrc/sock/udp
 "make" -C /workspace/sys/net/gnrc/transport_layer/udp
 
 --- stderr ---
 [01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:[m[K In function '[01m[Kcoap_parse_udp[m[K':
-[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:122:26:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[K_parse_option[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
-  122 |         uint8_t *value = [01;31m[K_parse_option[m[K(pkt, pos, &delta, &opt_len);
+[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:115:26:[m[K [01;31m[Kerror: [m[Kimplicit declaration of function '[01m[K_parse_option[m[K' [[01;31m[K-Werror=implicit-function-declaration[m[K]
+  115 |         uint8_t *value = [01;31m[K_parse_option[m[K(pkt, opt_pos, &delta, &opt_len);
       |                          [01;31m[K^~~~~~~~~~~~~[m[K
-[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:122:26:[m[K [01;31m[Kerror: [m[Kinitialization of '[01m[Kuint8_t *[m[K' {aka '[01m[Kunsigned char *[m[K'} from '[01m[Kint[m[K' makes pointer from integer without a cast [[01;31m[K-Werror=int-conversion[m[K]
+[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:115:26:[m[K [01;31m[Kerror: [m[Kinitialization of '[01m[Kuint8_t *[m[K' {aka '[01m[Kunsigned char *[m[K'} from '[01m[Kint[m[K' makes pointer from integer without a cast [[01;31m[K-Werror=int-conversion[m[K]
 [01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:[m[K At top level:
-[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:197:17:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[K_parse_option[m[K'; have '[01m[Kuint8_t *(const coap_pkt_t *, uint8_t *, uint16_t *, int *)[m[K' {aka '[01m[Kunsigned char *(const coap_pkt_t *, unsigned char *, short unsigned int *, int *)[m[K'}
-  197 | static uint8_t *[01;31m[K_parse_option[m[K(const coap_pkt_t *pkt,
+[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:184:17:[m[K [01;31m[Kerror: [m[Kconflicting types for '[01m[K_parse_option[m[K'; have '[01m[Kuint8_t *(const coap_pkt_t *, uint8_t *, uint16_t *, int *)[m[K' {aka '[01m[Kunsigned char *(const coap_pkt_t *, unsigned char *, short unsigned int *, int *)[m[K'}
+  184 | static uint8_t *[01;31m[K_parse_option[m[K(const coap_pkt_t *pkt,
       |                 [01;31m[K^~~~~~~~~~~~~[m[K
-[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:122:26:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[K_parse_option[m[K' with type '[01m[Kint()[m[K'
-  122 |         uint8_t *value = [01;36m[K_parse_option[m[K(pkt, pos, &delta, &opt_len);
+[01m[K/workspace/sys/net/application_layer/nanocoap/nanocoap.c:115:26:[m[K [01;36m[Knote: [m[Kprevious implicit declaration of '[01m[K_parse_option[m[K' with type '[01m[Kint()[m[K'
+  115 |         uint8_t *value = [01;36m[K_parse_option[m[K(pkt, opt_pos, &delta, &opt_len);
       |                          [01;36m[K^~~~~~~~~~~~~[m[K
 cc1: all warnings being treated as errors
 make[3]: *** [/workspace/Makefile.base:157: /tmp/build/bin/native64/nanocoap/nanocoap.o] Error 1

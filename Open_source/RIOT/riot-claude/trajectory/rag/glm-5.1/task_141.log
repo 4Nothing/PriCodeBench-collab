@@ -1,12 +1,15 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what the function does:
+The implementation is complete. Here's what the function does, mirroring `gnrc_ipv6_nib_ft_add`:
 
-- **`is_default_route` detection**: Uses the same logic as `gnrc_ipv6_nib_ft_add` — `dst == NULL`, `dst_len == 0`, or `dst` is the unspecified address
-- **Default route branch**: Removes the primary default router (`_prime_def_router`) via `_nib_drl_remove`, then clears the pointer. The null guard handles the case where no default route exists.
-- **Non-default route branch** (under `CONFIG_GNRC_IPV6_NIB_ROUTER`): Iterates all off-link entries looking for one with `_FT` mode, matching `pfx_len` and `pfx` address. Removes it via `_nib_ft_remove` (which cancels the route timeout timer and clears the `_FT` mode bit).
-- **Locking**: Acquires/releases the NIB mutex around the operation, matching the pattern of every other public function in the file.
+- **Default route** (dst NULL, dst_len 0, or unspecified address): iterates all Default Router List entries and removes each via `_nib_drl_remove`, which cleans up the on-link entry, event timers, DC entries, and clears the prime default router pointer if applicable.
+
+- **Specific route** (when `CONFIG_GNRC_IPV6_NIB_ROUTER`): iterates all off-link entries, finds those with `_FT` mode where `pfx_len == dst_len` and `ipv6_addr_match_prefix` confirms all prefix bits match, then removes each via `_nib_ft_remove` (deletes the route timeout event and clears the entry).
+
+- When `CONFIG_GNRC_IPV6_NIB_ROUTER` is not active, the specific-route branch is a no-op since forwarding table entries don't exist without router support.
+
+The array-based iterators (`_nib_drl_iter`, `_nib_offl_iter`) are safe to use while modifying entries, since they advance by index rather than following pointers.
 
 
 ============================================================
@@ -24,21 +27,21 @@ The implementation is complete. Here's a summary of what the function does:
 +
 +    _nib_acquire();
 +    if (is_default_route) {
-+        if (_prime_def_router != NULL) {
-+            _nib_drl_remove(_prime_def_router);
-+            _prime_def_router = NULL;
++        _nib_dr_entry_t *dr = NULL;
++
++        while ((dr = _nib_drl_iter(dr))) {
++            _nib_drl_remove(dr);
 +        }
 +    }
 +#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER)
 +    else {
-+        _nib_offl_entry_t *entry = NULL;
++        _nib_offl_entry_t *offl = NULL;
 +
-+        while ((entry = _nib_offl_iter(entry))) {
-+            if ((entry->mode & _FT) &&
-+                (entry->pfx_len == dst_len) &&
-+                ipv6_addr_equal(&entry->pfx, dst)) {
-+                _nib_ft_remove(entry);
-+                break;
++        while ((offl = _nib_offl_iter(offl))) {
++            if ((offl->mode & _FT) &&
++                (offl->pfx_len == dst_len) &&
++                (ipv6_addr_match_prefix(&offl->pfx, dst) >= dst_len)) {
++                _nib_ft_remove(offl);
 +            }
 +        }
 +    }
@@ -67,14 +70,14 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/event
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/evtimer
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/fmt
 "make" -C /workspace/sys/frac
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/luid
 "make" -C /workspace/sys/net/crosslayer/inet_csum
@@ -83,40 +86,40 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys/net/netif
 "make" -C /workspace/sys/net/network_layer/icmpv6
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
-"make" -C /workspace/sys/net/gnrc/netapi
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
 "make" -C /workspace/sys/random
 "make" -C /workspace/sys/stdio
-"make" -C /workspace/sys/net/gnrc/netif
-"make" -C /workspace/sys/net/gnrc/netreg
 "make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/gnrc/netif
+"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/netreg
 "make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
 "make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
-"make" -C /workspace/sys/ztimer
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
 "make" -C /workspace/sys/net/gnrc/netif/hdr
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
 "make" -C /workspace/sys/net/gnrc/network_layer/ndp
 "make" -C /workspace/sys/net/gnrc/network_layer/sixlowpan/nd
 "make" -C /workspace/sys/net/gnrc/pkt
 "make" -C /workspace/sys/net/gnrc/pktbuf
 "make" -C /workspace/sys/net/gnrc/pktbuf_static
    text	   data	    bss	    dec	    hex	filename
- 313272	  72304	  92296	 477872	  74ab0	/tmp/build/bin/native64/tests_unittests.elf
+ 313216	  72304	  92296	 477816	  74a78	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
 RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
-.............................................................................................................................
-tests.test_nib_ft_iter__empty_pref_route_in_the_middle (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-ft.c 708) ipv6_addr_match_prefix(&fte.dst, &route) >= GLOBAL_PREFIX_LEN
-...........................
+............................................................................................................................
+tests.test_nib_ft_iter__empty_def_route_at_beginning (tests/unittests/tests-gnrc_ipv6_nib/tests-gnrc_ipv6_nib-ft.c 677) exp 2 was 0
+............................
 run 152 failures 1
 
 native: exiting
 
 --- stderr ---
-==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe765d7000; bottom 0x000000470000; size: 0x7ffe76167000 (140730879602688)
+==606==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffffc1f000; bottom 0x000000470000; size: 0x7fffff7af000 (140737479634944)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

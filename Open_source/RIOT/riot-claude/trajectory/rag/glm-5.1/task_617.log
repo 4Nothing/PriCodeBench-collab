@@ -1,7 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function now delegates to `unicoap_options_add_uri_query` with `strlen(query)`, exactly matching the pattern used by every other `_string` wrapper in the file (e.g., `unicoap_options_add_location_query_string`, `unicoap_options_add_uri_path_component_string`, etc.).
+The function at line 2103-2106 now reads:
+
+```c
+static inline ssize_t unicoap_options_add_uri_query_string(unicoap_options_t* options, char* query)
+{
+    return unicoap_options_add_uri_query(options, query, strlen(query));
+}
+```
+
+This delegates to `unicoap_options_add_uri_query` (which handles the `<= 255` assertion and calls `unicoap_options_add` with `UNICOAP_OPTION_URI_QUERY`), consistent with every other `_string` wrapper in the file (e.g., `unicoap_options_add_location_query_string`, `unicoap_options_add_uri_path_component_string`, etc.).
 
 
 ============================================================
@@ -35,16 +44,16 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-unicoap
-"make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/iolist
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/application_layer/unicoap
-"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/net/application_layer/unicoap/drivers/rfc7252/common/pdu
@@ -62,7 +71,7 @@ OK (16 tests)
 native: exiting
 
 --- stderr ---
-==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc65ab6000; bottom 0x00000043c000; size: 0x7ffc6567a000 (140722009776128)
+==355==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff7aa51000; bottom 0x00000043c000; size: 0x7fff7a615000 (140735246585856)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

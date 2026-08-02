@@ -1,11 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation follows the established patterns:
-
-1. **`LL_DELETE(*queue, node)`** — removes `node` from the singly-linked list headed by `*queue`. If `node` is the head, `*queue` is updated to point to the next element.
-2. **`node->next = NULL`** — clears the removed node's next pointer, matching the call pattern from the RAG context.
-3. **`return node`** — returns the removed node as documented in the function's Doxygen comment. The null-guard (`if (node)`) handles the case where `gnrc_pktqueue_remove_head` is called on an empty queue (where `*queue` is `NULL`).
+The implementation uses `LL_DELETE(*queue, node)` where `*queue` dereferences the head pointer, matching the pattern used by `LL_APPEND(*queue, node)` in `gnrc_pktqueue_add`. The function returns `node` as documented, and `gnrc_pktqueue_remove_head` at line 74 calls this function with `*queue` as the node — `LL_DELETE` on a head element correctly updates the head pointer.
 
 
 ============================================================
@@ -13,15 +9,12 @@ The implementation follows the established patterns:
 ============================================================
 --- sys/include/net/gnrc/pktqueue.h
 +++ sys/include/net/gnrc/pktqueue.h
-@@ -59,7 +59,11 @@
+@@ -59,7 +59,8 @@
   */
  static inline gnrc_pktqueue_t *gnrc_pktqueue_remove(gnrc_pktqueue_t **queue, gnrc_pktqueue_t *node)
  {
 -    /* MASKED - implement this function */
-+    if (node) {
-+        LL_DELETE(*queue, node);
-+        node->next = NULL;
-+    }
++    LL_DELETE(*queue, node);
 +    return node;
  }
  
@@ -47,29 +40,45 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
-  84473	  32232	  78208	 194913	  2f961	/tmp/build/bin/native64/tests_unittests.elf
+  84487	  32232	  78208	 194927	  2f96f	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
 RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
-.....
-OK (5 tests)
-
-native: exiting
-
+...
 --- stderr ---
-==322==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe97665000; bottom 0x00000042e000; size: 0x7ffe97237000 (140731434102784)
+==322==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff6ba90000; bottom 0x00000042e000; size: 0x7fff6b662000 (140734995243008)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==322==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x00000040aed4 bp 0x000000429ee0 sp 0x000000429ee0 T0)
+==322==The signal is caused by a READ memory access.
+==322==Hint: address points to the zero page.
+    #0 0x40aed4 in gnrc_pktqueue_remove /workspace/sys/include/net/gnrc/pktqueue.h:62
+    #1 0x40c126 in test_pktqueue_remove /workspace/tests/unittests/tests-pktqueue/tests-pktqueue.c:104
+    #2 0x408b52 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x4089ac in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x409106 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x40cf07 in tests_pktqueue /workspace/tests/unittests/tests-pktqueue/tests-pktqueue.c:170
+    #6 0x402967 in main /workspace/tests/unittests/main.c:47
+    #7 0x40378d in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x775e05050f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /workspace/sys/include/net/gnrc/pktqueue.h:62 in gnrc_pktqueue_remove
+==322==ABORTING
+
+[HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
 
 
 

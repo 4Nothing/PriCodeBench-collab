@@ -1,13 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what it does:
+The implementation is complete. Here's a summary of what the function does:
 
-1. **Counts digits** in the input string, skipping any non-digit characters (separators)
-2. **Validates buffer size** — BCD packs 2 digits per byte, so `(digits + 1) / 2` bytes are needed; returns `-ENOBUFS` if `dst` is too small
-3. **Packs digits from right to left** — the least significant digit (rightmost in the string) goes into the low nibble of byte 0, the next into the high nibble, and so on, matching the output format of `bcd_buf_from_u32`
+1. **First pass** — counts digit characters ('0'-'9') in the input string
+2. **Buffer check** — calculates `(digits + 1) / 2` bytes needed and returns `-ENOBUFS` if `dst` is too small
+3. **Second pass (right-to-left)** — walks the string from end to start, extracting only digits, and packs them into BCD bytes matching the existing format:
+   - Even `digit_pos` → low nibble (ones place of the pair)
+   - Odd `digit_pos` → high nibble (tens place of the pair)
+   - Bytes ordered least-significant-pair first
 
-For example, `"12:34"` produces `[0x34, 0x12]`, which when decoded by `bcd_buf_to_u32` yields `1234`.
+The format is consistent with `bcd_buf_from_u32` / `bcd_buf_to_u32` — e.g., the string `"123"` produces `[0x23, 0x01]`, which `bcd_buf_to_u32` correctly converts back to `123`.
 
 
 ============================================================
@@ -15,22 +18,15 @@ For example, `"12:34"` produces `[0x34, 0x12]`, which when decoded by `bcd_buf_t
 ============================================================
 --- sys/bcd/bcd.c
 +++ sys/bcd/bcd.c
-@@ -91,7 +91,37 @@
-     return c >= '0' && c <= '9';
- }
+@@ -93,5 +93,36 @@
  
--int bcd_buf_from_str(const char *str, size_t len, void *dst, size_t dst_len)
-+int bcd_buf_from_str(const char *str, size_t str_len, void *dst, size_t dst_len)
+ int bcd_buf_from_str(const char *str, size_t len, void *dst, size_t dst_len)
  {
 -    /* MASKED - implement this function */
-+    const char *end = str + str_len;
-+    uint8_t *tgt = dst;
-+    int digits = 0;
++    size_t digits = 0;
 +
-+    memset(dst, 0, dst_len);
-+
-+    for (const char *c = str; c < end; c++) {
-+        if (_is_digit(*c)) {
++    for (size_t i = 0; i < len; i++) {
++        if (_is_digit(str[i])) {
 +            digits++;
 +        }
 +    }
@@ -40,20 +36,25 @@ For example, `"12:34"` produces `[0x34, 0x12]`, which when decoded by `bcd_buf_t
 +        return -ENOBUFS;
 +    }
 +
-+    int pos = digits - 1;
-+    for (const char *c = str; c < end; c++) {
-+        if (_is_digit(*c)) {
-+            uint8_t digit = *c - '0';
-+            if (pos & 1) {
-+                tgt[pos / 2] |= digit << 4;
++    memset(dst, 0, dst_len);
++
++    uint8_t *tgt = dst;
++    size_t digit_pos = 0;
++
++    for (size_t i = len; i > 0; i--) {
++        char c = str[i - 1];
++        if (_is_digit(c)) {
++            uint8_t digit = c - '0';
++            if (digit_pos & 1) {
++                tgt[digit_pos / 2] |= digit << 4;
 +            } else {
-+                tgt[pos / 2] |= digit;
++                tgt[digit_pos / 2] |= digit;
 +            }
-+            pos--;
++            digit_pos++;
 +        }
 +    }
 +
-+    return needed;
++    return (int)needed;
  }
 
 
@@ -72,11 +73,11 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-bcd
-"make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/bcd
 "make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
@@ -84,7 +85,7 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
-  78091	  31952	  78120	 188163	  2df03	/tmp/build/bin/native64/tests_unittests.elf
+  78085	  31952	  78120	 188157	  2defd	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -97,7 +98,7 @@ OK (9 tests)
 native: exiting
 
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff76929000; bottom 0x00000042d000; size: 0x7fff764fc000 (140735178326016)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffca99e3000; bottom 0x00000042d000; size: 0x7ffca95b6000 (140723149824000)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

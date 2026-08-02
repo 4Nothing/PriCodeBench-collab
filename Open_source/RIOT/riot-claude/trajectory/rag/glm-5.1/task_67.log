@@ -1,13 +1,13 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is in place. Here's what it does:
+The implementation is complete. Here's a summary of what `crb_end_chunk` now does:
 
-1. **Computes the current chunk length** using `_get_cur_len(rb)`, which correctly handles the wrap-around case in the ring buffer
-2. **If `keep` is true**: tries to find a free slot via `_get_free_chunk(rb)`. On success, stores the chunk's start pointer and length in the chunk metadata arrays, clears `cur_start`, and returns the length (non-zero = success to callers like `crb_add_chunk`)
-3. **If `keep` is false or no free slot exists**: rewinds `cur` back to `cur_start` (discarding the written bytes), clears `cur_start`, and returns 0 (failure)
-
-This matches the documented contract (`@return size of chunk if stored, 0 if no space`), and correctly serves both call sites: `crb_add_chunk` (where the return value acts as a success/failure bool) and `crb_start_chunk` (which calls it with `keep=false` to discard a stale unfinished chunk).
+1. **Computes** the current chunk length via `_get_cur_len(rb)`, which handles wrap-around correctly
+2. **If `keep` is true**: finds a free chunk slot via `_get_free_chunk(rb)`. If none available (all `CONFIG_CHUNK_NUM_MAX` slots are occupied), clears `cur_start` and returns 0. Otherwise stores `cur_start` and length in the arrays.
+3. **If `keep` is false**: discards the chunk by rewinding `cur` back to `cur_start`, reclaiming the buffer space.
+4. **Clears `cur_start = NULL`** to signal no active chunk is in progress.
+5. **Returns** the chunk length on success (truthy), or 0 on failure/discard.
 
 
 ============================================================
@@ -15,7 +15,7 @@ This matches the documented contract (`@return size of chunk if stored, 0 if no 
 ============================================================
 --- sys/chunked_ringbuffer/chunked_ringbuffer.c
 +++ sys/chunked_ringbuffer/chunked_ringbuffer.c
-@@ -89,7 +89,22 @@
+@@ -89,7 +89,23 @@
  
  unsigned crb_end_chunk(chunk_ringbuf_t *rb, bool keep)
  {
@@ -24,18 +24,19 @@ This matches the documented contract (`@return size of chunk if stored, 0 if no 
 +
 +    if (keep) {
 +        int idx = _get_free_chunk(rb);
-+        if (idx >= 0) {
-+            rb->chunk_start[idx] = rb->cur_start;
-+            rb->chunk_len[idx] = len;
++        if (idx < 0) {
 +            rb->cur_start = NULL;
-+            return len;
++            return 0;
 +        }
++
++        rb->chunk_start[idx] = rb->cur_start;
++        rb->chunk_len[idx] = len;
++    } else {
++        rb->cur = rb->cur_start;
 +    }
 +
-+    /* discard chunk: rewind cur pointer to undo the written bytes */
-+    rb->cur = rb->cur_start;
 +    rb->cur_start = NULL;
-+    return 0;
++    return len;
  }
  
  bool crb_get_chunk_size(chunk_ringbuf_t *rb, size_t *len)
@@ -58,17 +59,17 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-chunked_ringbuffer
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/drivers/periph_common
-"make" -C /workspace/sys/chunked_ringbuffer
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
-"make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/chunked_ringbuffer
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
+"make" -C /workspace/boards/common/native/drivers
    text	   data	    bss	    dec	    hex	filename
-  83769	  32600	  78120	 194489	  2f7b9	/tmp/build/bin/native64/tests_unittests.elf
+  83832	  32600	  78120	 194552	  2f7f8	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -83,7 +84,7 @@ run 2 failures 1
 native: exiting
 
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff87bfc000; bottom 0x00000042e000; size: 0x7fff877ce000 (140735466496000)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff847db000; bottom 0x00000042e000; size: 0x7fff843ad000 (140735411834880)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

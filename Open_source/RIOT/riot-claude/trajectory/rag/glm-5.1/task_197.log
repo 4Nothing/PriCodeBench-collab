@@ -1,14 +1,19 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what `ieee802154_get_src` does:
+The implementation is complete. Here's what the function does:
 
-1. **Asserts** `src` and `src_pan` are non-NULL (mirrors `get_dst` style, `sys/net/link_layer/ieee802154/ieee802154.c:171`)
-2. **Skips destination fields** — starts at offset 3 (2-byte FCF + 1-byte Seq), then advances past the destination PAN and address based on the destination addressing mode in `mhr[1]` (SHORT → +4 bytes, LONG → +10 bytes)
-3. **Parses the source address** — reads source PAN ID (2 bytes, little-endian) unless PAN compression is set (meaning src PAN equals dst PAN, already read by `get_dst`), then reads the address bytes in reverse wire order (little-endian). Returns `2` for short address, `8` for long address, or `0` for no source (VOID mode)
-4. **Error handling** — returns `-EINVAL` for reserved addressing modes, or illegal PAN compression without a destination address
+1. **Offset 3** — skips the 2-byte FCF and 1-byte sequence number
+2. **ACK check** — ACK frames have no addressing fields, returns 0
+3. **Skip destination fields** — uses the same logic as `ieee802154_get_frame_hdr_len` to skip past the destination PAN and address (4 bytes for short, 10 for long), with validation for PAN compression edge cases
+4. **Read source address**:
+   - `VOID` → returns 0 (no source address present)
+   - If `PAN_COMP` is *not* set → reads 2-byte source PAN (little endian)
+   - `SHORT` → reads 2-byte address in network byte order (reversed), returns 2
+   - `LONG` → reads 8-byte EUI-64 in network byte order (reversed), returns 8
+   - `RESV` → returns `-EINVAL`
 
-The function follows the same logic and conventions as the neighboring `ieee802154_get_dst` (line 171) and is consistent with the frame header structure laid out by `ieee802154_set_frame_hdr` and validated by `ieee802154_get_frame_hdr_len`.
+The implementation mirrors `ieee802154_get_dst` (line 171) and the offset logic in `ieee802154_get_frame_hdr_len` (line 115). When PAN compression is set, the source PAN is omitted from the frame (it equals the destination PAN) — callers like `gnrc_netif_ieee802154.c` handle this by reusing the same `_pan_tmp` variable for both `get_dst` and `get_src`.
 
 
 ============================================================
@@ -16,58 +21,67 @@ The function follows the same logic and conventions as the neighboring `ieee8021
 ============================================================
 --- sys/net/link_layer/ieee802154/ieee802154.c
 +++ sys/net/link_layer/ieee802154/ieee802154.c
-@@ -165,7 +165,53 @@
+@@ -165,7 +165,62 @@
  
  int ieee802154_get_src(const uint8_t *mhr, uint8_t *src, le_uint16_t *src_pan)
  {
 -    /* MASKED - implement this function */
 +    int offset = 3; /* FCF: 0-1, Seq: 2 */
-+    uint8_t tmp;
++    uint8_t tmp, type;
 +
-+    assert((src != NULL) && (src_pan != NULL));
++    type = mhr[0] & IEEE802154_FCF_TYPE_MASK;
 +
-+    /* skip destination address fields */
-+    tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
-+    if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
-+        offset += 4;    /* 2 byte dst PAN + 2 byte short addr */
++    if (type == IEEE802154_FCF_TYPE_ACK) {
++        /* ACK contains no addressing fields */
++        return 0;
 +    }
-+    else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
-+        offset += 10;   /* 2 byte dst PAN + 8 byte long addr */
-+    }
-+    else if (tmp != IEEE802154_FCF_DST_ADDR_VOID) {
-+        return -EINVAL;
++
++    if (type != IEEE802154_FCF_TYPE_BEACON) {
++        /* Beacons contain no dst address */
++        tmp = mhr[1] & IEEE802154_FCF_DST_ADDR_MASK;
++        if (tmp == IEEE802154_FCF_DST_ADDR_SHORT) {
++            offset += 4;   /* 2 byte dst PAN + 2 byte dst short address */
++        }
++        else if (tmp == IEEE802154_FCF_DST_ADDR_LONG) {
++            offset += 10;  /* 2 byte dst PAN + 8 byte dst long address */
++        }
++        else if (tmp != IEEE802154_FCF_DST_ADDR_VOID) {
++            return -EINVAL;
++        }
++        else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
++            /* PAN compression, but no destination address => illegal state */
++            return -EINVAL;
++        }
 +    }
 +    else if (mhr[0] & IEEE802154_FCF_PAN_COMP) {
-+        /* PAN compression but no destination address => illegal */
++        /* Beacon can't use PAN compression */
 +        return -EINVAL;
 +    }
 +
-+    /* read source address */
 +    tmp = mhr[1] & IEEE802154_FCF_SRC_ADDR_MASK;
++    if (tmp == IEEE802154_FCF_SRC_ADDR_VOID) {
++        return 0;
++    }
++
++    if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
++        /* read source PAN in little endian */
++        src_pan->u8[0] = mhr[offset++];
++        src_pan->u8[1] = mhr[offset++];
++    }
++
 +    if (tmp == IEEE802154_FCF_SRC_ADDR_SHORT) {
-+        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
-+            src_pan->u8[0] = mhr[offset++];
-+            src_pan->u8[1] = mhr[offset++];
-+        }
 +        src[1] = mhr[offset++];
 +        src[0] = mhr[offset++];
 +        return 2;
 +    }
 +    else if (tmp == IEEE802154_FCF_SRC_ADDR_LONG) {
-+        if (!(mhr[0] & IEEE802154_FCF_PAN_COMP)) {
-+            src_pan->u8[0] = mhr[offset++];
-+            src_pan->u8[1] = mhr[offset++];
-+        }
 +        for (int i = 7; i >= 0; i--) {
 +            src[i] = mhr[offset++];
 +        }
 +        return 8;
 +    }
-+    else if (tmp != IEEE802154_FCF_SRC_ADDR_VOID) {
-+        return -EINVAL;
-+    }
 +
-+    return 0;
++    return -EINVAL;
  }
  
  int ieee802154_get_dst(const uint8_t *mhr, uint8_t *dst, le_uint16_t *dst_pan)
@@ -89,45 +103,86 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-ieee802154
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
-"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/boards/common/native
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/libc
-"make" -C /workspace/sys/net/link_layer/ieee802154
 "make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/net/link_layer/ieee802154
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
- 153859	  36616	  78152	 268627	  41953	/tmp/build/bin/native64/tests_unittests.elf
+ 153683	  36616	  78152	 268451	  418a3	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
 RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
-.....................................
-ieee802154_tests.test_ieee802154_get_src_dst2_src0_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 623) exp 10099 was 0
-..
-ieee802154_tests.test_ieee802154_get_src_dst2_src2_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 665) exp 10099 was 0
-..
-ieee802154_tests.test_ieee802154_get_src_dst2_src8_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 713) exp 10098 was 0
-..
-ieee802154_tests.test_ieee802154_get_src_dst8_src0_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 748) exp 10099 was 0
-..
-ieee802154_tests.test_ieee802154_get_src_dst8_src2_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 796) exp 10098 was 0
-..
-ieee802154_tests.test_ieee802154_get_src_dst8_src8_pancomp (tests/unittests/tests-ieee802154/tests-ieee802154.c 850) exp 10098 was 0
-......................
-run 69 failures 6
-
-native: exiting
-
+..............................
+ieee802154_tests.test_ieee802154_get_src_dstr (tests/unittests/tests-ieee802154/tests-ieee802154.c 518) exp -22 was 0
+.
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff529db000; bottom 0x000000441000; size: 0x7fff5259a000 (140734574993408)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe989b1000; bottom 0x000000441000; size: 0x7ffe98570000 (140731454259200)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
+=================================================================
+==329==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x78892ca015c3 at pc 0x00000040a9dc bp 0x00000043cc70 sp 0x00000043cc60
+READ of size 1 at 0x78892ca015c3 thread T0
+    #0 0x40a9db in ieee802154_get_src /workspace/sys/net/link_layer/ieee802154/ieee802154.c:207
+    #1 0x4145c9 in test_ieee802154_get_src_srcr /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:527
+    #2 0x408936 in TestCase_run /workspace/sys/embunit/TestCase.c:58
+    #3 0x408790 in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
+    #4 0x408eea in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
+    #5 0x41ab4f in tests_ieee802154 /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:1245
+    #6 0x402987 in main /workspace/tests/unittests/main.c:47
+    #7 0x4037ad in main_trampoline /workspace/core/lib/init.c:60
+    #8 0x78892ea17f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+
+Address 0x78892ca015c3 is located in stack of thread T0 at offset 67 in frame
+    #0 0x41451f in test_ieee802154_get_src_srcr /workspace/tests/unittests/tests-ieee802154/tests-ieee802154.c:522
+
+  This frame has 3 object(s):
+    [32, 33) 'res_addr' (line 524)
+    [48, 50) 'res_pan' (line 525)
+    [64, 66) 'mhr' (line 523) <== Memory access at offset 67 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /workspace/sys/net/link_layer/ieee802154/ieee802154.c:207 in ieee802154_get_src
+Shadow bytes around the buggy address:
+  0x78892ca01300: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x78892ca01380: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x78892ca01400: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x78892ca01480: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+  0x78892ca01500: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 00 00 00 00
+=>0x78892ca01580: f1 f1 f1 f1 01 f2 02 f2[02]f3 f3 f3 00 00 00 00
+  0x78892ca01600: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x78892ca01680: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x78892ca01700: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x78892ca01780: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x78892ca01800: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==329==ABORTING
 
 
 

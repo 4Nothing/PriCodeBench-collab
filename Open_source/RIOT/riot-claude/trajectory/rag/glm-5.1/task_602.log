@@ -1,12 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is now implemented at `core/include/thread.h:410`. It follows the exact same patterns used in the file:
-
-- Declares `extern volatile kernel_pid_t sched_active_pid` (same as `thread_getpid()` at line 398)
-- Indexes `sched_threads[sched_active_pid]` with the cast to `thread_t *` (same as `thread_get_unchecked()` at line 293)
-
-When no thread is running, `sched_active_pid` will be `KERNEL_PID_UNDEF` and the lookup will naturally return `NULL`, matching the documented behavior.
+The function is implemented. It follows the existing pattern in the file — `thread_getpid()` already declares `extern volatile kernel_pid_t sched_active_pid` to get the current PID, and `thread_get()` validates the PID and looks it up in the `sched_threads` table. The combination returns a pointer to the active thread's TCB, or `NULL` if no thread is running, matching the documented behavior.
 
 
 ============================================================
@@ -20,7 +15,7 @@ When no thread is running, `sched_active_pid` will be `KERNEL_PID_UNDEF` and the
  {
 -    /* MASKED - implement this function */
 +    extern volatile kernel_pid_t sched_active_pid;
-+    return (thread_t *)sched_threads[sched_active_pid];
++    return thread_get(sched_active_pid);
  }
  
  /**
@@ -42,22 +37,22 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-isrpipe
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
+"make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/frac
 "make" -C /workspace/sys/isrpipe
 "make" -C /workspace/sys/isrpipe/read_timeout
 "make" -C /workspace/sys/libc
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/tsrb
 "make" -C /workspace/sys/ztimer
    text	   data	    bss	    dec	    hex	filename
-  96197	  34296	  82728	 213221	  340e5	/tmp/build/bin/native64/tests_unittests.elf
+  96480	  34296	  82728	 213504	  34200	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -70,7 +65,7 @@ OK (8 tests)
 native: exiting
 
 --- stderr ---
-==387==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd13637000; bottom 0x000000431000; size: 0x7ffd13206000 (140724924342272)
+==387==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffebccf9000; bottom 0x000000431000; size: 0x7ffebc8c8000 (140732061745152)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 ==387==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!

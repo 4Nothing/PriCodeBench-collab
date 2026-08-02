@@ -3,15 +3,13 @@
 ============================================================
 The implementation is complete. Here's a summary of the logic:
 
-- **Clamp `bits` to 128** — like `ipv6_addr_init_prefix`, values > 128 are capped.
+**`ipv6_addr_init_iid(out, iid, bits)`** sets the last `bits` bits of the IPv6 address `out` from the `iid` byte buffer, leaving the leading bits untouched. It mirrors `ipv6_addr_init_prefix` (which works from the start of the address):
 
-- **Byte-aligned case** (`bits % 8 == 0`): a direct `memcpy` of `bits/8` bytes from `iid` to the end of `out` (e.g., 64-bit IID → `out->u8[8..15]`).
-
-- **Non-byte-aligned case** (`bits % 8 != 0`):
-  - The **partial byte** (first byte of the IID region in `out`) gets its bottom `rem` bits set from the top `rem` bits of `iid[0]`, using a mask to preserve other bits.
-  - The **full bytes** are reconstructed in a loop by shifting `iid[i]` left by `rem` and pulling in the carry bits from `iid[i+1]` shifted right by `8 - rem` — this correctly handles the bit packing where the IID bits start from the MSB of `iid[0]`.
-
-This mirrors the structure of `ipv6_addr_init_prefix` (which sets leading bits) but operating on the trailing end of the address, and dealing with a raw byte buffer (`iid`) rather than a full `ipv6_addr_t`.
+- **Clamping**: If `bits > 128`, it's capped at 128
+- **Full bytes** (`bits / 8`): Copied from the end of the IID buffer to the end of the address via `memcpy`
+  - For example, with a 64-bit IID, `iid[0..7]` is copied to `out->u8[8..15]`
+- **Partial byte** (`bits % 8`): The upper bits of `iid[0]` are placed into the lower bits of the byte just before the full-byte region in `out`
+  - For example, with a 68-bit IID, the upper 4 bits of `iid[0]` go into the lower 4 bits of `out->u8[7]`, and `iid[1..8]` go into `out->u8[8..15]`
 
 
 ============================================================
@@ -19,38 +17,30 @@ This mirrors the structure of `ipv6_addr_init_prefix` (which sets leading bits) 
 ============================================================
 --- sys/net/network_layer/ipv6/addr/ipv6_addr.c
 +++ sys/net/network_layer/ipv6/addr/ipv6_addr.c
-@@ -91,7 +91,34 @@
+@@ -91,7 +91,26 @@
  
  void ipv6_addr_init_iid(ipv6_addr_t *out, const uint8_t *iid, uint8_t bits)
  {
 -    /* MASKED - implement this function */
-+    uint8_t full_bytes;
-+    uint8_t rem;
++    uint8_t full_bytes, rem_bits;
 +
 +    if (bits > 128) {
 +        bits = 128;
 +    }
 +
 +    full_bytes = bits / 8;
-+    rem = bits % 8;
++    rem_bits = bits % 8;
 +
 +    if (full_bytes) {
-+        if (rem == 0) {
-+            memcpy(&out->u8[16 - full_bytes], iid, full_bytes);
-+        }
-+        else {
-+            for (uint8_t i = 0; i < full_bytes; i++) {
-+                out->u8[16 - full_bytes + i] = (iid[i] << rem) |
-+                                               (iid[i + 1] >> (8 - rem));
-+            }
-+        }
++        uint8_t iid_bytes = (bits + 7) / 8;
++        memcpy(&out->u8[16 - full_bytes], &iid[iid_bytes - full_bytes], full_bytes);
 +    }
 +
-+    if (rem) {
-+        uint8_t mask = 0xff >> (8 - rem);
-+
-+        out->u8[16 - full_bytes - 1] &= ~mask;
-+        out->u8[16 - full_bytes - 1] |= (iid[0] >> (8 - rem)) & mask;
++    if (rem_bits) {
++        uint8_t pos = 16 - full_bytes - 1;
++        uint8_t mask = (1 << rem_bits) - 1;
++        out->u8[pos] = (out->u8[pos] & ~mask) |
++                       ((iid[0] >> (8 - rem_bits)) & mask);
 +    }
  }
  
@@ -74,17 +64,17 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-ipv6_addr
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
+"make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
-"make" -C /workspace/cpu/native/periph
-"make" -C /workspace/drivers/periph_common
-"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
-"make" -C /workspace/boards/common/native/drivers
    text	   data	    bss	    dec	    hex	filename
- 194088	  41928	  78152	 314168	  4cb38	/tmp/build/bin/native64/tests_unittests.elf
+ 193896	  41928	  78152	 313976	  4ca78	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -99,7 +89,7 @@ run 92 failures 1
 native: exiting
 
 --- stderr ---
-==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff80979000; bottom 0x00000044c000; size: 0x7fff8052d000 (140735346298880)
+==335==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffec0241000; bottom 0x00000044c000; size: 0x7ffebfdf5000 (140732117504000)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

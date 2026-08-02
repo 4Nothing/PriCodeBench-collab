@@ -1,14 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function follows the same pattern as `gnrc_tcp_calc_csum` and `gnrc_icmpv6_calc_csum`:
+The implementation is complete. Here's what the function does:
 
-1. **NULL checks** on `hdr` and `pseudo_hdr` → `-EFAULT`
-2. **Type check** that `hdr->type == GNRC_NETTYPE_UDP` → `-EBADMSG`
-3. **Delegates** to the existing internal `_calc_csum(hdr, pseudo_hdr, hdr->next)`, which handles both IPv6 pseudo-header checksumming and the RFC 8200 zero→0xFFFF conversion
-4. **Returns `-ENOENT`** if `_calc_csum` returned 0 (unknown pseudo_hdr type)
-5. **Writes the checksum** into `((udp_hdr_t *)hdr->data)->checksum` in network byte order via `byteorder_htons()`
-6. **Returns 0** on success
+1. **`-EFAULT`** — returns if either `hdr` or `pseudo_hdr` is NULL
+2. **`-EBADMSG`** — returns if `hdr->type` is not `GNRC_NETTYPE_UDP`
+3. Calls the existing static `_calc_csum` with `hdr->next` as the payload
+4. **`-ENOENT`** — returns if `_calc_csum` returned 0 (unknown pseudo header type)
+5. Writes the computed checksum in network byte order into the UDP header's `checksum` field
+6. Returns **0** on success
+
+This mirrors the pattern used by `gnrc_tcp_calc_csum` in `gnrc_tcp.c:1095-1121` and satisfies the documented contract in `sys/include/net/gnrc/udp.h:87`.
 
 
 ============================================================
@@ -16,7 +18,7 @@ The function follows the same pattern as `gnrc_tcp_calc_csum` and `gnrc_icmpv6_c
 ============================================================
 --- sys/net/gnrc/transport_layer/udp/gnrc_udp.c
 +++ sys/net/gnrc/transport_layer/udp/gnrc_udp.c
-@@ -259,7 +259,23 @@
+@@ -259,7 +259,21 @@
  
  int gnrc_udp_calc_csum(gnrc_pktsnip_t *hdr, gnrc_pktsnip_t *pseudo_hdr)
  {
@@ -34,9 +36,7 @@ The function follows the same pattern as `gnrc_tcp_calc_csum` and `gnrc_icmpv6_c
 +    if (csum == 0) {
 +        return -ENOENT;
 +    }
-+
 +    ((udp_hdr_t *)hdr->data)->checksum = byteorder_htons(csum);
-+
 +    return 0;
  }
  
@@ -60,13 +60,13 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-gnrc_udp
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/event
 "make" -C /workspace/sys/evtimer
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/fmt
 "make" -C /workspace/sys/frac
 "make" -C /workspace/sys/libc
@@ -78,20 +78,20 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys/net/network_layer/icmpv6
 "make" -C /workspace/sys/net/network_layer/ipv6/addr
 "make" -C /workspace/sys/net/network_layer/ipv6/hdr
-"make" -C /workspace/sys/net/transport_layer/udp
 "make" -C /workspace/sys/net/gnrc/netapi
+"make" -C /workspace/sys/net/transport_layer/udp
 "make" -C /workspace/sys/net/gnrc/netif
 "make" -C /workspace/sys/random
+"make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/net/gnrc/netreg
 "make" -C /workspace/sys/net/gnrc/network_layer/icmpv6
-"make" -C /workspace/sys/stdio
-"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
-"make" -C /workspace/sys/net/gnrc/netif/hdr
 "make" -C /workspace/sys/test_utils/print_stack_usage
-"make" -C /workspace/sys/ztimer
+"make" -C /workspace/sys/net/gnrc/network_layer/ipv6
 "make" -C /workspace/sys/net/gnrc/network_layer/ipv6/hdr
+"make" -C /workspace/sys/ztimer
 "make" -C /workspace/sys/net/gnrc/network_layer/ipv6/nib
 "make" -C /workspace/sys/net/gnrc/network_layer/ndp
+"make" -C /workspace/sys/net/gnrc/netif/hdr
 "make" -C /workspace/sys/net/gnrc/pkt
 "make" -C /workspace/sys/net/gnrc/pktbuf
 "make" -C /workspace/sys/net/gnrc/pktbuf_static
@@ -110,7 +110,7 @@ OK (9 tests)
 native: exiting
 
 --- stderr ---
-==605==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffebdb4d000; bottom 0x00000043f000; size: 0x7ffebd70e000 (140732076711936)
+==605==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff86b1a000; bottom 0x00000043f000; size: 0x7fff866db000 (140735448723456)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

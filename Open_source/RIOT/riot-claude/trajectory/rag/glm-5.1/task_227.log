@@ -1,13 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. `mtd_erase` now:
+The implementation follows the same pattern as the other address-to-specialized conversion functions in the file:
 
-1. **Validates** the MTD device pointer and driver (`-ENODEV` if null)
-2. **Converts** the byte address and count to sector numbers (using `sector_size = pages_per_sector * page_size`)
-3. **Delegates** to `mtd_erase_sector`, which handles all further validation (bounds checking via `sector + count > sector_count`, overflow detection) and driver dispatch (falling back from `erase_sector` to `erase` if needed)
-
-This mirrors the existing pattern in the file — just as `mtd_write` converts address to page/offset and calls `mtd_write_page_raw`, `mtd_erase` converts address to sector/count and calls `mtd_erase_sector`.
+1. **Validate** `mtd` and `mtd->driver` (returns `-ENODEV` if either is null), matching the convention used by every other public function in this file.
+2. **Convert** address-based `addr` and `count` to sector-based `start_sector` and `num_sectors`, using `sector_size = pages_per_sector * page_size`.
+3. **Delegate** to `mtd_erase_sector`, which already handles bounds checking (`-EOVERFLOW`), overflow detection, and driver fallback (trying `erase_sector` first, then `erase`, then `-ENOTSUP`).
 
 
 ============================================================
@@ -25,10 +23,10 @@ This mirrors the existing pattern in the file — just as `mtd_write` converts a
 +    }
 +
 +    uint32_t sector_size = mtd->pages_per_sector * mtd->page_size;
-+    uint32_t sector = addr / sector_size;
-+    uint32_t num = count / sector_size;
++    uint32_t start_sector = addr / sector_size;
++    uint32_t num_sectors = count / sector_size;
 +
-+    return mtd_erase_sector(mtd, sector, num);
++    return mtd_erase_sector(mtd, start_sector, num_sectors);
  }
  
  int mtd_erase_sector(mtd_dev_t *mtd, uint32_t sector, uint32_t count)
@@ -49,17 +47,17 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-mtd
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/cpu/native/mtd
 "make" -C /workspace/cpu/native/periph
-"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/mtd
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/mtd_emulated
-"make" -C /workspace/sys/embunit
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/cpu/native/vfs
 "make" -C /workspace/boards/common/native/drivers
+"make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
@@ -81,7 +79,7 @@ native: exiting
 
 --- stderr ---
 /usr/bin/ld: warning: /tmp/build/bin/native64/tests_unittests.elf has a LOAD segment with RWX permissions
-==363==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff6ad16000; bottom 0x000000433000; size: 0x7fff6a8e3000 (140734981091328)
+==363==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe8404e000; bottom 0x000000433000; size: 0x7ffe83c1b000 (140731108929536)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

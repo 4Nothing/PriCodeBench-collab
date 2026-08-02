@@ -1,14 +1,16 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's what the function does:
+The function is implemented. Here's what it does:
 
-- **NULL query**: Returns 0 immediately (no parameters to parse)
-- **Parsing**: Iterates through the query string using `_strchrb` (the file's existing helper for non-null-terminated buffers), splitting on `&` to find each parameter, then splitting on `=` within each parameter to separate name from value
-- **No `=` case**: The entire parameter becomes the name; value stays NULL/0 (per the precondition that the params array is zero-initialized)
-- **Empty parameters**: Consecutive `&` delimiters (e.g., `a=1&&b=2`) or leading/trailing `&` are skipped
-- **Truncation**: If more parameters exist than `params_len`, fills the first `params_len` entries and returns `-2`
-- **Return value**: Returns the count of filled entries on success
+- **Returns 0** if `query` is NULL or empty
+- **Splits on `&`** to iterate over each parameter
+- **Splits on `=`** within each parameter to separate name and value
+- **Fills `params`** only up to `params_len` entries (caller guarantees zero-initialized array, so unfilled entries remain null/zero)
+- **Returns -2** if the actual parameter count exceeds `params_len` (the array gets the first `params_len` entries)
+- **Returns the count** of filled entries on success
+
+The implementation is non-destructive — `name` and `value` pointers reference directly into the original URI string. It uses the existing `_strchrb` helper for buffer-aware character search, consistent with the rest of the file.
 
 
 ============================================================
@@ -16,53 +18,45 @@ The implementation is complete. Here's what the function does:
 ============================================================
 --- sys/uri_parser/uri_parser.c
 +++ sys/uri_parser/uri_parser.c
-@@ -344,9 +344,51 @@
-     return uri_parser_process(result, uri, strlen(uri));
- }
- 
--int uri_parser_split_query(const uri_parser_result_t *uri,
-+int uri_parser_split_query(const uri_parser_result_t *uri_parsed,
+@@ -348,5 +348,44 @@
                             uri_parser_query_param_t *params,
                             size_t params_len)
  {
 -    /* MASKED - implement this function */
 -}
-+    assert(uri_parsed != NULL);
-+    assert(params != NULL);
-+
-+    if (uri_parsed->query == NULL) {
++    if ((uri->query == NULL) || (uri->query_len == 0)) {
 +        return 0;
 +    }
 +
-+    const char *query = uri_parsed->query;
-+    const char *query_end = query + uri_parsed->query_len;
++    const char *query = uri->query;
++    const char *query_end = query + uri->query_len;
 +    size_t count = 0;
 +
 +    while (query < query_end) {
-+        const char *amp = _strchrb(query, query_end, '&');
-+        const char *param_end = amp ? amp : query_end;
++        const char *param_end = _strchrb(query, query_end, '&');
++        if (param_end == NULL) {
++            param_end = query_end;
++        }
 +
-+        if (param_end > query) {
-+            if (count < params_len) {
-+                const char *eq = _strchrb(query, param_end, '=');
-+                if (eq) {
-+                    params[count].name = query;
-+                    params[count].name_len = eq - query;
-+                    params[count].value = eq + 1;
-+                    params[count].value_len = param_end - params[count].value;
-+                }
-+                else {
-+                    params[count].name = query;
-+                    params[count].name_len = param_end - query;
-+                }
++        const char *eq = _strchrb(query, param_end, '=');
++
++        if (count < params_len) {
++            params[count].name = query;
++            if (eq) {
++                params[count].name_len = eq - query;
++                params[count].value = eq + 1;
++                params[count].value_len = param_end - params[count].value;
 +            }
-+            count++;
++            else {
++                params[count].name_len = param_end - query;
++            }
 +        }
 +
-+        if (!amp) {
-+            break;
++        count++;
++        query = param_end;
++        if (query < query_end) {
++            query++;
 +        }
-+        query = amp + 1;
 +    }
 +
 +    if (count > params_len) {
@@ -88,20 +82,20 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-uri_parser
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/cpu/native/periph
-"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/fmt
+"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/libc
 "make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/uri_parser
    text	   data	    bss	    dec	    hex	filename
- 107596	  40848	  78400	 226844	  3761c	/tmp/build/bin/native64/tests_unittests.elf
+ 107567	  40848	  78400	 226815	  375ff	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -109,14 +103,14 @@ RIOT native hardware initialization complete.
 
 main(): This is RIOT! (Version: 2026.01)
 ........
-query_split_tests.test_split_query__broken_input (tests/unittests/tests-uri_parser/tests-uri_parser.c 591) exp -1 was 0
+query_split_tests.test_split_query__broken_input (tests/unittests/tests-uri_parser/tests-uri_parser.c 591) exp -1 was 1
 ..
 run 10 failures 1
 
 native: exiting
 
 --- stderr ---
-==336==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffce166b000; bottom 0x000000436000; size: 0x7ffce1235000 (140724085673984)
+==336==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffc6700b000; bottom 0x000000436000; size: 0x7ffc66bd5000 (140722032168960)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

@@ -1,12 +1,9 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is straightforward and mirrors the existing `_netreg_lookup` pattern when iterating from a non-NULL entry:
+The implementation is complete. Here's what it does:
 
-- Asserts the shared lock is held (same as `_netreg_lookup`)
-- Starts from `entry->next` and uses `LL_SEARCH_SCALAR` to find the next entry with a matching `demux_ctx`
-- Since entries are stored in per-type linked lists (`netreg[type]`), walking `entry->next` stays within the same protocol type
-- Returns `NULL` when no more matching entries are found
+`gnrc_netreg_getnext` delegates to the existing `_netreg_lookup` helper with the entry's own `demux_ctx` as the search key. When `_netreg_lookup` receives a non-NULL `from` parameter, it starts from `from->next` (continuing within the same protocol type's linked list) and uses `LL_SEARCH_SCALAR` to find the next entry with a matching `demux_ctx`. This is consistent with how `gnrc_netreg_lookup` and `gnrc_netreg_num` already use the same internal helper — the typical caller pattern is `gnrc_netreg_lookup(type, demux_ctx)` followed by `gnrc_netreg_getnext(entry)` in a loop to iterate all matching registrations.
 
 
 ============================================================
@@ -14,16 +11,12 @@ The implementation is straightforward and mirrors the existing `_netreg_lookup` 
 ============================================================
 --- sys/net/gnrc/netreg/gnrc_netreg.c
 +++ sys/net/gnrc/netreg/gnrc_netreg.c
-@@ -244,7 +244,11 @@
+@@ -244,7 +244,7 @@
  
  gnrc_netreg_entry_t *gnrc_netreg_getnext(gnrc_netreg_entry_t *entry)
  {
 -    /* MASKED - implement this function */
-+    _gnrc_netreg_assert_shared();
-+
-+    gnrc_netreg_entry_t *res = NULL;
-+    LL_SEARCH_SCALAR(entry->next, res, demux_ctx, entry->demux_ctx);
-+    return res;
++    return _netreg_lookup(entry, GNRC_NETTYPE_UNDEF, entry->demux_ctx);
  }
  
  int gnrc_netreg_calc_csum(gnrc_pktsnip_t *hdr, gnrc_pktsnip_t *pseudo_hdr)
@@ -45,19 +38,19 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-netreg
 "make" -C /workspace/boards/common/native
-"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/cpu/native/stdio_native
-"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
+"make" -C /workspace/sys/embunit
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/gnrc
 "make" -C /workspace/sys/stdio
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/net/gnrc/netreg
    text	   data	    bss	    dec	    hex	filename
-  81342	  33016	  78376	 192734	  2f0de	/tmp/build/bin/native64/tests_unittests.elf
+  81253	  33016	  78376	 192645	  2f085	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -66,7 +59,7 @@ RIOT native hardware initialization complete.
 main(): This is RIOT! (Version: 2026.01)
 ............
 --- stderr ---
-==333==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd64e55000; bottom 0x00000042d000; size: 0x7ffd64a28000 (140726291824640)
+==333==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fff60316000; bottom 0x00000042d000; size: 0x7fff5fee9000 (140734802857984)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 bash: line 1:   333 Segmentation fault      (core dumped) /tmp/build/bin/native64/tests_unittests.elf

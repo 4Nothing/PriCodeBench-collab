@@ -1,12 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The function is now implemented following the same pattern as `sha512_256_init`:
-
-- Zeroes `count[0]` and `count[1]` (bits processed counter)
-- Sets the 8 `state` fields to the SHA-512/224 initial hash values from FIPS 180-4
-
-The SHA-512/224 IVs differ from SHA-512/256 — they are generated using a distinct method defined in the NIST standard, producing the truncated 224-bit output (28 bytes) instead of 256-bit.
+The function now follows the same pattern as `sha512_256_init` (the sibling file): zero the two `count` fields, then load the 8 state registers with the SHA-512/224 IV constants defined in FIPS 180-4.
 
 
 ============================================================
@@ -49,14 +44,14 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/core/lib
 "make" -C /workspace/cpu/native
 "make" -C /workspace/drivers
-"make" -C /workspace/boards/common/init
 "make" -C /workspace/sys
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/tests/unittests/tests-hashes
+"make" -C /workspace/boards/common/init
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/crypto
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/hashes
@@ -78,7 +73,7 @@ native: exiting
 
 --- stderr ---
 /bin/sh: 1: hexdump: not found
-==440==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd8469e000; bottom 0x00000045a000; size: 0x7ffd84244000 (140726820421632)
+==439==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffdcbce4000; bottom 0x00000045a000; size: 0x7ffdcb88a000 (140728018182144)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

@@ -1,12 +1,7 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation mirrors the static initializer `ISRPIPE_INIT(buf)`:
-
-- `tsrb_init()` sets up the ringbuffer with the provided buffer and size
-- `mutex_init_locked()` initializes the mutex in a locked state
-
-This matches the design pattern visible in `isrpipe_read`: the reader calls `mutex_lock()` (blocking), while writers (ISR context) call `tsrb_add_one`/`tsrb_add` then `mutex_unlock()` to wake the reader. Starting the mutex locked ensures the reader blocks until data arrives.
+The implementation initializes the thread-safe ring buffer (`tsrb`) with the provided buffer and size, and initializes the mutex in the locked state — matching the `ISRPIPE_INIT` static initializer pattern from the header exactly. The locked mutex ensures that `isrpipe_read` (which calls `mutex_lock`) blocks until an ISR writes data via `isrpipe_write_one` or `isrpipe_write`, which call `mutex_unlock`.
 
 
 ============================================================
@@ -45,14 +40,14 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/boards/common/init
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/embunit
-"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/sys/frac
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/isrpipe
 "make" -C /workspace/sys/isrpipe/read_timeout
-"make" -C /workspace/sys/libc
-"make" -C /workspace/boards/common/native/drivers
-"make" -C /workspace/sys/stdio
+"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/sys/libc
+"make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
 "make" -C /workspace/sys/tsrb
 "make" -C /workspace/sys/ztimer
@@ -70,7 +65,7 @@ OK (8 tests)
 native: exiting
 
 --- stderr ---
-==387==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd664e6000; bottom 0x000000431000; size: 0x7ffd660b5000 (140726315470848)
+==387==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7fffda16d000; bottom 0x000000431000; size: 0x7fffd9d3c000 (140736847921152)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 ==387==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!

@@ -1,14 +1,11 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation follows the standard HMAC RFC 2104 construction:
+The implementation follows the standard HMAC construction:
 
-1. **Key preparation** — if the key exceeds the 64-byte block size, it's hashed down to 32 bytes via `sha256()`; otherwise used as-is
-2. **Zero-pad** the key to 64 bytes (`SHA256_INTERNAL_BLOCK_SIZE`)
-3. **Inner hash (`c_in`)** — XOR the padded key with `0x36` (ipad), init `sha256` on `c_in`, feed it the ipad-XORed key
-4. **Outer hash (`c_out`)** — XOR back to undo ipad, then XOR with `0x5C` (opad), init `sha256` on `c_out`, feed it the opad-XORed key
-
-The existing `hmac_sha256_final` finalizes `c_in` (giving `H(K⊕ipad || data)`), feeds that digest into `c_out`, and finalizes `c_out` (giving `H(K⊕opad || inner_hash)`), completing the HMAC.
+1. **Key reduction**: If the key is longer than the 64-byte block size, hash it with SHA256 first to get a 32-byte key.
+2. **ipad/opad XOR**: XOR each byte of the (potentially reduced) key with `0x36` (ipad) and `0x5C` (opad), padding the remainder of the 64-byte arrays with the respective pad constant.
+3. **Context initialization**: Initialize the inner context (`c_in`) and feed it the ipad-XORed key, then initialize the outer context (`c_out`) and feed it the opad-XORed key. This matches the existing `hmac_sha256_update` (which feeds data into `c_in`) and `hmac_sha256_final` (which finalizes `c_in`, feeds the result into `c_out`, then finalizes `c_out`).
 
 
 ============================================================
@@ -16,39 +13,35 @@ The existing `hmac_sha256_final` finalizes `c_in` (giving `H(K⊕ipad || data)`)
 ============================================================
 --- sys/hashes/sha256.c
 +++ sys/hashes/sha256.c
-@@ -80,7 +80,34 @@
+@@ -80,7 +80,30 @@
  
  void hmac_sha256_init(hmac_context_t *ctx, const void *key, size_t key_length)
  {
 -    /* MASKED - implement this function */
-+    unsigned char block_key[SHA256_INTERNAL_BLOCK_SIZE];
 +    unsigned char hashed_key[SHA256_DIGEST_LENGTH];
-+    const unsigned char *key_ptr;
-+    size_t key_len;
++    unsigned char ikey[SHA256_INTERNAL_BLOCK_SIZE];
++    unsigned char okey[SHA256_INTERNAL_BLOCK_SIZE];
++    const unsigned char *k = key;
 +
 +    if (key_length > SHA256_INTERNAL_BLOCK_SIZE) {
 +        sha256(key, key_length, hashed_key);
-+        key_ptr = hashed_key;
-+        key_len = SHA256_DIGEST_LENGTH;
-+    } else {
-+        key_ptr = (const unsigned char *)key;
-+        key_len = key_length;
++        k = hashed_key;
++        key_length = SHA256_DIGEST_LENGTH;
 +    }
 +
-+    memset(block_key, 0, sizeof(block_key));
-+    memcpy(block_key, key_ptr, key_len);
++    size_t i;
++    for (i = 0; i < key_length; i++) {
++        ikey[i] = k[i] ^ 0x36;
++        okey[i] = k[i] ^ 0x5C;
++    }
++    memset(ikey + i, 0x36, SHA256_INTERNAL_BLOCK_SIZE - i);
++    memset(okey + i, 0x5C, SHA256_INTERNAL_BLOCK_SIZE - i);
 +
 +    sha256_init(&ctx->c_in);
-+    for (size_t i = 0; i < SHA256_INTERNAL_BLOCK_SIZE; i++) {
-+        block_key[i] ^= 0x36;
-+    }
-+    sha2xx_update(&ctx->c_in, block_key, SHA256_INTERNAL_BLOCK_SIZE);
-+    for (size_t i = 0; i < SHA256_INTERNAL_BLOCK_SIZE; i++) {
-+        block_key[i] ^= 0x36 ^ 0x5C;
-+    }
++    sha2xx_update(&ctx->c_in, ikey, SHA256_INTERNAL_BLOCK_SIZE);
 +
 +    sha256_init(&ctx->c_out);
-+    sha2xx_update(&ctx->c_out, block_key, SHA256_INTERNAL_BLOCK_SIZE);
++    sha2xx_update(&ctx->c_out, okey, SHA256_INTERNAL_BLOCK_SIZE);
  }
  
  void hmac_sha256_update(hmac_context_t *ctx, const void *data, size_t len)
@@ -71,18 +64,18 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/tests/unittests/tests-hashes
 "make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
-"make" -C /workspace/cpu/native/periph
 "make" -C /workspace/drivers/periph_common
-"make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/sys/crypto
+"make" -C /workspace/cpu/native/periph
+"make" -C /workspace/cpu/native/stdio_native
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/embunit
 "make" -C /workspace/sys/hashes
 "make" -C /workspace/sys/libc
-"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
    text	   data	    bss	    dec	    hex	filename
- 221468	  74296	  82656	 378420	  5c634	/tmp/build/bin/native64/tests_unittests.elf
+ 221542	  74296	  82656	 378494	  5c67e	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -96,7 +89,7 @@ native: exiting
 
 --- stderr ---
 /bin/sh: 1: hexdump: not found
-==439==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd9e1d7000; bottom 0x00000045a000; size: 0x7ffd9dd7d000 (140727251619840)
+==439==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffd25d9e000; bottom 0x00000045a000; size: 0x7ffd25944000 (140725233926144)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 

@@ -1,15 +1,19 @@
 ============================================================
 === Claude Session ===
 ============================================================
-The implementation is complete. Here's a summary of what the function does:
+The implementation is complete. Here's what the function does:
 
-1. **Determines response type**: RST for empty codes, ACK for confirmable requests, NON otherwise
-2. **Checks No-Response option**: Returns `-ECANCELED` if the client indicated disinterest in this response class (per RFC 7967)
-3. **Builds the UDP header**: Writes CoAP version, type, token, code, and message ID to the buffer
-4. **Adds Content-Format option**: If `ct` is not `COAP_FORMAT_NONE`, appends a Content-Format option using `coap_opt_add_uint` on a stack-allocated `coap_pkt_t`
-5. **Reports payload location**: Sets `*payload` (if non-NULL) to the first writable byte after the header, and `*payload_len_max` to the remaining buffer space
+1. **`coap_build_reply(pkt, code, buf, len, 0)`** — builds the base CoAP reply header (4-byte fixed header + token). This also handles the no-response option check, returning `-ECANCELED` if the sender disclaimed interest in this response class. On error, the error propagates up.
 
-The logic closely follows the existing `coap_build_reply` function — the key difference is that this function stops after the header and returns a payload pointer for the caller to fill in, rather than taking payload content and building the complete reply.
+2. **`coap_get_total_hdr_len(pkt)`** — gets the actual header length accounting for the extended token length field (RFC 8974), since `coap_build_reply` sets `pkt->hdr = buf` as a side effect.
+
+3. **Content-Format option** — if `ct != COAP_FORMAT_NONE` (i.e., `UINT16_MAX`), a Content-Format option is written after the header using `coap_put_option_ct`.
+
+4. **Payload marker** — the `0xFF` byte is written to mark the start of the payload.
+
+5. **Output pointers** — `*payload` is set to the first free byte after the marker, and `*payload_len_max` is set to the remaining buffer space. If `payload` is NULL, only `*payload_len_max` is set.
+
+The return value is the total bytes written so far (header + optional Content-Format option + payload marker), which lets callers like `coap_reply_simple` append the payload and compute the final packet size.
 
 
 ============================================================
@@ -17,60 +21,30 @@ The logic closely follows the existing `coap_build_reply` function — the key d
 ============================================================
 --- sys/net/application_layer/nanocoap/nanocoap.c
 +++ sys/net/application_layer/nanocoap/nanocoap.c
-@@ -637,7 +637,55 @@
+@@ -637,7 +637,25 @@
                                  uint16_t ct,
                                  void **payload, size_t *payload_len_max)
  {
 -    /* MASKED - implement this function */
-+    unsigned tkl = coap_get_token_len(pkt);
-+    unsigned type = COAP_TYPE_NON;
-+
-+    if (!code) {
-+        type = COAP_TYPE_RST;
-+        tkl = 0;
-+    }
-+    else if (coap_get_type(pkt) == COAP_TYPE_CON) {
-+        type = COAP_TYPE_ACK;
++    ssize_t hdr_len = coap_build_reply(pkt, code, (uint8_t *)buf, len, 0);
++    if (hdr_len < 0) {
++        return hdr_len;
 +    }
 +
-+    uint32_t no_response;
-+    if (coap_opt_get_uint(pkt, COAP_OPT_NO_RESPONSE, &no_response) == 0) {
-+        const uint8_t no_response_index = (code >> 5) - 1;
-+        assert(no_response_index < 7);
-+
-+        const uint8_t mask = 1 << no_response_index;
-+        if (no_response & mask) {
-+            return -ECANCELED;
-+        }
-+    }
-+
-+    ssize_t res = coap_build_udp_hdr(buf, len, type,
-+                                     coap_get_token(pkt), tkl,
-+                                     code, coap_get_id(pkt));
-+    if (res < 0) {
-+        return res;
-+    }
++    uint8_t *pos = (uint8_t *)buf + coap_get_total_hdr_len(pkt);
 +
 +    if (ct != COAP_FORMAT_NONE) {
-+        coap_pkt_t tmp;
-+        tmp.buf = buf;
-+        tmp.payload = (uint8_t *)buf + res;
-+        tmp.payload_len = len - res;
-+        tmp.options_len = 0;
-+
-+        ssize_t opt_res = coap_opt_add_uint(&tmp, COAP_OPT_CONTENT_FORMAT, ct);
-+        if (opt_res < 0) {
-+            return -ENOSPC;
-+        }
-+        res += opt_res;
++        pos += coap_put_option_ct(pos, 0, ct);
 +    }
++
++    *pos++ = COAP_PAYLOAD_MARKER;
 +
 +    if (payload) {
-+        *payload = (uint8_t *)buf + res;
++        *payload = pos;
 +    }
-+    *payload_len_max = len - res;
++    *payload_len_max = (uint8_t *)buf + len - pos;
 +
-+    return res;
++    return pos - (uint8_t *)buf;
  }
  
  ssize_t coap_reply_simple(coap_pkt_t *pkt,
@@ -91,19 +65,19 @@ Building application "tests_unittests" for "native64" with CPU "native".
 "make" -C /workspace/drivers
 "make" -C /workspace/sys
 "make" -C /workspace/tests/unittests/tests-nanocoap
-"make" -C /workspace/boards/common/native
 "make" -C /workspace/boards/common/init
+"make" -C /workspace/boards/common/native
 "make" -C /workspace/cpu/native/periph
 "make" -C /workspace/cpu/native/stdio_native
 "make" -C /workspace/drivers/periph_common
 "make" -C /workspace/sys/embunit
+"make" -C /workspace/boards/common/native/drivers
 "make" -C /workspace/sys/libc
 "make" -C /workspace/sys/net/application_layer/nanocoap
 "make" -C /workspace/sys/stdio
 "make" -C /workspace/sys/test_utils/print_stack_usage
-"make" -C /workspace/boards/common/native/drivers
    text	   data	    bss	    dec	    hex	filename
- 147560	  36040	  78120	 261720	  3fe58	/tmp/build/bin/native64/tests_unittests.elf
+ 146880	  36040	  78120	 261040	  3fbb0	/tmp/build/bin/native64/tests_unittests.elf
 RIOT native interrupts/signals initialized.
 TZ not set, setting UTC
 RIOT native64 board initialized.
@@ -112,26 +86,26 @@ RIOT native hardware initialization complete.
 main(): This is RIOT! (Version: 2026.01)
 ..................................
 --- stderr ---
-==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffe555d1000; bottom 0x00000043f000; size: 0x7ffe55192000 (140730326130688)
+==329==WARNING: ASan is ignoring requested __asan_handle_no_return: stack type: default top: 0x7ffcadbf3000; bottom 0x00000043f000; size: 0x7ffcad7b4000 (140723219021824)
 False positive error reports may follow
 For details see https://github.com/google/sanitizers/issues/189
 AddressSanitizer:DEADLYSIGNAL
 =================================================================
-==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x00000040e1fc bp 0x00000043ab80 sp 0x00000043aa30 T0)
+==329==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x00000040dcbd bp 0x00000043ab80 sp 0x00000043ab50 T0)
 ==329==The signal is caused by a WRITE memory access.
 ==329==Hint: address points to the zero page.
-    #0 0x40e1fc in coap_build_reply_header /workspace/sys/net/application_layer/nanocoap/nanocoap.c:686
-    #1 0x4120e2 in test_nanocoap__token_length_ext_16 /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1155
+    #0 0x40dcbd in coap_build_reply_header /workspace/sys/net/application_layer/nanocoap/nanocoap.c:656
+    #1 0x411e2a in test_nanocoap__token_length_ext_16 /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1155
     #2 0x408c02 in TestCase_run /workspace/sys/embunit/TestCase.c:58
     #3 0x408a5c in TestCaller_run /workspace/sys/embunit/TestCaller.c:54
     #4 0x4091b6 in TestRunner_runTest /workspace/sys/embunit/TestRunner.c:99
-    #5 0x4197aa in tests_nanocoap /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1333
+    #5 0x4194f2 in tests_nanocoap /workspace/tests/unittests/tests-nanocoap/tests-nanocoap.c:1333
     #6 0x402a17 in main /workspace/tests/unittests/main.c:47
     #7 0x40383d in main_trampoline /workspace/core/lib/init.c:60
-    #8 0x707b99d36f7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #8 0x7a0ab741bf7f  (/lib/x86_64-linux-gnu/libc.so.6+0x5ef7f) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
 
 AddressSanitizer can not provide additional info.
-SUMMARY: AddressSanitizer: SEGV /workspace/sys/net/application_layer/nanocoap/nanocoap.c:686 in coap_build_reply_header
+SUMMARY: AddressSanitizer: SEGV /workspace/sys/net/application_layer/nanocoap/nanocoap.c:656 in coap_build_reply_header
 ==329==ABORTING
 
 [HARNESS] Test binary may not have executed — no embUnit output or shell error detected.
