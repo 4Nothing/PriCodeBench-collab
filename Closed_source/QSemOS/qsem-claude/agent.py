@@ -532,7 +532,7 @@ class QSemAgent:
                 "-w", "/workspace",
                 "--entrypoint", "bash",
                 DOCKER_IMAGE,
-                "-c", 'claude --dangerously-skip-permissions -p "$(cat)" 2>&1',
+                "-c", 'claude --dangerously-skip-permissions --disallowedTools "WebSearch,WebFetch" -p "$(cat)" 2>&1',
             ]
 
             print(f"  ┌─ {'='*60}")
